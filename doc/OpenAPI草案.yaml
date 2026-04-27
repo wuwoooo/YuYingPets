@@ -1,0 +1,1107 @@
+openapi: 3.0.3
+info:
+  title: 育英星宠 API
+  version: 0.1.0
+  description: >
+    第一阶段 OpenAPI 草案。基于 React + Node.js + MySQL + WebSocket 架构，
+    支持 Admin / Display 双端、固定分值积分规则、15 分钟 Display 解锁、即时领取兑换、
+    AI 学情手动生成。
+servers:
+  - url: /api/v1
+tags:
+  - name: Auth
+  - name: Display
+  - name: Classes
+  - name: Students
+  - name: ScoreRules
+  - name: ScoreRecords
+  - name: Rewards
+  - name: Honors
+  - name: AI
+paths:
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: 登录
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: 当前用户信息
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: 登出
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseResponse'
+  /display/unlock:
+    post:
+      tags: [Display]
+      summary: Display 进入教师操作模式
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DisplayUnlockRequest'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DisplayUnlockResponse'
+        '403':
+          description: 无权解锁
+  /display/unlock-status:
+    get:
+      tags: [Display]
+      summary: 查询 Display 解锁状态
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: classId
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - in: query
+          name: displayTerminalCode
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseResponse'
+  /display/lock:
+    post:
+      tags: [Display]
+      summary: Display 主动锁定
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseResponse'
+  /display/entry-config:
+    get:
+      tags: [Display]
+      summary: 读取进入页配置
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: classId
+          required: false
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseResponse'
+  /display/classes/{classId}/home:
+    get:
+      tags: [Display]
+      summary: Display 班级主页聚合数据
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: classId
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseResponse'
+  /display/classes/{classId}/leaderboard:
+    get:
+      tags: [Display]
+      summary: Display 排行榜数据
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: classId
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - in: query
+          name: type
+          required: true
+          schema:
+            type: string
+            enum: [score, group, medal]
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseResponse'
+  /display/classes/{classId}/reward-center:
+    get:
+      tags: [Display]
+      summary: Display 兑换页数据
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: classId
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseResponse'
+  /classes:
+    get:
+      tags: [Classes]
+      summary: 班级列表
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: semesterId
+          schema:
+            type: integer
+            format: int64
+        - in: query
+          name: gradeCode
+          schema:
+            type: string
+        - in: query
+          name: keyword
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseResponse'
+    post:
+      tags: [Classes]
+      summary: 新建班级
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClassUpsertRequest'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseResponse'
+  /classes/{id}:
+    get:
+      tags: [Classes]
+      summary: 班级详情
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseResponse'
+    put:
+      tags: [Classes]
+      summary: 更新班级
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClassUpsertRequest'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseResponse'
+  /classes/{id}/groups:
+    get:
+      tags: [Classes]
+      summary: 班级分组列表
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseResponse'
+  /classes/{id}/groups/students:
+    put:
+      tags: [Classes]
+      summary: 更新学生分组
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateGroupsRequest'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseResponse'
+  /students:
+    get:
+      tags: [Students]
+      summary: 学生列表
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: classId
+          schema:
+            type: integer
+            format: int64
+        - in: query
+          name: keyword
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseResponse'
+  /students/{id}:
+    get:
+      tags: [Students]
+      summary: 学生详情
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseResponse'
+  /students/import:
+    post:
+      tags: [Students]
+      summary: 批量导入学生
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                classId:
+                  type: integer
+                  format: int64
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseResponse'
+  /score-rules:
+    get:
+      tags: [ScoreRules]
+      summary: 积分规则列表
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: moduleType
+          schema:
+            type: string
+            enum: [general, subject]
+        - in: query
+          name: subjectCode
+          schema:
+            type: string
+        - in: query
+          name: sceneCode
+          schema:
+            type: string
+        - in: query
+          name: displayEnabled
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseResponse'
+    post:
+      tags: [ScoreRules]
+      summary: 新建积分规则
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScoreRuleUpsertRequest'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseResponse'
+  /score-rules/{id}:
+    get:
+      tags: [ScoreRules]
+      summary: 积分规则详情
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseResponse'
+    put:
+      tags: [ScoreRules]
+      summary: 更新积分规则
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScoreRuleUpsertRequest'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseResponse'
+  /score-records:
+    get:
+      tags: [ScoreRecords]
+      summary: 积分记录查询
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: classId
+          schema:
+            type: integer
+            format: int64
+        - in: query
+          name: studentId
+          schema:
+            type: integer
+            format: int64
+        - in: query
+          name: subjectCode
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseResponse'
+    post:
+      tags: [ScoreRecords]
+      summary: 单人加减分
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScoreRecordCreateRequest'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseResponse'
+  /score-records/batch:
+    post:
+      tags: [ScoreRecords]
+      summary: 批量加减分
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScoreRecordBatchRequest'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseResponse'
+  /score-records/group:
+    post:
+      tags: [ScoreRecords]
+      summary: 按组加减分
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScoreRecordGroupRequest'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseResponse'
+  /score-records/{id}/reverse:
+    post:
+      tags: [ScoreRecords]
+      summary: 撤销或修正评价
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseResponse'
+  /pets:
+    get:
+      tags: [Display]
+      summary: 萌宠图鉴列表
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseResponse'
+  /student-pets/adopt:
+    post:
+      tags: [Display]
+      summary: 学生领养萌宠
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdoptPetRequest'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseResponse'
+  /rewards:
+    get:
+      tags: [Rewards]
+      summary: 奖励列表
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseResponse'
+    post:
+      tags: [Rewards]
+      summary: 新建奖励
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RewardUpsertRequest'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseResponse'
+  /rewards/{id}:
+    put:
+      tags: [Rewards]
+      summary: 更新奖励
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RewardUpsertRequest'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseResponse'
+  /reward-orders:
+    get:
+      tags: [Rewards]
+      summary: 兑换记录查询
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: classId
+          schema:
+            type: integer
+            format: int64
+        - in: query
+          name: studentId
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseResponse'
+    post:
+      tags: [Rewards]
+      summary: 发起兑换
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RewardOrderCreateRequest'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseResponse'
+        '403':
+          description: 任课教师无权兑换
+        '409':
+          description: 积分不足或库存不足
+  /honors:
+    get:
+      tags: [Honors]
+      summary: 荣誉列表
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseResponse'
+  /honor-records:
+    get:
+      tags: [Honors]
+      summary: 荣誉记录查询
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseResponse'
+    post:
+      tags: [Honors]
+      summary: 发放荣誉
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HonorRecordCreateRequest'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseResponse'
+  /ai/students/{studentId}/summary:
+    get:
+      tags: [AI]
+      summary: 学生 AI 摘要
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: studentId
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - in: query
+          name: periodType
+          required: true
+          schema:
+            type: string
+            enum: [weekly, monthly]
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseResponse'
+  /ai/students/{studentId}/generate-summary:
+    post:
+      tags: [AI]
+      summary: 手动生成学生 AI 摘要
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: studentId
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseResponse'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    IdPath:
+      in: path
+      name: id
+      required: true
+      schema:
+        type: integer
+        format: int64
+  schemas:
+    BaseResponse:
+      type: object
+      properties:
+        code:
+          type: integer
+          example: 0
+        message:
+          type: string
+          example: ok
+        data:
+          nullable: true
+    LoginRequest:
+      type: object
+      required: [username, password, terminalType]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+        terminalType:
+          type: string
+          enum: [admin, display]
+    LoginResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                token:
+                  type: string
+                user:
+                  $ref: '#/components/schemas/UserInfo'
+                scopes:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/UserScope'
+    MeResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                user:
+                  $ref: '#/components/schemas/UserInfo'
+                scopes:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/UserScope'
+    UserInfo:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        roleCode:
+          type: string
+    UserScope:
+      type: object
+      properties:
+        scopeType:
+          type: string
+        classId:
+          type: integer
+          format: int64
+        gradeCode:
+          type: string
+        subjectCode:
+          type: string
+    DisplayUnlockRequest:
+      type: object
+      required: [classId, displayTerminalCode]
+      properties:
+        classId:
+          type: integer
+          format: int64
+        displayTerminalCode:
+          type: string
+    DisplayUnlockResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                unlockSessionId:
+                  type: integer
+                  format: int64
+                expiredAt:
+                  type: string
+                  format: date-time
+    ClassUpsertRequest:
+      type: object
+      required: [semesterId, gradeCode, gradeName, name]
+      properties:
+        semesterId:
+          type: integer
+          format: int64
+        gradeCode:
+          type: string
+        gradeName:
+          type: string
+        name:
+          type: string
+        homeroomTeacherId:
+          type: integer
+          format: int64
+        slogan:
+          type: string
+        targetScore:
+          type: integer
+    UpdateGroupsRequest:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [studentId, groupNo]
+            properties:
+              studentId:
+                type: integer
+                format: int64
+              groupNo:
+                type: integer
+    ScoreRuleUpsertRequest:
+      type: object
+      required:
+        [semesterId, moduleType, sceneCode, code, name, scoreType, scoreValue, sentiment]
+      properties:
+        semesterId:
+          type: integer
+          format: int64
+        moduleType:
+          type: string
+          enum: [general, subject]
+        subjectCode:
+          type: string
+        sceneCode:
+          type: string
+        code:
+          type: string
+        name:
+          type: string
+        scoreType:
+          type: string
+          enum: [add, deduct]
+        scoreValue:
+          type: integer
+        dimension:
+          type: string
+        tag:
+          type: string
+        sentiment:
+          type: string
+          enum: [positive, negative]
+        weight:
+          type: number
+          format: double
+        aiSummaryText:
+          type: string
+        description:
+          type: string
+        isHighFrequency:
+          type: boolean
+        displayEnabled:
+          type: boolean
+        adminEnabled:
+          type: boolean
+    ScoreRecordCreateRequest:
+      type: object
+      required: [classId, studentId, ruleId, sourceTerminal]
+      properties:
+        classId:
+          type: integer
+          format: int64
+        studentId:
+          type: integer
+          format: int64
+        ruleId:
+          type: integer
+          format: int64
+        remark:
+          type: string
+        sourceTerminal:
+          type: string
+          enum: [admin, display]
+    ScoreRecordBatchRequest:
+      type: object
+      required: [classId, studentIds, ruleId, sourceTerminal]
+      properties:
+        classId:
+          type: integer
+          format: int64
+        studentIds:
+          type: array
+          items:
+            type: integer
+            format: int64
+        ruleId:
+          type: integer
+          format: int64
+        remark:
+          type: string
+        sourceTerminal:
+          type: string
+          enum: [admin, display]
+    ScoreRecordGroupRequest:
+      type: object
+      required: [classId, classGroupId, ruleId, sourceTerminal]
+      properties:
+        classId:
+          type: integer
+          format: int64
+        classGroupId:
+          type: integer
+          format: int64
+        ruleId:
+          type: integer
+          format: int64
+        remark:
+          type: string
+        sourceTerminal:
+          type: string
+          enum: [admin, display]
+    AdoptPetRequest:
+      type: object
+      required: [studentId, petId, classId, sourceTerminal]
+      properties:
+        studentId:
+          type: integer
+          format: int64
+        petId:
+          type: integer
+          format: int64
+        classId:
+          type: integer
+          format: int64
+        sourceTerminal:
+          type: string
+          enum: [admin, display]
+    RewardUpsertRequest:
+      type: object
+      required: [code, name, scoreCost]
+      properties:
+        code:
+          type: string
+        name:
+          type: string
+        category:
+          type: string
+        imageUrl:
+          type: string
+        scoreCost:
+          type: integer
+        stockQty:
+          type: integer
+        isInfiniteStock:
+          type: boolean
+    RewardOrderCreateRequest:
+      type: object
+      required: [classId, studentId, rewardId, sourceTerminal]
+      properties:
+        classId:
+          type: integer
+          format: int64
+        studentId:
+          type: integer
+          format: int64
+        rewardId:
+          type: integer
+          format: int64
+        sourceTerminal:
+          type: string
+          enum: [admin, display]
+    HonorRecordCreateRequest:
+      type: object
+      required: [honorId, targetType, targetId, classId]
+      properties:
+        honorId:
+          type: integer
+          format: int64
+        targetType:
+          type: string
+          enum: [student, class]
+        targetId:
+          type: integer
+          format: int64
+        classId:
+          type: integer
+          format: int64
+        remark:
+          type: string

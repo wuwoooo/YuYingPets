@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>育英星宠 Display Desktop</title>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: linear-gradient(135deg, #0f3d74 0%, #145ca6 48%, #cf1f2e 100%);
+        color: #fff;
+        font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+      }
+
+      .card {
+        max-width: 760px;
+        padding: 36px;
+        border-radius: 28px;
+        background: rgba(255, 255, 255, 0.12);
+        box-shadow: 0 28px 60px rgba(0, 0, 0, 0.18);
+      }
+
+      h1 {
+        margin: 0 0 16px;
+        font-size: 40px;
+      }
+
+      p {
+        line-height: 1.8;
+        color: rgba(255, 255, 255, 0.84);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>育英星宠 Display Desktop</h1>
+      <p>Electron 桌面壳已建立。下一步将接入 Display Web 构建产物，输出 Windows 安装程序。</p>
+      <p>开发模式可通过环境变量 <code>DISPLAY_WEB_URL</code> 指向本地 Display Web 服务。</p>
+    </div>
+  </body>
+  </html>

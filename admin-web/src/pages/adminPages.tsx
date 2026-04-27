@@ -1,0 +1,15 @@
+export { AnalyticsPage } from './AnalyticsPage';
+export { ClassesPage } from './ClassesPage';
+export { DashboardPage } from './DashboardPage';
+export { EvaluationPage } from './EvaluationPage';
+export { HonorsPage } from './HonorsPage';
+export { LoginPage } from './LoginPage';
+export { OrganizationPage } from './OrganizationPage';
+export { PetsPage } from './PetsPage';
+export { PresentationModePage } from './PresentationModePage';
+export { PresentationPage } from './PresentationPage';
+export { RewardsPage } from './RewardsPage';
+export { RulesPage } from './RulesPage';
+export { SettingsPage } from './SettingsPage';
+export { StudentsPage } from './StudentsPage';
+export { TeachersPage } from './TeachersPage';

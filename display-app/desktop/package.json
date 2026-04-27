@@ -1,0 +1,14 @@
+{
+  "name": "yuyingpets-display-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "cross-env NODE_ENV=development electron .",
+    "build": "electron-builder"
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.3",
+    "electron": "35.1.4",
+    "electron-builder": "^24.13.3"
+  }
+}
