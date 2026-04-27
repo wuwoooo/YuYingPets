@@ -23,7 +23,7 @@ async function run() {
   const { browser, page } = await createBrowserPage();
 
   try {
-    const initialUrl = `${BASE_URL}/prototype/display.html?terminal=${encodeURIComponent(result.terminalCode)}`;
+    const initialUrl = `${BASE_URL}/display/display.html?terminal=${encodeURIComponent(result.terminalCode)}`;
 
     await page.goto(initialUrl, { waitUntil: "networkidle", timeout: 30000 });
     await page.waitForFunction(

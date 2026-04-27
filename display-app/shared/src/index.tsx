@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import './styles.css';
 
 export function DisplayApp() {
-  const prototypeUrl = useMemo(() => {
+  const displayUrl = useMemo(() => {
     const currentUrl = new URL(window.location.href);
     const forwarded = new URLSearchParams();
     ['terminal', 'displayTerminalCode', 'terminalOverride'].forEach((key) => {
@@ -12,15 +12,15 @@ export function DisplayApp() {
       }
     });
     const search = forwarded.toString();
-    return `/prototype/display.html${search ? `?${search}` : ''}`;
+    return `/display/display.html${search ? `?${search}` : ''}`;
   }, []);
 
   return (
     <div className="prototype-shell">
       <iframe
         className="prototype-frame"
-        src={prototypeUrl}
-        title="育英星宠 Display 原型"
+        src={displayUrl}
+        title="育英星宠 Display 端"
       />
     </div>
   );

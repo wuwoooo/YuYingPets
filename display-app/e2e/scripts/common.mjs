@@ -70,7 +70,7 @@ export async function createBrowserPage() {
 }
 
 export async function loginToClassroom(page, { terminalCode, username, password = DEFAULT_PASSWORD }) {
-  const url = `${BASE_URL}/prototype/display.html?terminal=${encodeURIComponent(terminalCode)}`;
+  const url = `${BASE_URL}/display/display.html?terminal=${encodeURIComponent(terminalCode)}`;
   await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
   await page.waitForFunction(
     () => document.querySelector("#page-entry")?.classList.contains("active"),

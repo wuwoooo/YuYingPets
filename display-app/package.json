@@ -9,10 +9,10 @@
     "e2e"
   ],
   "scripts": {
-    "dev:web": "npm run dev --workspace web",
-    "build:web": "npm run build --workspace web",
-    "dev:desktop": "npm run dev --workspace desktop",
-    "build:desktop": "npm run build --workspace desktop",
-    "test:e2e": "npm run test --workspace e2e"
+    "dev:web": "npm --workspace web run dev",
+    "build:web": "npm --workspace web run build",
+    "dev:desktop": "npm --workspace desktop run dev",
+    "build:desktop": "npm --workspace desktop run build",
+    "test:e2e": "npm --workspace e2e run test:all"
   }
 }

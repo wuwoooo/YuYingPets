@@ -2,13 +2,62 @@
   "name": "yuyingpets-display-desktop",
   "version": "0.1.0",
   "private": true,
+  "description": "育英星宠 Display Windows 桌面端",
+  "author": "YuYingPets",
+  "main": "main.js",
   "scripts": {
-    "dev": "cross-env NODE_ENV=development electron .",
-    "build": "electron-builder"
+    "dev": "cross-env DISPLAY_WEB_URL=http://localhost:5173 electron .",
+    "dev:kiosk": "cross-env DISPLAY_WEB_URL=http://localhost:5173 DISPLAY_FULLSCREEN=true electron .",
+    "start": "electron .",
+    "build:web": "cd ../web && npm run build",
+    "build": "npm run build:web",
+    "pack": "npm run build:web && electron-builder --dir",
+    "dist:win": "npm run build:web && electron-builder --win nsis --x64",
+    "dist:win:arm64": "npm run build:web && electron-builder --win nsis --arm64"
   },
   "devDependencies": {
     "cross-env": "^7.0.3",
     "electron": "35.1.4",
     "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.yuyingschool.yuyingpets.display",
+    "productName": "育英星宠 Display",
+    "electronVersion": "35.1.4",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.js",
+      "placeholder.html",
+      "../web/dist/**/*",
+      "node_modules/**/*"
+    ],
+    "mac": {
+      "identity": null
+    },
+    "extraMetadata": {
+      "main": "main.js"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "YuYingPets-Display-${version}-Setup.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "育英星宠 Display"
+    }
   }
 }

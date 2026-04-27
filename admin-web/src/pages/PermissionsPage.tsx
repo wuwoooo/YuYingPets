@@ -342,6 +342,7 @@ export function PermissionsPage({
           totalItems={permissionPagination.totalItems}
           totalPages={permissionPagination.totalPages}
           onPageChange={permissionPagination.setCurrentPage}
+          onPageSizeChange={permissionPagination.setPageSize}
         />
       </div>
 
