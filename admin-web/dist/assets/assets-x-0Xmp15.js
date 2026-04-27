@@ -1,0 +1,1 @@
+const n="http://localhost:3000/api/v1";function o(){try{return new URL(n).origin}catch{return window.location.origin}}function r(t){if(!t)return"";if(/^(https?:)?\/\//i.test(t)||t.startsWith("data:")||t.startsWith("blob:"))return t;const i=o();return t.startsWith("/")?`${i}${t}`:`${i}/${t}`}export{r};
