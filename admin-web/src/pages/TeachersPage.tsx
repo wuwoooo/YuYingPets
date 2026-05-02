@@ -1,10 +1,19 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Modal } from '../components/Modal';
+import { PickerInput } from '../components/PickerInput';
 import { Shell } from '../components/Shell';
 import { TablePagination } from '../components/TablePagination';
 import { usePagination } from '../hooks/usePagination';
-import type { AdminClass, PermissionUser, PermissionUserUpsertPayload, RoleTemplate, SessionUser } from '../lib/api';
+import type {
+  AdminClass,
+  PermissionUser,
+  PermissionUserUpsertPayload,
+  RoleTemplate,
+  SessionUser,
+  TeacherLiveStatusRow,
+  TeacherScheduleSlotRow,
+} from '../lib/api';
 import { adminApi } from '../lib/api';
 import type { PermissionUserFormState } from '../types/admin';
 import { createPermissionUserForm, formatEnabledStatus, normalizeKeyword } from '../utils/adminForms';
@@ -20,7 +29,9 @@ const teacherSubjectOptions = [
   { code: 'biology', label: '生物' },
   { code: 'history', label: '历史' },
   { code: 'politics', label: '政治' },
-  { code: 'arts_it', label: '音美信综合' },
+  { code: 'computer', label: '计算机' },
+  { code: 'art', label: '美术' },
+  { code: 'music', label: '音乐' },
   { code: 'pe', label: '体育' },
 ] as const;
 
@@ -32,19 +43,74 @@ type TeachersPageProps = {
   error: string | null;
 };
 
-type TeacherSortKey = 'name' | 'username' | 'roleName' | 'scopeDisplay' | 'permissionSummary' | 'status';
+type TeacherSortKey = 'name' | 'username' | 'roleName' | 'scopeDisplay' | 'permissionSummary' | 'status' | 'currentStatus';
 type SortDirection = 'asc' | 'desc';
+type TeacherPanelTab = 'teachers' | 'schedule';
+type ScheduleMode = 'teacher' | 'class';
+type ScheduleCellSlot = {
+  id: number;
+  periodNo: number;
+  startTime: string;
+  endTime: string;
+  subject: string;
+  teacherName: string;
+  className: string | null;
+  isPending: boolean;
+};
+type ScheduleGroupedRow = {
+  key: string;
+  name: string;
+  secondaryLabel: string;
+  isPending: boolean;
+  totalSlots: number;
+  values: Record<number, ScheduleCellSlot[]>;
+};
+type SchedulePeriodDefinition = {
+  periodNo: number;
+  startTime: string;
+  endTime: string;
+};
+
+const weekdayLabels = ['星期一', '星期二', '星期三', '星期四', '星期五'] as const;
 
 function normalizeLoginUsername(value: string) {
   return value.trim().toLowerCase();
+}
+
+function getTodayDateInputValue() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function getCurrentTimeInputValue() {
+  const now = new Date();
+  return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+}
+
+function normalizeTimeInputValue(value: string | null | undefined) {
+  const matched = String(value ?? '').match(/^(\d{1,2}):(\d{2})/);
+  if (!matched) return '';
+  return `${matched[1].padStart(2, '0')}:${matched[2]}`;
+}
+
+function buildLocalDateTimeIso(date: string, time: string) {
+  if (!date || !time) return null;
+  const normalizedTime = normalizeTimeInputValue(time);
+  if (!normalizedTime) return null;
+  const parsed = new Date(`${date}T${normalizedTime}:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+function formatLiveStatusRangeLabel(date: string, start: string, end: string) {
+  if (start && end) return `${date} ${start} - ${end}`;
+  return '当前时刻';
 }
 
 export function TeachersPage({ token, user, classes, loading, error }: TeachersPageProps) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [teacherView, setTeacherView] = useState<'all' | 'homeroom_teacher' | 'subject_teacher'>('all');
+  const [teacherPanelTab, setTeacherPanelTab] = useState<TeacherPanelTab>('teachers');
   const [statsView, setStatsView] = useState<'grade' | 'class' | 'teacher'>('grade');
-  const [showOverview, setShowOverview] = useState(false);
   const [teachers, setTeachers] = useState<PermissionUser[]>([]);
   const [roleTemplates, setRoleTemplates] = useState<RoleTemplate[]>([]);
   const [showEditor, setShowEditor] = useState(false);
@@ -58,33 +124,79 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
   const [searchKeyword, setSearchKeyword] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
   const [focusFilter, setFocusFilter] = useState<'all' | 'multi_class'>('all');
+  const [liveStatusFilter, setLiveStatusFilter] = useState<'all' | 'busy' | 'free'>('all');
   const [sortConfig, setSortConfig] = useState<{ key: TeacherSortKey; direction: SortDirection } | null>(null);
+  const [teacherLiveMap, setTeacherLiveMap] = useState<Record<number, TeacherLiveStatusRow>>({});
+  const [liveBusyCount, setLiveBusyCount] = useState(0);
+  const [liveFreeCount, setLiveFreeCount] = useState(0);
   const [editorGradeFilter, setEditorGradeFilter] = useState('all');
   const [editorClassKeyword, setEditorClassKeyword] = useState('');
   const [editorActiveClassId, setEditorActiveClassId] = useState<number | null>(null);
   const returnTo = searchParams.get('returnTo');
   const returnLabel = searchParams.get('returnLabel') || '返回来源页面';
+  const [scheduleSlots, setScheduleSlots] = useState<TeacherScheduleSlotRow[]>([]);
+  const [selectedScheduleTeacher, setSelectedScheduleTeacher] = useState<PermissionUser | null>(null);
+  const [scheduleMode, setScheduleMode] = useState<ScheduleMode>('teacher');
+  const [liveStatusDate, setLiveStatusDate] = useState(getTodayDateInputValue);
+  const [liveStatusStart, setLiveStatusStart] = useState(getCurrentTimeInputValue);
+  const [liveStatusEnd, setLiveStatusEnd] = useState(getCurrentTimeInputValue);
+  const [liveStatusRangeActive, setLiveStatusRangeActive] = useState(false);
+  const [liveStatusPeriodKey, setLiveStatusPeriodKey] = useState('custom');
 
   const teacherRoleTemplates = useMemo(
     () => roleTemplates.filter((item) => teacherRoleCodes.includes(item.code)),
     [roleTemplates],
   );
 
-  async function loadTeachers() {
-    const [usersResponse, rolesResponse] = await Promise.all([adminApi.permissionUsers(token), adminApi.roleTemplates(token)]);
-    const teacherRows = usersResponse.data.filter((row) => teacherRoleCodes.includes(row.roleCode));
+  function buildLiveStatusQuery() {
+    if (!liveStatusRangeActive) return undefined;
+    if (!liveStatusStart && !liveStatusEnd) return undefined;
+    if (!liveStatusStart || !liveStatusEnd) return undefined;
+    const startAt = buildLocalDateTimeIso(liveStatusDate, liveStatusStart);
+    const endAt = buildLocalDateTimeIso(liveStatusDate, liveStatusEnd);
+    if (!startAt || !endAt) return undefined;
+    return {
+      startAt,
+      endAt,
+    };
+  }
+
+  async function loadTeachers(query?: { at?: string; startAt?: string; endAt?: string }) {
+    const [usersResponse, rolesResponse, liveResponse, slotResponse] = await Promise.all([
+      adminApi.permissionUsers(token),
+      adminApi.roleTemplates(token),
+      adminApi.teacherLiveStatus(token, query),
+      adminApi.teacherScheduleSlots(token),
+    ]);
+    const teacherRows = usersResponse.data.filter((row) => teacherRoleCodes.includes(row.roleCode) && row.status === 'enabled');
     setTeachers(teacherRows);
     setRoleTemplates(rolesResponse.data);
+    const liveMap = Object.fromEntries(liveResponse.data.rows.map((item) => [item.teacherId, item]));
+    setTeacherLiveMap(liveMap);
+    setLiveBusyCount(teacherRows.filter((row) => liveMap[row.id]?.status === 'busy').length);
+    setLiveFreeCount(teacherRows.filter((row) => liveMap[row.id]?.status === 'free').length);
+    setScheduleSlots(slotResponse.data);
   }
 
   useEffect(() => {
     let active = true;
     setPageLoading(true);
-    Promise.all([adminApi.permissionUsers(token), adminApi.roleTemplates(token)])
-      .then(([usersResponse, rolesResponse]) => {
+    Promise.all([
+      adminApi.permissionUsers(token),
+      adminApi.roleTemplates(token),
+      adminApi.teacherLiveStatus(token, buildLiveStatusQuery()),
+      adminApi.teacherScheduleSlots(token),
+    ])
+      .then(([usersResponse, rolesResponse, liveResponse, slotResponse]) => {
         if (!active) return;
-        setTeachers(usersResponse.data.filter((row) => teacherRoleCodes.includes(row.roleCode)));
+        const teacherRows = usersResponse.data.filter((row) => teacherRoleCodes.includes(row.roleCode) && row.status === 'enabled');
+        setTeachers(teacherRows);
         setRoleTemplates(rolesResponse.data);
+        const liveMap = Object.fromEntries(liveResponse.data.rows.map((item) => [item.teacherId, item]));
+        setTeacherLiveMap(liveMap);
+        setLiveBusyCount(teacherRows.filter((row) => liveMap[row.id]?.status === 'busy').length);
+        setLiveFreeCount(teacherRows.filter((row) => liveMap[row.id]?.status === 'free').length);
+        setScheduleSlots(slotResponse.data);
       })
       .catch((err) => {
         if (!active) return;
@@ -97,13 +209,14 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
     return () => {
       active = false;
     };
-  }, [token]);
+  }, [liveStatusDate, liveStatusEnd, liveStatusRangeActive, liveStatusStart, token]);
 
   useEffect(() => {
     const nextTeacherView = searchParams.get('teacherView');
     const nextStatsView = searchParams.get('statsView');
     const nextRoleFilter = searchParams.get('roleFilter');
     const nextFocusFilter = searchParams.get('focusFilter');
+    const nextLiveStatusFilter = searchParams.get('liveStatus');
     const nextSearch = searchParams.get('keyword');
     const targetUserId = searchParams.get('userId');
 
@@ -114,8 +227,9 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
       setStatsView(nextStatsView);
     }
     if (nextRoleFilter) setRoleFilter(nextRoleFilter);
-    if (nextFocusFilter === 'multi_class') setFocusFilter('multi_class');
-    if (nextSearch) setSearchKeyword(nextSearch);
+    setFocusFilter(nextFocusFilter === 'multi_class' ? 'multi_class' : 'all');
+    setLiveStatusFilter(nextLiveStatusFilter === 'busy' || nextLiveStatusFilter === 'free' ? nextLiveStatusFilter : 'all');
+    setSearchKeyword(nextSearch ?? '');
     if (targetUserId && teachers.length > 0) {
       const matched = teachers.find((item) => item.id === Number(targetUserId));
       if (matched) setSelectedTeacher(matched);
@@ -255,9 +369,14 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
         normalizeKeyword(row.scopeDisplay).includes(keyword);
       const matchesRole = roleFilter === 'all' || row.roleCode === roleFilter;
       const matchesFocus = focusFilter === 'all' || row.classIds.length > 1;
-      return matchesView && matchesKeyword && matchesRole && matchesFocus;
+      const liveStatus = teacherLiveMap[row.id]?.status;
+      const matchesLiveStatus =
+        liveStatusFilter === 'all' ||
+        (liveStatusFilter === 'busy' && liveStatus === 'busy') ||
+        (liveStatusFilter === 'free' && liveStatus === 'free');
+      return matchesView && matchesKeyword && matchesRole && matchesFocus && matchesLiveStatus;
     });
-  }, [focusFilter, roleFilter, searchKeyword, teacherView, teachers]);
+  }, [focusFilter, liveStatusFilter, roleFilter, searchKeyword, teacherLiveMap, teacherView, teachers]);
   const sortedTeachers = useMemo(() => {
     if (!sortConfig) return filteredTeachers;
 
@@ -279,6 +398,8 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
           return compareText(left.permissionSummary, right.permissionSummary) || compareText(left.name, right.name);
         case 'status':
           return compareText(formatEnabledStatus(left.status), formatEnabledStatus(right.status)) || compareText(left.name, right.name);
+        case 'currentStatus':
+          return compareText(getLiveStatusSortValue(left), getLiveStatusSortValue(right)) || compareText(left.name, right.name);
         default:
           return 0;
       }
@@ -286,75 +407,9 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
   }, [filteredTeachers, sortConfig]);
 
   const homeroomCount = teachers.filter((row) => row.roleCode === 'homeroom_teacher').length;
-  const subjectCount = teachers.filter((row) => row.roleCode === 'subject_teacher').length;
-  const multiClassCount = teachers.filter((row) => row.classIds.length > 1).length;
-  const uncoveredClasses = classes.filter((item) => !item.homeroomTeacher?.id);
-  const scopedTeachers = teachers.filter((row) => teacherView === 'all' || row.roleCode === teacherView);
-  const busiestTeachers = [...teachers]
-    .sort((a, b) => b.classIds.length - a.classIds.length || a.name.localeCompare(b.name, 'zh-CN'))
-    .slice(0, 4);
-  const gradeCoverage = Array.from(
-    classes.reduce((map, item) => {
-      const current = map.get(item.gradeName) ?? { gradeName: item.gradeName, classCount: 0, teacherCount: new Set<number>() };
-      current.classCount += 1;
-      if (item.homeroomTeacher?.id) current.teacherCount.add(item.homeroomTeacher.id);
-      map.set(item.gradeName, current);
-      return map;
-    }, new Map<string, { gradeName: string; classCount: number; teacherCount: Set<number> }>()),
-  ).map(([, item]) => ({
-    gradeName: item.gradeName,
-    classCount: item.classCount,
-    teacherCount: item.teacherCount.size,
-  }));
-  const gradeStats = Array.from(
-    classes.reduce((map, item) => {
-      const current = map.get(item.gradeName) ?? {
-        gradeName: item.gradeName,
-        classCount: 0,
-        studentCount: 0,
-        homeroomAssignedCount: 0,
-        teacherSet: new Set<number>(),
-      };
-      current.classCount += 1;
-      current.studentCount += item.studentCount;
-      if (item.homeroomTeacher?.id) current.homeroomAssignedCount += 1;
-      scopedTeachers.forEach((teacher) => {
-        if (teacher.classIds.includes(item.id)) current.teacherSet.add(teacher.id);
-      });
-      map.set(item.gradeName, current);
-      return map;
-    }, new Map<string, { gradeName: string; classCount: number; studentCount: number; homeroomAssignedCount: number; teacherSet: Set<number> }>()),
-  ).map(([, item]) => ({
-    gradeName: item.gradeName,
-    classCount: item.classCount,
-    studentCount: item.studentCount,
-    homeroomAssignedCount: item.homeroomAssignedCount,
-    teacherCount: item.teacherSet.size,
-  }));
-  const classStats = classes.map((item) => {
-    const relatedTeachers = scopedTeachers.filter((teacher) => teacher.classIds.includes(item.id));
-    return {
-      id: item.id,
-      gradeName: item.gradeName,
-      className: item.name,
-      studentCount: item.studentCount,
-      homeroomTeacherName: item.homeroomTeacher?.name ?? '待分配',
-      teacherCount: relatedTeachers.length,
-      teacherSummary: relatedTeachers.map((teacher) => teacher.name).join('、') || '暂无教师绑定',
-    };
-  });
-  const teacherStats = scopedTeachers
-    .map((teacher) => ({
-      id: teacher.id,
-      name: teacher.name,
-      roleName: teacher.roleName,
-      classCount: teacher.classIds.length,
-      scopeDisplay: teacher.scopeDisplay || '未分配负责范围',
-    }))
-    .sort((a, b) => b.classCount - a.classCount || a.name.localeCompare(b.name, 'zh-CN'));
   const teacherPagination = usePagination(
     sortedTeachers,
-    `${searchKeyword}|${roleFilter}|${teacherView}|${focusFilter}|${sortConfig?.key ?? 'default'}|${sortConfig?.direction ?? 'default'}|${teachers.length}`,
+    `${searchKeyword}|${roleFilter}|${teacherView}|${focusFilter}|${liveStatusFilter}|${sortConfig?.key ?? 'default'}|${sortConfig?.direction ?? 'default'}|${teachers.length}`,
   );
   const selectedRoleTemplate = teacherRoleTemplates.find((item) => item.code === form.roleCode);
   const selectedTeacherRoleTemplate = teacherRoleTemplates.find((item) => item.code === selectedTeacher?.roleCode);
@@ -419,6 +474,24 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
     return classes.filter((item) => row.classIds.includes(item.id));
   }
 
+  function formatTeacherScopeForTable(row: PermissionUser) {
+    if (row.subjectScopes.length > 0) {
+      return Array.from(
+        new Set(
+          row.subjectScopes.map((item) => {
+            const classLabel = item.className ?? `班级${item.classId}`;
+            return `${classLabel}·${item.subjectLabel}`;
+          }),
+        ),
+      ).join('、');
+    }
+
+    const classNames = classes
+      .filter((item) => row.classIds.includes(item.id))
+      .map((item) => item.name);
+    return classNames.join('、') || row.scopeDisplay || '未分配负责范围';
+  }
+
   function toggleSubjectScope(classId: number, subjectCode: string, checked: boolean) {
     const scopeKey = `${classId}:${subjectCode}`;
     setForm((prev) => ({
@@ -465,6 +538,7 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
     if (statsView !== 'grade') params.set('statsView', statsView);
     if (roleFilter !== 'all') params.set('roleFilter', roleFilter);
     if (focusFilter !== 'all') params.set('focusFilter', focusFilter);
+    if (liveStatusFilter !== 'all') params.set('liveStatus', liveStatusFilter);
     if (searchKeyword.trim()) params.set('keyword', searchKeyword.trim());
     if (selectedUserId) params.set('userId', String(selectedUserId));
     return params.size > 0 ? `/teachers?${params.toString()}` : '/teachers';
@@ -479,11 +553,57 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
     navigate(params.size > 0 ? `${path}?${params.toString()}` : path);
   }
 
+  function syncTeacherFilterParams(nextState: {
+    teacherView?: 'all' | 'homeroom_teacher' | 'subject_teacher';
+    roleFilter?: string;
+    focusFilter?: 'all' | 'multi_class';
+    liveStatusFilter?: 'all' | 'busy' | 'free';
+    searchKeyword?: string;
+  }) {
+    const params = new URLSearchParams(searchParams);
+    const nextTeacherView = nextState.teacherView ?? teacherView;
+    const nextRoleFilter = nextState.roleFilter ?? roleFilter;
+    const nextFocusFilter = nextState.focusFilter ?? focusFilter;
+    const nextLiveStatusFilter = nextState.liveStatusFilter ?? liveStatusFilter;
+    const nextSearchKeyword = nextState.searchKeyword ?? searchKeyword;
+
+    if (nextTeacherView !== 'all') params.set('teacherView', nextTeacherView);
+    else params.delete('teacherView');
+
+    if (nextRoleFilter !== 'all') params.set('roleFilter', nextRoleFilter);
+    else params.delete('roleFilter');
+
+    if (nextFocusFilter !== 'all') params.set('focusFilter', nextFocusFilter);
+    else params.delete('focusFilter');
+
+    if (nextLiveStatusFilter !== 'all') params.set('liveStatus', nextLiveStatusFilter);
+    else params.delete('liveStatus');
+
+    if (nextSearchKeyword.trim()) params.set('keyword', nextSearchKeyword.trim());
+    else params.delete('keyword');
+
+    setSearchParams(params, { replace: true });
+  }
+
   function resetListFilters() {
     setSearchKeyword('');
     setRoleFilter('all');
     setTeacherView('all');
     setFocusFilter('all');
+    setLiveStatusFilter('all');
+    syncTeacherFilterParams({
+      teacherView: 'all',
+      roleFilter: 'all',
+      focusFilter: 'all',
+      liveStatusFilter: 'all',
+      searchKeyword: '',
+    });
+  }
+
+  function applyLiveStatusFilter(nextFilter: 'all' | 'busy' | 'free') {
+    setLiveStatusFilter(nextFilter);
+    syncTeacherFilterParams({ liveStatusFilter: nextFilter });
+    void loadTeachers(buildLiveStatusQuery());
   }
 
   function toggleSort(key: TeacherSortKey) {
@@ -503,6 +623,184 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
         <span>{label}</span>
         <b>{indicator}</b>
       </button>
+    );
+  }
+
+  function getLiveStatusSortValue(row: PermissionUser) {
+    const live = teacherLiveMap[row.id];
+    if (!live) return '未配置课表';
+    if (live.status === 'free') return '空闲';
+    if (live.busyType === 'research') return `教研 ${live.currentSubject ?? ''}`.trim();
+    return `有课 第${live.currentPeriodNo ?? '-'}节 ${live.currentSubject ?? ''} ${live.currentClassName ?? ''}`.trim();
+  }
+
+  function getLiveStatusTooltip(row: PermissionUser) {
+    const live = teacherLiveMap[row.id];
+    if (!live || live.status !== 'busy') return undefined;
+    if (live.busyType === 'research') {
+      return `${live.currentSubject ?? '教研'} ${live.startTime ?? ''}-${live.endTime ?? ''}`.trim();
+    }
+    return `第${live.currentPeriodNo ?? '-'}节 ${live.currentSubject ?? ''} ${live.currentClassName ?? ''} ${live.startTime ?? ''}-${live.endTime ?? ''}`.trim();
+  }
+
+  function renderLiveStatusCell(row: PermissionUser) {
+    const live = teacherLiveMap[row.id];
+    if (!live) {
+      return <span className="teacher-live-status muted">未配置课表</span>;
+    }
+    if (live.status === 'free') {
+      return <span className="teacher-live-status free">空闲</span>;
+    }
+    const tooltip = getLiveStatusTooltip(row);
+    const isResearch = live.busyType === 'research';
+    return (
+      <span className={`teacher-live-status ${isResearch ? 'research' : 'busy'}`}>
+        <span className="teacher-live-status-detail">
+          {isResearch ? '教研' : '有课'}
+          {tooltip ? <span className="teacher-live-status-tooltip">{tooltip}</span> : null}
+        </span>
+      </span>
+    );
+  }
+
+  const scheduleByTeacher = useMemo(() => {
+    return scheduleSlots.reduce<Record<string, TeacherScheduleSlotRow[]>>((acc, slot) => {
+      const key = slot.teacherId ? `teacher-${slot.teacherId}` : `pending-${slot.teacherName}`;
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(slot);
+      return acc;
+    }, {});
+  }, [scheduleSlots]);
+
+  const groupedScheduleRows = useMemo<ScheduleGroupedRow[]>(() => {
+    const map = new Map<string, ScheduleGroupedRow>();
+    for (const slot of scheduleSlots) {
+      const key =
+        scheduleMode === 'teacher'
+          ? slot.teacherId
+            ? `teacher-${slot.teacherId}`
+            : `pending-teacher-${slot.teacherName}`
+          : slot.className
+            ? `class-${slot.className}`
+            : `pending-class-${slot.teacherName}`;
+      const name = scheduleMode === 'teacher' ? slot.teacherName : slot.className || '未关联班级';
+      const secondaryLabel = scheduleMode === 'teacher' ? slot.roleName : slot.isPending ? '待关联' : '已导入';
+      const current = map.get(key) ?? {
+        key,
+        name,
+        secondaryLabel,
+        isPending: slot.isPending,
+        totalSlots: 0,
+        values: {} as Record<number, ScheduleCellSlot[]>,
+      };
+      current.isPending = current.isPending || slot.isPending;
+      current.totalSlots += 1;
+      if (!current.values[slot.weekday]) current.values[slot.weekday] = [];
+      current.values[slot.weekday].push({
+        id: slot.id,
+        periodNo: slot.periodNo,
+        startTime: slot.startTime,
+        endTime: slot.endTime,
+        subject: slot.subject,
+        teacherName: slot.teacherName,
+        className: slot.className,
+        isPending: slot.isPending,
+      });
+      map.set(key, current);
+    }
+    return Array.from(map.values())
+      .map((row) => ({
+        ...row,
+        values: Object.fromEntries(
+          Object.entries(row.values).map(([weekday, slots]) => [
+            Number(weekday),
+            [...slots].sort((left, right) => {
+              if (left.periodNo !== right.periodNo) return left.periodNo - right.periodNo;
+              return `${left.startTime}${left.endTime}`.localeCompare(`${right.startTime}${right.endTime}`, 'zh-CN');
+            }),
+          ]),
+        ) as Record<number, ScheduleCellSlot[]>,
+      }))
+      .sort((a, b) => {
+        if (a.isPending !== b.isPending) return a.isPending ? 1 : -1;
+        return a.name.localeCompare(b.name, 'zh-CN', { numeric: true });
+      });
+  }, [scheduleMode, scheduleSlots]);
+
+  const schedulePeriods = useMemo<SchedulePeriodDefinition[]>(() => {
+    const periodMap = new Map<number, SchedulePeriodDefinition>();
+    for (const slot of scheduleSlots) {
+      const existing = periodMap.get(slot.periodNo);
+      if (!existing) {
+        periodMap.set(slot.periodNo, {
+          periodNo: slot.periodNo,
+          startTime: normalizeTimeInputValue(slot.startTime),
+          endTime: normalizeTimeInputValue(slot.endTime),
+        });
+      }
+    }
+    return Array.from(periodMap.values()).sort((left, right) => {
+      if (left.periodNo !== right.periodNo) return left.periodNo - right.periodNo;
+      return `${left.startTime}${left.endTime}`.localeCompare(`${right.startTime}${right.endTime}`, 'zh-CN');
+    });
+  }, [scheduleSlots]);
+  const liveStatusPeriodOptions = useMemo(
+    () =>
+      schedulePeriods.map((period) => ({
+        ...period,
+        key: `${period.periodNo}-${period.startTime}-${period.endTime}`,
+        label: `第${period.periodNo}节 ${period.startTime}-${period.endTime}`,
+      })),
+    [schedulePeriods],
+  );
+
+  const schedulePagination = usePagination(groupedScheduleRows, `${teacherPanelTab}|${scheduleMode}|${groupedScheduleRows.length}`);
+  const liveStatusRangeLabel = useMemo(
+    () => (liveStatusRangeActive ? formatLiveStatusRangeLabel(liveStatusDate, liveStatusStart, liveStatusEnd) : '当前时刻'),
+    [liveStatusDate, liveStatusEnd, liveStatusRangeActive, liveStatusStart],
+  );
+
+  function applyLiveStatusPeriod(periodKey: string) {
+    setLiveStatusPeriodKey(periodKey);
+    const period = liveStatusPeriodOptions.find((item) => item.key === periodKey);
+    if (!period) return;
+    setLiveStatusStart(normalizeTimeInputValue(period.startTime));
+    setLiveStatusEnd(normalizeTimeInputValue(period.endTime));
+    setLiveStatusRangeActive(true);
+  }
+
+  function renderTeacherScheduleSummary(key: string, weekday: number) {
+    const slots = (scheduleByTeacher[key] ?? [])
+      .filter((item) => item.weekday === weekday)
+      .sort((a, b) => a.periodNo - b.periodNo)
+      .map((item) => `第${item.periodNo}节 ${item.subject}${item.className ? `(${item.className})` : ''}`);
+    return slots.length > 0 ? slots.join('；') : '-';
+  }
+
+  function renderScheduleCell(row: ScheduleGroupedRow, weekday: number) {
+    const slots = row.values[weekday] ?? [];
+    const slotMap = new Map(slots.map((slot) => [slot.periodNo, slot]));
+    return (
+      <div className="schedule-cell-stack">
+        {schedulePeriods.map((period) => {
+          const slot = slotMap.get(period.periodNo);
+          if (!slot) {
+            return <div className="schedule-slot-card empty" key={`${row.key}-${weekday}-empty-${period.periodNo}`} />;
+          }
+          return (
+            <div className={`schedule-slot-card${slot.isPending ? ' pending' : ''}`} key={`${row.key}-${weekday}-${slot.id}`}>
+              <div className="schedule-slot-head">
+                <strong>{`第${slot.periodNo}节`}</strong>
+                <span>{`${slot.startTime}-${slot.endTime}`}</span>
+              </div>
+              <div className="schedule-slot-subject">{slot.subject}</div>
+              <div className="schedule-slot-meta">
+                {scheduleMode === 'teacher' ? slot.className || '未关联班级' : slot.teacherName}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     );
   }
 
@@ -547,6 +845,55 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
               </option>
             ))}
           </select>
+          <PickerInput
+            wrapperClassName="picker-input-inline"
+            className="filter-select"
+            type="date"
+            value={liveStatusDate}
+            onChange={(event) => {
+              setLiveStatusDate(event.target.value);
+              if (liveStatusRangeActive) {
+                setLiveStatusRangeActive(true);
+              }
+            }}
+          />
+          <select
+            className="filter-select teacher-period-select"
+            value={liveStatusPeriodKey}
+            onChange={(event) => applyLiveStatusPeriod(event.target.value)}
+            disabled={liveStatusPeriodOptions.length === 0}
+          >
+            <option value="custom">按课节时间段</option>
+            {liveStatusPeriodOptions.map((period) => (
+              <option key={period.key} value={period.key}>
+                {period.label}
+              </option>
+            ))}
+          </select>
+          <PickerInput
+            wrapperClassName="picker-input-inline"
+            className="filter-select"
+            type="time"
+            step="60"
+            value={liveStatusStart}
+            onChange={(event) => {
+              setLiveStatusStart(event.target.value);
+              setLiveStatusPeriodKey('custom');
+              setLiveStatusRangeActive(true);
+            }}
+          />
+          <PickerInput
+            wrapperClassName="picker-input-inline"
+            className="filter-select"
+            type="time"
+            step="60"
+            value={liveStatusEnd}
+            onChange={(event) => {
+              setLiveStatusEnd(event.target.value);
+              setLiveStatusPeriodKey('custom');
+              setLiveStatusRangeActive(true);
+            }}
+          />
           <button className="btn btn-primary" type="button" onClick={openCreate}>
             新增教师
           </button>
@@ -554,111 +901,35 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
       </div>
 
       <div className="metric-strip">
-        <div className="metric-card">
+        <div className={`metric-card${liveStatusFilter === 'all' ? ' active' : ''}`}>
           <span>教师总数</span>
-          <button className="metric-value-button" type="button" onClick={resetListFilters}>
-            {teachers.length}
-          </button>
-          <p>当前纳入系统、具备教学岗位身份的账号数量。</p>
-        </div>
-        <div className="metric-card">
-          <span>班主任人数</span>
           <button
             className="metric-value-button"
             type="button"
             onClick={() => {
-              setTeacherView('homeroom_teacher');
-              setFocusFilter('all');
+              resetListFilters();
+              void loadTeachers(buildLiveStatusQuery());
             }}
           >
-            {homeroomCount}
+            {teachers.length}
           </button>
-          <p>承担班级主责、可执行兑换审核与班级管理的教师。</p>
+          <p>当前纳入系统、具备教学岗位身份的账号数量。</p>
         </div>
-        <div className="metric-card">
-          <span>跨班教师</span>
-          <button className="metric-value-button" type="button" onClick={() => setFocusFilter('multi_class')}>
-            {multiClassCount}
+        <div className={`metric-card${liveStatusFilter === 'busy' ? ' active' : ''}`}>
+          <span>当前有课</span>
+          <button className="metric-value-button" type="button" onClick={() => applyLiveStatusFilter('busy')}>
+            {liveBusyCount}
           </button>
-          <p>同时覆盖多个班级的教师人数，适合作为排课与负载观察重点。</p>
+          <p>按所选时间段筛选当前有课教师，并同步刷新忙闲状态。</p>
         </div>
-        <button
-          className={`metric-card metric-card-action${showOverview ? " active" : ""}`}
-          type="button"
-          onClick={() => setShowOverview((prev) => !prev)}
-        >
-          <span>{showOverview ? "收起更多分析" : "更多分析"}</span>
-          <strong>{showOverview ? "收起剩余分析卡片" : "展开剩余分析卡片"}</strong>
-          <p>
-            {uncoveredClasses.length} 个班待补班主任，
-            当前 {homeroomCount} 位班主任在岗，展开后可查看年级、班级、教师等更多分析。
-          </p>
-        </button>
+        <div className={`metric-card${liveStatusFilter === 'free' ? ' active' : ''}`}>
+          <span>当前空闲</span>
+          <button className="metric-value-button" type="button" onClick={() => applyLiveStatusFilter('free')}>
+            {liveFreeCount}
+          </button>
+          <p>按所选时间段筛选当前空闲教师，并同步刷新忙闲状态。</p>
+        </div>
       </div>
-      {showOverview ? (
-        <div className="panel summary-panel">
-          {teacherView !== 'all' || roleFilter !== 'all' || focusFilter !== 'all' || searchKeyword.trim() ? (
-            <div className="summary-panel-actions">
-              <button className="ghost-button" type="button" onClick={resetListFilters}>
-                查看全部教师
-              </button>
-            </div>
-          ) : null}
-          <div className="detail-grid">
-            <div className="detail-card">
-              <h4>教师总数</h4>
-              <div className="detail-list">
-                <div><span>当前教师账号</span><strong>{teachers.length} 人</strong></div>
-                <div><span>覆盖班级</span><strong>{new Set(teachers.flatMap((item) => item.classIds)).size} 个</strong></div>
-              </div>
-            </div>
-            <div className="detail-card">
-              <h4>岗位结构</h4>
-              <div className="detail-list">
-                <div><span>班主任</span><strong>{homeroomCount} 人</strong></div>
-                <div><span>任课教师</span><strong>{subjectCount} 人</strong></div>
-              </div>
-            </div>
-            <div className="detail-card">
-              <h4>年级覆盖</h4>
-              <div className="mini-list">
-                {gradeCoverage.slice(0, 4).map((item) => (
-                  <div className="mini-list-item" key={item.gradeName}>
-                    <div>
-                      <strong>{item.gradeName}</strong>
-                      <span>{item.classCount} 个班级已建立教师绑定</span>
-                    </div>
-                    <b>{item.teacherCount} 人</b>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="detail-card">
-              <h4>重点关注</h4>
-              <div className="mini-list">
-                {busiestTeachers.map((item) => (
-                  <div className="mini-list-item" key={item.id}>
-                    <div>
-                      <strong>{item.name}</strong>
-                      <span>{item.roleName} · {item.scopeDisplay || '未分配负责范围'}</span>
-                    </div>
-                    <b>{item.classIds.length} 个班</b>
-                  </div>
-                ))}
-                {busiestTeachers.length === 0 ? (
-                  <div className="mini-list-item">
-                    <div>
-                      <strong>暂无教师数据</strong>
-                      <span>新增教师后，这里会展示当前覆盖范围较广的教师。</span>
-                    </div>
-                    <b>待建立</b>
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
 
       {showEditor ? (
         <Modal
@@ -725,14 +996,14 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
                   </div>
                 </div>
 
-                <div className="detail-card span-2">
-                  <div className="teacher-editor-section-head">
+                <details className="detail-card span-2 teacher-editor-collapsible-card" open={!editingTeacher}>
+                  <summary className="teacher-editor-section-head">
                     <div>
                       <h4>{form.roleCode === 'homeroom_teacher' ? '班主任负责班级' : '授课班级'}</h4>
                       <p>{form.roleCode === 'homeroom_teacher' ? '先勾选班主任主负责班级，再决定是否补充兼教学科。' : '任课教师通过班级-学科组合建立可用规则范围。'}</p>
                     </div>
                     <b>{form.classIds.length} 个班级</b>
-                  </div>
+                  </summary>
                   <div className="teacher-class-grid">
                     {classes.map((item) => {
                       const selected = form.classIds.includes(String(item.id));
@@ -750,7 +1021,7 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
                       );
                     })}
                   </div>
-                </div>
+                </details>
 
                 <div className="detail-card span-2">
                   <div className="teacher-editor-section-head">
@@ -981,7 +1252,7 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
                   type="button"
                   onClick={() =>
                     navigateWithQuery('/classes', {
-                      keyword: selectedTeacher.name,
+                      classIds: selectedTeacher.classIds.join(','),
                       returnTo: buildTeachersLocation(selectedTeacher.id),
                       returnLabel: '返回教师管理',
                     })
@@ -1008,15 +1279,60 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
           </div>
         </Modal>
       ) : null}
-
+      {selectedScheduleTeacher ? (
+        <Modal
+          title={`${selectedScheduleTeacher.name} · 课程安排`}
+          subtitle="按星期展示该教师全部课时"
+          onClose={() => setSelectedScheduleTeacher(null)}
+        >
+          <div className="data-table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>星期</th>
+                  <th>课程明细</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[1, 2, 3, 4, 5].map((weekday) => (
+                  <tr key={weekday}>
+                    <td>{`星期${['一', '二', '三', '四', '五'][weekday - 1]}`}</td>
+                    <td>{renderTeacherScheduleSummary(`teacher-${selectedScheduleTeacher.id}`, weekday)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Modal>
+      ) : null}
       <div className="panel">
         <div className="page-header">
           <div>
             <div className="panel-title">教师列表</div>
-            <p className="page-desc">查看教师账号、岗位分工与负责范围。</p>
+            <p className="page-desc">查看教师账号、岗位分工与课程表安排。</p>
           </div>
         </div>
         <div className="tabs">
+          {[
+            ['teachers', '教师信息'],
+            ['schedule', '课程表数据'],
+          ].map(([key, label]) => (
+            <button
+              key={key}
+              className={`tab${teacherPanelTab === key ? ' active' : ''}`}
+              type="button"
+              onClick={() => setTeacherPanelTab(key as TeacherPanelTab)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {teacherPanelTab === 'teachers' ? (
+          <>
+            <div className="status-card teacher-live-range-card">
+              当前忙闲判断时间：<strong>{liveStatusRangeLabel}</strong>
+            </div>
+            <div className="tabs">
           {[
             ['all', '全部教师'],
             ['homeroom_teacher', '班主任'],
@@ -1040,8 +1356,7 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
                 <th>{renderSortHeader('账号', 'username')}</th>
                 <th>{renderSortHeader('岗位', 'roleName')}</th>
                 <th>{renderSortHeader('负责范围', 'scopeDisplay')}</th>
-                <th>{renderSortHeader('岗位摘要', 'permissionSummary')}</th>
-                <th>{renderSortHeader('状态', 'status')}</th>
+                <th>{renderSortHeader('当前状态', 'currentStatus')}</th>
                 <th>操作</th>
               </tr>
             </thead>
@@ -1051,19 +1366,18 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
                   <td className="permission-name">{row.name}</td>
                   <td>{row.username}</td>
                   <td>{row.roleName}</td>
-                  <td>{row.scopeDisplay}</td>
-                  <td>{row.permissionSummary}</td>
-                  <td><span className={row.status === 'enabled' ? 'status-on' : 'status-off'}>{formatEnabledStatus(row.status)}</span></td>
+                  <td>{formatTeacherScopeForTable(row)}</td>
+                  <td>{renderLiveStatusCell(row)}</td>
                   <td>
                     <button className="op-btn" type="button" onClick={() => openDetail(row)}>查看详情</button>
                     <button className="op-btn" type="button" onClick={() => openEdit(row)}>编辑教师</button>
-                    <button className="op-btn" type="button" onClick={() => void handleResetPassword(row.id)}>重置密码</button>
+                    <button className="op-btn" type="button" onClick={() => setSelectedScheduleTeacher(row)}>查看课程</button>
                   </td>
                 </tr>
               ))}
               {filteredTeachers.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="table-empty">
+                  <td colSpan={6} className="table-empty">
                     当前筛选条件下没有教师数据
                   </td>
                 </tr>
@@ -1079,6 +1393,85 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
           onPageChange={teacherPagination.setCurrentPage}
           onPageSizeChange={teacherPagination.setPageSize}
         />
+          </>
+        ) : null}
+        {teacherPanelTab === 'schedule' ? (
+          <>
+            <div className="page-header" style={{ marginTop: 16 }}>
+              <div>
+                <div className="panel-title">课程表数据</div>
+                <p className="page-desc">按教师或班级查看已导入课程表，每天课时按节次顺序排列。</p>
+              </div>
+            </div>
+            <div className="tabs">
+              <button
+                type="button"
+                className={`tab${scheduleMode === 'teacher' ? ' active' : ''}`}
+                onClick={() => setScheduleMode('teacher')}
+              >
+                按教师
+              </button>
+              <button
+                type="button"
+                className={`tab${scheduleMode === 'class' ? ' active' : ''}`}
+                onClick={() => setScheduleMode('class')}
+              >
+                按班级
+              </button>
+            </div>
+            <div className="settings-note" style={{ marginTop: 14 }}>
+              当前以 {scheduleMode === 'teacher' ? '教师' : '班级'} 为一行展示，每个单元格按节次从前到后排列，便于快速查看忙闲分布。
+            </div>
+            <div className="data-table-wrap">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>{scheduleMode === 'teacher' ? '教师' : '班级'}</th>
+                    <th>{scheduleMode === 'teacher' ? '岗位' : '状态'}</th>
+                    <th>本周课时</th>
+                    {weekdayLabels.map((label) => (
+                      <th key={label}>{label}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {schedulePagination.pagedItems.map((row) => (
+                    <tr key={row.key}>
+                      <td className="permission-name">
+                        <div className="schedule-row-title">
+                          <strong>{row.name}</strong>
+                          <span>{row.isPending ? '待关联数据' : '已建立关联'}</span>
+                        </div>
+                      </td>
+                      <td>{row.secondaryLabel}</td>
+                      <td>{row.totalSlots} 节</td>
+                      {[1, 2, 3, 4, 5].map((weekday) => (
+                        <td className="schedule-day-cell" key={`${row.key}-${weekday}`}>
+                          {renderScheduleCell(row, weekday)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                  {groupedScheduleRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="table-empty">
+                        当前还没有课程表数据
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+            <TablePagination
+              currentPage={schedulePagination.currentPage}
+              pageSize={schedulePagination.pageSize}
+              totalItems={schedulePagination.totalItems}
+              totalPages={schedulePagination.totalPages}
+              onPageChange={schedulePagination.setCurrentPage}
+              onPageSizeChange={schedulePagination.setPageSize}
+            />
+          </>
+        ) : null}
       </div>
 
     </Shell>

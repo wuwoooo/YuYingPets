@@ -48,6 +48,11 @@ function splitTextToLines(text: string | null | undefined) {
     .filter(Boolean);
 }
 
+function normalizeDimensionSummary(value: AiStudentSummary['dimensionSummary']) {
+  if (!Array.isArray(value)) return [];
+  return value;
+}
+
 function normalizeStudentNo(value: string) {
   return value.trim().toLowerCase();
 }
@@ -265,7 +270,7 @@ export function StudentsPage({
     const negativeCount = selectedStudentAiSummary.negativeSummary?.count ?? 0;
     const negativeDelta = selectedStudentAiSummary.negativeSummary?.scoreDelta ?? 0;
     const trend = selectedStudentAiSummary.trendSummary;
-    const dimensions = selectedStudentAiSummary.dimensionSummary ?? [];
+    const dimensions = normalizeDimensionSummary(selectedStudentAiSummary.dimensionSummary);
     const topPositiveDimension = [...dimensions]
       .sort((a, b) => (b.positiveCount ?? 0) - (a.positiveCount ?? 0))
       .find((item) => (item.positiveCount ?? 0) > 0);
@@ -1110,20 +1115,22 @@ export function StudentsPage({
                   <h4>AI 学情分析</h4>
                   <p>基于课堂、作业、学科和测评相关积分事件生成阶段性总结。</p>
                 </div>
-                <div className="student-ai-actions">
-                  <select value={aiPeriodType} onChange={(event) => setAiPeriodType(event.target.value as 'weekly' | 'monthly')}>
-                    <option value="weekly">本周</option>
-                    <option value="monthly">本月</option>
-                  </select>
-                  <button
-                    className="btn btn-primary"
-                    type="button"
-                    onClick={() => void handleGenerateAiSummary()}
-                    disabled={studentAiGenerating}
-                  >
-                    {studentAiGenerating ? '生成中...' : selectedStudentAiSummary ? '重新生成' : '生成分析'}
-                  </button>
-                </div>
+                {selectedStudentAiSummary ? (
+                  <div className="student-ai-actions">
+                    <select value={aiPeriodType} onChange={(event) => setAiPeriodType(event.target.value as 'weekly' | 'monthly')}>
+                      <option value="weekly">本周</option>
+                      <option value="monthly">本月</option>
+                    </select>
+                    <button
+                      className="btn btn-primary"
+                      type="button"
+                      onClick={() => void handleGenerateAiSummary()}
+                      disabled={studentAiGenerating}
+                    >
+                      {studentAiGenerating ? '生成中...' : '重新生成'}
+                    </button>
+                  </div>
+                ) : null}
               </div>
               {studentAiLoading ? <div className="student-ai-placeholder">AI 学情摘要加载中...</div> : null}
               {studentAiError ? <div className="status-card error">{studentAiError}</div> : null}
@@ -1198,7 +1205,7 @@ export function StudentsPage({
                     <div className="detail-card">
                       <h4>高频维度</h4>
                       <div className="mini-list">
-                        {(selectedStudentAiSummary.dimensionSummary ?? []).slice(0, 4).map((item, index) => (
+                        {normalizeDimensionSummary(selectedStudentAiSummary.dimensionSummary).slice(0, 4).map((item, index) => (
                           <div className="mini-list-item" key={`${item.dimension}-${item.count}-${index}`}>
                             <div>
                               <strong>{item.dimension}</strong>
@@ -1207,7 +1214,7 @@ export function StudentsPage({
                             <b>{item.count} 次</b>
                           </div>
                         ))}
-                        {(selectedStudentAiSummary.dimensionSummary ?? []).length === 0 ? (
+                        {normalizeDimensionSummary(selectedStudentAiSummary.dimensionSummary).length === 0 ? (
                           <div className="mini-list-item">
                             <div>
                               <strong>暂无维度统计</strong>
@@ -1244,7 +1251,26 @@ export function StudentsPage({
                   </div>
                 </div>
               ) : !studentAiLoading ? (
-                <div className="student-ai-placeholder">当前周期还没有学情快照，点击“生成分析”即可落库并展示。</div>
+                <div className="student-ai-collapsed">
+                  <div>
+                    <strong>当前周期暂无学情缓存</strong>
+                    <p>AI 学情模块已折叠。点击“生成报告”后将落库并展示阶段性分析结果。</p>
+                  </div>
+                  <div className="student-ai-actions">
+                    <select value={aiPeriodType} onChange={(event) => setAiPeriodType(event.target.value as 'weekly' | 'monthly')}>
+                      <option value="weekly">本周</option>
+                      <option value="monthly">本月</option>
+                    </select>
+                    <button
+                      className="btn btn-primary"
+                      type="button"
+                      onClick={() => void handleGenerateAiSummary()}
+                      disabled={studentAiGenerating}
+                    >
+                      {studentAiGenerating ? '生成中...' : '生成报告'}
+                    </button>
+                  </div>
+                </div>
               ) : null}
             </div>
             <div className="detail-card span-2">

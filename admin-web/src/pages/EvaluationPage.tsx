@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useLocation, useSearchParams } from 'react-router-dom';
 import { Modal } from '../components/Modal';
 import { Shell } from '../components/Shell';
 import { ruleSceneOptions } from '../constants/admin';
 import type {
   AdminClass,
   AdminStudent,
+  ClassScoreRecord,
   ClassGroupSummary,
   ScoreRecord,
   ScoreRule,
@@ -27,6 +28,7 @@ type EvaluationPageProps = {
 };
 
 type EvaluationMode = 'single' | 'batch' | 'group';
+type ClassEvaluationMode = 'single' | 'batch';
 
 const modeOptions: Array<{ value: EvaluationMode; label: string; desc: string }> = [
   { value: 'single', label: '单人评价', desc: '适合课堂即时点名加减分。' },
@@ -36,7 +38,7 @@ const modeOptions: Array<{ value: EvaluationMode; label: string; desc: string }>
 
 const roleTitleMap: Record<string, { title: string; subtitle: string }> = {
   homeroom_teacher: {
-    title: '班级评价',
+    title: '学生评价',
     subtitle: '面向本班学生进行课堂、作业、纪律等规则化评价。',
   },
   subject_teacher: {
@@ -69,11 +71,37 @@ const subjectLabelMap: Record<string, string> = {
   politics: '政治',
   pe: '体育',
   sport: '体育',
+  computer: '计算机',
   music: '音乐',
   art: '美术',
+  arts_it: '音美信综合',
   it: '信息',
   general: '通用',
 };
+
+const subjectRuleCompatibility: Record<string, string[]> = {
+  computer: ['computer', 'arts_it'],
+  art: ['art', 'arts_it'],
+  music: ['music', 'arts_it'],
+  pe: ['pe', 'arts_it'],
+};
+
+function expandRuleSubjectCodes(subjectCodes: string[]) {
+  return Array.from(
+    new Set(subjectCodes.flatMap((subjectCode) => subjectRuleCompatibility[subjectCode] ?? [subjectCode])),
+  );
+}
+
+function canUseSubjectRule(subjectCodes: string[], ruleSubjectCode?: string | null) {
+  if (!ruleSubjectCode) return false;
+  return expandRuleSubjectCodes(subjectCodes).includes(ruleSubjectCode);
+}
+
+function subjectFilterMatchesRule(subjectFilter: string, ruleSubjectCode?: string | null) {
+  if (subjectFilter === 'all') return true;
+  if (!ruleSubjectCode) return false;
+  return expandRuleSubjectCodes([subjectFilter]).includes(ruleSubjectCode);
+}
 
 function formatSubjectLabel(value?: string | null) {
   if (!value) return '通用规则';
@@ -90,6 +118,35 @@ function formatDateTime(value: string) {
   }).format(new Date(value));
 }
 
+function compareGradeName(a: string, b: string) {
+  const chineseDigitMap: Record<string, number> = {
+    一: 1,
+    二: 2,
+    三: 3,
+    四: 4,
+    五: 5,
+    六: 6,
+    七: 7,
+    八: 8,
+    九: 9,
+    十: 10,
+  };
+  const parseGradeNumber = (value: string) => {
+    const arabic = value.match(/\d+/)?.[0];
+    if (arabic) return Number(arabic);
+    const chinese = value.match(/[一二三四五六七八九十]/)?.[0];
+    if (chinese) return chineseDigitMap[chinese] ?? NaN;
+    return NaN;
+  };
+  const aNum = parseGradeNumber(a);
+  const bNum = parseGradeNumber(b);
+  const aHasNum = Number.isFinite(aNum);
+  const bHasNum = Number.isFinite(bNum);
+  if (aHasNum && bHasNum && aNum !== bNum) return aNum - bNum;
+  if (aHasNum !== bHasNum) return aHasNum ? -1 : 1;
+  return a.localeCompare(b, 'zh-CN');
+}
+
 export function EvaluationPage({
   token,
   user,
@@ -101,11 +158,14 @@ export function EvaluationPage({
   error,
   onSaved,
 }: EvaluationPageProps) {
+  const location = useLocation();
+  const isClassEvaluationPage = location.pathname === '/class-evaluation';
   const [searchParams] = useSearchParams();
   const rolePresentation = roleTitleMap[user?.roleCode ?? ''] ?? {
-    title: '班级评价',
-    subtitle: '统一查看评价规则、提交评价并回看最近记录。',
+    title: '学生评价',
+    subtitle: '统一查看学生评价规则、提交评价并回看最近记录。',
   };
+  const canManageClassScore = ['super_admin', 'school_admin', 'moral_admin', 'grade_admin'].includes(user?.roleCode ?? '');
 
   const classIdsInScope = useMemo(() => {
     const rawIds = scopes.map((item) => item.classId).filter((item): item is number => typeof item === 'number');
@@ -132,6 +192,11 @@ export function EvaluationPage({
 
   const [selectedClassId, setSelectedClassId] = useState<number | null>(availableClasses[0]?.id ?? null);
   const [mode, setMode] = useState<EvaluationMode>('single');
+  const [classMode, setClassMode] = useState<ClassEvaluationMode>('single');
+  const [rankGradeName, setRankGradeName] = useState<string>('');
+  const [classSingleGradeName, setClassSingleGradeName] = useState<string>('');
+  const [classBatchGradeName, setClassBatchGradeName] = useState<string>('');
+  const [selectedClassScoreIds, setSelectedClassScoreIds] = useState<number[]>([]);
   const [selectedStudentId, setSelectedStudentId] = useState<number | null>(null);
   const [selectedStudentIds, setSelectedStudentIds] = useState<number[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null);
@@ -147,6 +212,7 @@ export function EvaluationPage({
   const [confirmRule, setConfirmRule] = useState<ScoreRule | null>(null);
   const [confirmRemark, setConfirmRemark] = useState('');
   const [records, setRecords] = useState<ScoreRecord[]>([]);
+  const [classScoreRecords, setClassScoreRecords] = useState<ClassScoreRecord[]>([]);
   const [groups, setGroups] = useState<ClassGroupSummary[]>([]);
   const [pageLoading, setPageLoading] = useState(false);
   const [submitLoading, setSubmitLoading] = useState(false);
@@ -161,16 +227,17 @@ export function EvaluationPage({
 
   const availableSubjectFilters = useMemo(() => {
     const currentSubjectCodes = selectedClassId ? subjectCodesByClass.get(selectedClassId) ?? [] : [];
-    return ['all', ...currentSubjectCodes];
+    return ['all', ...expandRuleSubjectCodes(currentSubjectCodes)];
   }, [selectedClassId, subjectCodesByClass]);
 
   const availableRules = useMemo(() => {
     const currentSubjectCodes = selectedClassId ? subjectCodesByClass.get(selectedClassId) ?? [] : [];
     return rules.filter((item) => {
+      if (item.scoreTarget !== 'student') return false;
       if (!item.adminEnabled) return false;
       if (scoreTypeFilter !== 'all' && item.scoreType !== scoreTypeFilter) return false;
       if (sceneFilter !== 'all' && item.sceneCode !== sceneFilter) return false;
-      if (subjectFilter !== 'all' && item.moduleType === 'subject' && item.subjectCode !== subjectFilter) return false;
+      if (item.moduleType === 'subject' && !subjectFilterMatchesRule(subjectFilter, item.subjectCode)) return false;
       if (ruleKeyword.trim()) {
         const keyword = ruleKeyword.trim().toLowerCase();
         const haystack = [item.name, item.subjectCode, item.tag, item.dimension, item.description]
@@ -182,9 +249,33 @@ export function EvaluationPage({
       if (item.moduleType === 'general') return true;
       if (['super_admin', 'school_admin', 'moral_admin', 'grade_admin'].includes(user?.roleCode ?? '')) return true;
       if (user?.roleCode === 'homeroom_teacher' && currentSubjectCodes.length === 0) return false;
-      return item.subjectCode ? currentSubjectCodes.includes(item.subjectCode) : false;
+      return canUseSubjectRule(currentSubjectCodes, item.subjectCode);
     });
   }, [ruleKeyword, rules, sceneFilter, scoreTypeFilter, selectedClassId, subjectCodesByClass, subjectFilter, user?.roleCode]);
+
+  const availableClassRules = useMemo(() => {
+    const classRules = rules.filter((item) => {
+      if (!item.adminEnabled || item.scoreTarget !== 'class') return false;
+      if (item.moduleType !== 'general') return false;
+      if (scoreTypeFilter !== 'all' && item.scoreType !== scoreTypeFilter) return false;
+      if (sceneFilter !== 'all' && item.sceneCode !== sceneFilter) return false;
+      if (ruleKeyword.trim()) {
+        const keyword = ruleKeyword.trim().toLowerCase();
+        const haystack = [item.name, item.subjectCode, item.tag, item.dimension, item.description]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        if (!haystack.includes(keyword)) return false;
+      }
+      return true;
+    });
+    const deduped = new Map<string, ScoreRule>();
+    classRules.forEach((item) => {
+      const key = `${item.name}|${item.scoreType}|${item.scoreValue}`;
+      if (!deduped.has(key)) deduped.set(key, item);
+    });
+    return Array.from(deduped.values());
+  }, [ruleKeyword, rules, sceneFilter, scoreTypeFilter]);
 
   const highFrequencyRules = useMemo(
     () => availableRules.filter((item) => item.isHighFrequency).sort((a, b) => Number(b.adminEnabled) - Number(a.adminEnabled)),
@@ -210,7 +301,8 @@ export function EvaluationPage({
     return ruleSceneOptions.filter((item) => sceneSet.has(item.value));
   }, [rules]);
 
-  const selectedRule = availableRules.find((item) => item.id === selectedRuleId) ?? null;
+  const activeRules = isClassEvaluationPage ? availableClassRules : availableRules;
+  const selectedRule = activeRules.find((item) => item.id === selectedRuleId) ?? null;
   const positiveCount = records.filter((item) => item.scoreDelta > 0).length;
   const negativeCount = records.filter((item) => item.scoreDelta < 0).length;
   const averageScore = classStudents.length
@@ -267,15 +359,19 @@ export function EvaluationPage({
     const queryRuleId = searchParams.get('ruleId');
     const parsedRuleId = queryRuleId ? Number(queryRuleId) : null;
 
-    if (parsedRuleId && availableRules.some((item) => item.id === parsedRuleId)) {
+    if (parsedRuleId && activeRules.some((item) => item.id === parsedRuleId)) {
       setSelectedRuleId(parsedRuleId);
       return;
     }
 
-    if (!availableRules.some((item) => item.id === selectedRuleId)) {
-      setSelectedRuleId(highFrequencyRules[0]?.id ?? availableRules[0]?.id ?? null);
+    if (!activeRules.some((item) => item.id === selectedRuleId)) {
+      setSelectedRuleId(
+        isClassEvaluationPage
+          ? availableClassRules[0]?.id ?? null
+          : highFrequencyRules[0]?.id ?? availableRules[0]?.id ?? null,
+      );
     }
-  }, [availableRules, highFrequencyRules, searchParams, selectedRuleId, selectedClassId]);
+  }, [activeRules, availableClassRules, availableRules, highFrequencyRules, isClassEvaluationPage, searchParams, selectedRuleId, selectedClassId]);
 
   useEffect(() => {
     if (!selectedClassId) return;
@@ -283,10 +379,15 @@ export function EvaluationPage({
     setPageLoading(true);
     setSubmitError(null);
 
-    Promise.all([adminApi.scoreRecords(token, { classId: selectedClassId }), adminApi.classGroups(token, selectedClassId)])
-      .then(([recordResponse, groupResponse]) => {
+    Promise.all([
+      adminApi.scoreRecords(token, { classId: selectedClassId }),
+      adminApi.classGroups(token, selectedClassId),
+      canManageClassScore ? adminApi.classScoreRecords(token, { classId: selectedClassId }) : Promise.resolve({ data: [] as ClassScoreRecord[] }),
+    ])
+      .then(([recordResponse, groupResponse, classRecordResponse]) => {
         if (!active) return;
         setRecords(recordResponse.data);
+        setClassScoreRecords(classRecordResponse.data);
         setGroups(groupResponse.data);
         if (!groupResponse.data.some((item) => item.id === selectedGroupId)) {
           setSelectedGroupId(groupResponse.data[0]?.id ?? null);
@@ -303,11 +404,17 @@ export function EvaluationPage({
     return () => {
       active = false;
     };
-  }, [selectedClassId, selectedGroupId, token]);
+  }, [canManageClassScore, selectedClassId, selectedGroupId, token]);
 
   function toggleBatchStudent(studentId: number) {
     setSelectedStudentIds((prev) =>
       prev.includes(studentId) ? prev.filter((item) => item !== studentId) : [...prev, studentId],
+    );
+  }
+
+  function toggleClassScoreClass(classId: number) {
+    setSelectedClassScoreIds((prev) =>
+      prev.includes(classId) ? prev.filter((item) => item !== classId) : [...prev, classId],
     );
   }
 
@@ -318,6 +425,11 @@ export function EvaluationPage({
 
   function getSelectionError() {
     if (!selectedClassId) return '请先选择班级';
+    if (isClassEvaluationPage) {
+      if (!canManageClassScore) return '当前角色无权操作班级积分';
+      if (classMode === 'batch' && selectedClassScoreIds.length === 0) return '请至少选择一个班级';
+      return null;
+    }
     if (mode === 'single' && !selectedStudentId) return '请先选择学生';
     if (mode === 'batch' && selectedStudentIds.length === 0) return '请至少选择一名学生';
     if (mode === 'group' && !selectedGroupId) return '当前班级暂无可评价小组';
@@ -340,12 +452,14 @@ export function EvaluationPage({
 
   async function reloadCurrentClassData() {
     if (!selectedClassId) return;
-    const [recordResponse, groupResponse] = await Promise.all([
+    const [recordResponse, groupResponse, classRecordResponse] = await Promise.all([
       adminApi.scoreRecords(token, { classId: selectedClassId }),
       adminApi.classGroups(token, selectedClassId),
+      canManageClassScore ? adminApi.classScoreRecords(token, { classId: selectedClassId }) : Promise.resolve({ data: [] as ClassScoreRecord[] }),
     ]);
     setRecords(recordResponse.data);
     setGroups(groupResponse.data);
+    setClassScoreRecords(classRecordResponse.data);
   }
 
   async function submitEvaluation(rule: ScoreRule, remark: string) {
@@ -406,6 +520,43 @@ export function EvaluationPage({
     }
   }
 
+  async function submitClassEvaluation(rule: ScoreRule, remark: string) {
+    if (!selectedClassId || submitLoading) return;
+    setSubmitLoading(true);
+    setSubmitError(null);
+    setSubmitSuccess(null);
+
+    try {
+      if (!canManageClassScore) throw new Error('当前角色无权操作班级积分');
+      if (classMode === 'single') {
+        await adminApi.createClassScoreRecord(token, {
+          classId: selectedClassId,
+          ruleId: rule.id,
+          remark: remark.trim() || undefined,
+          sourceTerminal: 'admin',
+        });
+      } else {
+        if (selectedClassScoreIds.length === 0) throw new Error('请至少选择一个班级');
+        await adminApi.createClassScoreRecordBatch(token, {
+          classIds: selectedClassScoreIds,
+          ruleId: rule.id,
+          remark: remark.trim() || undefined,
+          sourceTerminal: 'admin',
+        });
+      }
+
+      await Promise.all([onSaved(), reloadCurrentClassData()]);
+      if (classMode === 'batch') setSelectedClassScoreIds([]);
+      setConfirmRule(null);
+      setConfirmRemark('');
+      setSubmitSuccess(classMode === 'batch' ? '批量班级评价已提交' : '班级评价已提交');
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : '提交班级评价失败');
+    } finally {
+      setSubmitLoading(false);
+    }
+  }
+
   const recentRuleOrder = useMemo(() => {
     const order = new Map<number, number>();
     recentRuleIds.forEach((id, index) => {
@@ -443,6 +594,82 @@ export function EvaluationPage({
   );
 
   const moreRules = useMemo(() => availableRules.slice(0, 36), [availableRules]);
+  const classRuleCards = useMemo(() => availableClassRules.slice(0, 36), [availableClassRules]);
+
+  const gradeOptions = useMemo(
+    () => Array.from(new Set(availableClasses.map((item) => item.gradeName))).sort(compareGradeName),
+    [availableClasses],
+  );
+
+  const classesSorted = useMemo(
+    () =>
+      [...availableClasses].sort(
+        (left, right) =>
+          compareGradeName(left.gradeName, right.gradeName) || left.name.localeCompare(right.name, 'zh-CN'),
+      ),
+    [availableClasses],
+  );
+
+  useEffect(() => {
+    if (!gradeOptions.includes(rankGradeName)) {
+      setRankGradeName(gradeOptions[0] ?? '');
+    }
+  }, [gradeOptions, rankGradeName]);
+
+  useEffect(() => {
+    if (!gradeOptions.includes(classSingleGradeName)) {
+      setClassSingleGradeName(selectedClass?.gradeName ?? gradeOptions[0] ?? '');
+    }
+  }, [classSingleGradeName, gradeOptions, selectedClass?.gradeName]);
+
+  useEffect(() => {
+    if (!gradeOptions.includes(classBatchGradeName)) {
+      setClassBatchGradeName(gradeOptions[0] ?? '');
+    }
+  }, [classBatchGradeName, gradeOptions]);
+
+  const singleGradeClasses = useMemo(
+    () => classesSorted.filter((item) => item.gradeName === classSingleGradeName),
+    [classSingleGradeName, classesSorted],
+  );
+
+  const batchGradeClasses = useMemo(
+    () => classesSorted.filter((item) => item.gradeName === classBatchGradeName),
+    [classBatchGradeName, classesSorted],
+  );
+
+  useEffect(() => {
+    if (!isClassEvaluationPage || classMode !== 'single') return;
+    if (!singleGradeClasses.some((item) => item.id === selectedClassId)) {
+      setSelectedClassId(singleGradeClasses[0]?.id ?? null);
+    }
+  }, [classMode, isClassEvaluationPage, selectedClassId, singleGradeClasses]);
+
+  useEffect(() => {
+    if (classMode !== 'batch') return;
+    const allowed = new Set(batchGradeClasses.map((item) => item.id));
+    setSelectedClassScoreIds((prev) => prev.filter((item) => allowed.has(item)));
+  }, [batchGradeClasses, classMode]);
+
+  const classRankRows = useMemo(() => {
+    const rows = availableClasses
+      .filter((item) => item.gradeName === rankGradeName)
+      .sort((left, right) => right.classScore - left.classScore || left.name.localeCompare(right.name, 'zh-CN'));
+    let prevScore: number | null = null;
+    let prevRank = 0;
+    return rows.map((item, index) => {
+      const rank = prevScore === item.classScore ? prevRank : index + 1;
+      prevScore = item.classScore;
+      prevRank = rank;
+      return {
+        id: item.id,
+        rank,
+        gradeName: item.gradeName,
+        className: item.name,
+        classScore: item.classScore,
+      };
+    });
+  }, [availableClasses, rankGradeName]);
 
   const selectionSummary = useMemo(() => {
     if (mode === 'single') {
@@ -481,21 +708,25 @@ export function EvaluationPage({
 
       <div className="page-header">
         <div>
-          <h2>{rolePresentation.title}</h2>
-          <p className="page-desc">{rolePresentation.subtitle}</p>
+          <h2>{isClassEvaluationPage ? '班级评价' : rolePresentation.title}</h2>
+          <p className="page-desc">
+            {isClassEvaluationPage ? '对班级积分进行独立加扣分，不影响学生个人积分。' : rolePresentation.subtitle}
+          </p>
         </div>
         <div className="page-actions">
-          <select
-            className="filter-select"
-            value={selectedClassId ?? ''}
-            onChange={(event) => setSelectedClassId(Number(event.target.value))}
-          >
-            {availableClasses.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.gradeName} {item.name}
-              </option>
-            ))}
-          </select>
+          {!isClassEvaluationPage ? (
+            <select
+              className="filter-select"
+              value={selectedClassId ?? ''}
+              onChange={(event) => setSelectedClassId(Number(event.target.value))}
+            >
+              {availableClasses.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.gradeName} {item.name}
+                </option>
+              ))}
+            </select>
+          ) : null}
         </div>
       </div>
 
@@ -508,18 +739,137 @@ export function EvaluationPage({
         <div className="metric-card">
           <span>本班学生</span>
           <strong>{classStudents.length} 人</strong>
-          <p>当前平均积分 {averageScore} 分，便于老师快速掌握班级状态。</p>
+          <p>当前平均个人积分 {averageScore} 分，便于老师快速掌握学生状态。</p>
         </div>
+        {isClassEvaluationPage ? (
+          <div className="metric-card">
+            <span>班级积分</span>
+            <strong>{selectedClass?.classScore ?? 0} 分</strong>
+            <p>独立于学生个人积分，仅由管理角色通过班级评价调整。</p>
+          </div>
+        ) : null}
         <div className="metric-card">
-          <span>最近评价</span>
-          <strong>{records.length} 条</strong>
-          <p>正向 {positiveCount} 条，负向 {negativeCount} 条，已包含兑换扣分记录。</p>
+          <span>{isClassEvaluationPage ? '最近班级评价' : '最近学生评价'}</span>
+          <strong>{isClassEvaluationPage ? classScoreRecords.length : records.length} 条</strong>
+          <p>
+            {isClassEvaluationPage
+              ? '用于记录班级积分加扣分流水。'
+              : `正向 ${positiveCount} 条，负向 ${negativeCount} 条，已包含兑换扣分记录。`}
+          </p>
         </div>
       </div>
 
       <div className="evaluation-layout">
         <div className="panel evaluation-form-panel">
-          <div className="panel-title">发起评价</div>
+          <div className="panel-title">{isClassEvaluationPage ? '发起班级评价' : '发起学生评价'}</div>
+
+          {isClassEvaluationPage ? (
+            <>
+              <div className="evaluation-mode-grid">
+                <button
+                  type="button"
+                  className={`evaluation-mode-card${classMode === 'single' ? ' active' : ''}`}
+                  onClick={() => setClassMode('single')}
+                >
+                  <strong>单班评价</strong>
+                  <span>对当前选中班级加扣班级积分。</span>
+                </button>
+                <button
+                  type="button"
+                  className={`evaluation-mode-card${classMode === 'batch' ? ' active' : ''}`}
+                  onClick={() => setClassMode('batch')}
+                >
+                  <strong>批量评价</strong>
+                  <span>对多个班级一次应用同一条班级规则。</span>
+                </button>
+              </div>
+
+              <div className="detail-grid">
+                <div className="detail-card">
+                  <h4>评价对象</h4>
+                  {classMode === 'single' ? (
+                    <div className="class-eval-selector-stack">
+                      <label className="class-eval-selector-row">
+                        <span>年级</span>
+                        <select
+                          value={classSingleGradeName}
+                          onChange={(event) => setClassSingleGradeName(event.target.value)}
+                        >
+                          {gradeOptions.map((item) => (
+                            <option key={item} value={item}>
+                              {item}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="class-eval-selector-row">
+                        <span>班级</span>
+                        <select
+                          value={selectedClassId ?? ''}
+                          onChange={(event) => setSelectedClassId(Number(event.target.value))}
+                        >
+                          {singleGradeClasses.map((item) => (
+                            <option key={item.id} value={item.id}>
+                              {item.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <p>{selectedClass ? `${selectedClass.gradeName} ${selectedClass.name} · 当前 ${selectedClass.classScore} 分` : '请先选择班级'}</p>
+                    </div>
+                  ) : (
+                    <>
+                      <select
+                        value={classBatchGradeName}
+                        onChange={(event) => setClassBatchGradeName(event.target.value)}
+                        style={{ marginBottom: 10 }}
+                      >
+                        {gradeOptions.map((item) => (
+                          <option key={item} value={item}>
+                            {item}
+                          </option>
+                        ))}
+                      </select>
+                      <div className="evaluation-student-grid">
+                        {batchGradeClasses.map((item) => (
+                        <label key={item.id} className={`evaluation-student-card${selectedClassScoreIds.includes(item.id) ? ' active' : ''}`}>
+                          <input
+                            type="checkbox"
+                            checked={selectedClassScoreIds.includes(item.id)}
+                            onChange={() => toggleClassScoreClass(item.id)}
+                          />
+                          <span>{item.gradeName} {item.name}</span>
+                          <b>{item.classScore} 分</b>
+                        </label>
+                      ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                <div className="detail-card">
+                  <h4>班级积分规则</h4>
+                  <div className="rule-card-list compact">
+                    {classRuleCards.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        className={`rule-select-card${selectedRuleId === item.id ? ' active' : ''}`}
+                        onClick={() => openRuleConfirm(item)}
+                      >
+                        <span className="rule-select-name">{item.name}</span>
+                        <span className={`rule-select-score ${item.scoreType === 'deduct' ? 'deduct' : 'add'}`}>
+                          {`${item.scoreType === 'deduct' ? '-' : '+'}${item.scoreValue}`}
+                        </span>
+                      </button>
+                    ))}
+                    {classRuleCards.length === 0 ? <p className="muted-text">暂无可用班级评价规则</p> : null}
+                  </div>
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
 
           <div className="evaluation-mode-grid">
             {modeOptions.map((item) => (
@@ -765,9 +1115,12 @@ export function EvaluationPage({
               </div>
             </div>
           </div>
+            </>
+          )}
         </div>
 
         <div className="evaluation-side-column">
+          {!isClassEvaluationPage ? (
           <div className="panel">
             <div className="panel-title">小组概览</div>
             <div className="mini-list">
@@ -786,11 +1139,54 @@ export function EvaluationPage({
               )}
             </div>
           </div>
+          ) : null}
+
+          {isClassEvaluationPage ? (
+            <div className="panel">
+              <div className="panel-title">各年级班级积分排名</div>
+              <div className="page-actions" style={{ marginBottom: 12 }}>
+                <select className="filter-select" value={rankGradeName} onChange={(event) => setRankGradeName(event.target.value)}>
+                  {gradeOptions.map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="mini-list">
+                {classRankRows.map((item) => (
+                  <div className="mini-list-item" key={`class-rank-${item.id}`}>
+                    <div>
+                      <strong>第 {item.rank} 名 · {item.gradeName} {item.className}</strong>
+                      <span>班级积分 {item.classScore} 分</span>
+                    </div>
+                    <b>{item.rank <= 3 ? '领先组' : '追赶组'}</b>
+                  </div>
+                ))}
+                {classRankRows.length === 0 ? <div className="table-empty">当前筛选条件下暂无班级。</div> : null}
+              </div>
+            </div>
+          ) : null}
 
           <div className="panel">
-            <div className="panel-title">最近记录</div>
+            <div className="panel-title">{isClassEvaluationPage ? '最近班级评价' : '最近学生评价'}</div>
             <div className="mini-list">
-              {records.slice(0, 12).map((item) => {
+              {isClassEvaluationPage ? (
+                classScoreRecords.slice(0, 12).map((item) => (
+                  <div className="mini-list-item" key={`${item.id}-${item.createdAt}`}>
+                    <div>
+                      <strong>
+                        {item.className} · {item.scoreDelta > 0 ? '+' : ''}
+                        {item.scoreDelta} 分
+                      </strong>
+                      <span>
+                        {item.ruleName || item.tag || item.dimension || item.sceneCode || '班级评价'} · {formatDateTime(item.createdAt)}
+                      </span>
+                    </div>
+                    <b>{item.operatorName || item.sourceRole}</b>
+                  </div>
+                ))
+              ) : records.slice(0, 12).map((item) => {
                 const student = students.find((studentRow) => studentRow.id === item.studentId);
                 return (
                   <div className="mini-list-item" key={`${item.id}-${item.createdAt}`}>
@@ -807,14 +1203,15 @@ export function EvaluationPage({
                   </div>
                 );
               })}
-              {records.length === 0 ? <div className="table-empty">当前班级还没有评价记录。</div> : null}
+              {isClassEvaluationPage && classScoreRecords.length === 0 ? <div className="table-empty">当前班级还没有班级评价记录。</div> : null}
+              {!isClassEvaluationPage && records.length === 0 ? <div className="table-empty">当前班级还没有学生评价记录。</div> : null}
             </div>
           </div>
         </div>
       </div>
       {confirmRule ? (
         <Modal
-          title={confirmRule.scoreType === 'deduct' ? '确认扣分' : '确认加分'}
+          title={`${isClassEvaluationPage ? '确认班级' : '确认学生'}${confirmRule.scoreType === 'deduct' ? '扣分' : '加分'}`}
           subtitle="确认后会立即写入评价记录，可填写补充说明。"
           onClose={() => {
             if (submitLoading) return;
@@ -826,8 +1223,26 @@ export function EvaluationPage({
             <div className="evaluation-confirm-summary">
               <div className="evaluation-confirm-item">
                 <span>评价对象</span>
-                <strong>{selectionSummary.title}</strong>
-                <p>{selectionSummary.subtitle}</p>
+                <strong>
+                  {isClassEvaluationPage
+                    ? classMode === 'batch'
+                      ? `批量班级评价 · ${selectedClassScoreIds.length} 个班级`
+                      : selectedClass
+                        ? `班级评价 · ${selectedClass.gradeName} ${selectedClass.name}`
+                        : '班级评价'
+                    : selectionSummary.title}
+                </strong>
+                <p>
+                  {isClassEvaluationPage
+                    ? classMode === 'batch'
+                      ? availableClasses
+                          .filter((item) => selectedClassScoreIds.includes(item.id))
+                          .slice(0, 4)
+                          .map((item) => `${item.gradeName}${item.name}`)
+                          .join('、') || '请先选择班级'
+                      : `当前班级积分 ${selectedClass?.classScore ?? 0} 分`
+                    : selectionSummary.subtitle}
+                </p>
               </div>
               <div className="evaluation-confirm-item">
                 <span>所选规则</span>
@@ -856,7 +1271,11 @@ export function EvaluationPage({
               <button
                 type="button"
                 className="toolbar-button"
-                onClick={() => submitEvaluation(confirmRule, confirmRemark)}
+                onClick={() =>
+                  isClassEvaluationPage
+                    ? submitClassEvaluation(confirmRule, confirmRemark)
+                    : submitEvaluation(confirmRule, confirmRemark)
+                }
                 disabled={submitLoading}
               >
                 {submitLoading ? '提交中...' : confirmRule.scoreType === 'deduct' ? '确认扣分' : '确认加分'}

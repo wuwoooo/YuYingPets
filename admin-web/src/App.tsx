@@ -126,6 +126,24 @@ export function App() {
           }
         />
         <Route
+          path="/class-evaluation"
+          element={
+            <ProtectedRoute token={adminData.token} roleCode={adminData.user?.roleCode} navKey="class-evaluation">
+              <EvaluationPage
+                token={adminData.token ?? ''}
+                user={adminData.user}
+                scopes={adminData.scopes}
+                classes={adminData.classes}
+                students={adminData.students}
+                rules={adminData.rules}
+                loading={adminData.loading}
+                error={adminData.error}
+                onSaved={handleRefresh}
+              />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/teachers"
           element={
             <ProtectedRoute token={adminData.token} roleCode={adminData.user?.roleCode} navKey="teachers">
@@ -191,6 +209,8 @@ export function App() {
               <RewardsPage
                 token={adminData.token ?? ''}
                 user={adminData.user}
+                classes={adminData.classes}
+                students={adminData.students}
                 rewards={adminData.rewards}
                 loading={adminData.loading}
                 error={adminData.error}

@@ -58,12 +58,20 @@
   </head>
   <body>
     <!-- ==================== D01 进入页 ==================== -->
-      <div id="page-entry" class="page active">
+      <div id="page-entry" class="page">
+      <div class="entry-starfield" aria-hidden="true">
+        <span class="star-layer star-layer-far"></span>
+        <span class="star-layer star-layer-mid"></span>
+        <span class="star-layer star-layer-near"></span>
+        <span class="shooting-star meteor-1"></span>
+        <span class="shooting-star meteor-2"></span>
+        <span class="shooting-star meteor-3"></span>
+      </div>
       <div class="entry-corner-badge">
         <div class="entry-corner-top">
           <div class="entry-terminal-pill">
             <i class="fa-solid fa-display" aria-hidden="true"></i>
-            <span id="entryTerminalName">育英星宠终端-b-demo</span>
+            <span id="entryTerminalName">育英星宠终端</span>
           </div>
           <button
             type="button"
@@ -74,9 +82,9 @@
             <i class="fa-solid fa-shield-halved" aria-hidden="true"></i>
           </button>
         </div>
-        <div class="entry-corner-class" id="entryClassTitle">二年级 二(1)班</div>
-        <div class="entry-corner-sub" id="entryClassSummary">班级口号：自律向上 星火成光</div>
-        <div class="entry-corner-sub" id="entryTeacherName">班主任：演示班主任丙</div>
+        <div class="entry-corner-class" id="entryClassTitle">当前终端暂未绑定班级</div>
+        <div class="entry-corner-sub" id="entryClassSummary">请先完成初始化配置</div>
+        <div class="entry-corner-sub" id="entryTeacherName">班主任：待设置</div>
       </div>
       <button class="entry-btn" onclick="navigateTo('login')">
         教师登录
@@ -87,6 +95,14 @@
     </div>
 
     <div id="page-setup" class="page">
+      <div class="entry-starfield" aria-hidden="true">
+        <span class="star-layer star-layer-far"></span>
+        <span class="star-layer star-layer-mid"></span>
+        <span class="star-layer star-layer-near"></span>
+        <span class="shooting-star meteor-1"></span>
+        <span class="shooting-star meteor-2"></span>
+        <span class="shooting-star meteor-3"></span>
+      </div>
       <div class="setup-shell">
         <div class="setup-side">
           <div>
@@ -210,7 +226,7 @@
             </div>
             <div class="setup-field">
               <label for="setupAdminPassword">密码</label>
-              <input id="setupAdminPassword" type="password" value="123456" />
+              <input id="setupAdminPassword" type="password" />
             </div>
             <div class="setup-error" id="setupAdminMessage"></div>
             <div class="setup-actions">
@@ -228,6 +244,7 @@
             <div class="setup-desc" id="setupBindDesc">
               绑定成功后，这块大屏默认会进入对应班级的展示页。后续仍可由超级管理员重新修改绑定。
             </div>
+            <div class="setup-grade-filter" id="setupGradeFilter" aria-label="筛选年级"></div>
             <div class="setup-class-grid" id="setupClassGrid"></div>
             <div class="setup-error" id="setupBindMessage"></div>
             <div class="setup-actions">
@@ -259,6 +276,14 @@
 
     <!-- ==================== D02 登录页 ==================== -->
     <div id="page-login" class="page">
+      <div class="entry-starfield" aria-hidden="true">
+        <span class="star-layer star-layer-far"></span>
+        <span class="star-layer star-layer-mid"></span>
+        <span class="star-layer star-layer-near"></span>
+        <span class="shooting-star meteor-1"></span>
+        <span class="shooting-star meteor-2"></span>
+        <span class="shooting-star meteor-3"></span>
+      </div>
       <div class="login-card">
         <img class="login-logo" src="images/logo.svg" alt="校徽" />
         <div class="login-bound-badge">
@@ -329,7 +354,7 @@
             班主任：钟老师
           </div>
           <div class="trans-class-motto" id="transClassMotto">
-            团结奋进 &nbsp; 超越自我
+            待设置
           </div>
         </div>
       </div>
@@ -650,7 +675,7 @@
           <span class="top-bar-class" id="classroomClassName">九年级二班</span>
         </div>
         <div class="top-bar-center" id="classroomSlogan">
-          团结奋进 &nbsp; 超越自我
+          待设置
         </div>
         <div class="top-bar-right">
           <div class="top-bar-status">
@@ -884,6 +909,58 @@
             <div class="goal-numbers">
               <span class="goal-current" id="goalCurrentLabel">2,456</span>
               <span id="goalTargetValue">3,000</span>
+            </div>
+          </div>
+        </div>
+        <div class="pet-pk-overlay" id="petPkOverlay" aria-hidden="true">
+          <div class="pet-pk-stage">
+            <div class="pet-pk-countdown" id="petPkCountdownLayer" aria-hidden="true">
+              <div class="pet-pk-badge" id="petPkBadge">PK</div>
+              <div class="pet-pk-count" id="petPkCount">3</div>
+            </div>
+            <div class="pet-pk-lightning-layer" aria-hidden="true">
+              <span class="pet-pk-lightning bolt-left"></span>
+              <span class="pet-pk-lightning bolt-right"></span>
+              <span class="pet-pk-lightning bolt-top"></span>
+              <span class="pet-pk-speedline line-1"></span>
+              <span class="pet-pk-speedline line-2"></span>
+              <span class="pet-pk-speedline line-3"></span>
+              <span class="pet-pk-speedline line-4"></span>
+            </div>
+            <div class="pet-pk-competitor left" id="petPkLeft">
+              <div class="pet-pk-aura" aria-hidden="true"></div>
+              <div class="pet-pk-avatar-shell">
+                <img id="petPkLeftImg" class="pet-pk-avatar" src="images/logo.svg" alt="" />
+              </div>
+              <div class="pet-pk-student" id="petPkLeftStudent"></div>
+            </div>
+            <div class="pet-pk-impact" aria-hidden="true">
+              <span class="pet-pk-vs">VS</span>
+              <span class="pet-pk-shock shock-1"></span>
+              <span class="pet-pk-shock shock-2"></span>
+              <span class="pet-pk-ring ring-1"></span>
+              <span class="pet-pk-ring ring-2"></span>
+              <span class="pet-pk-ring ring-3"></span>
+              <span class="pet-pk-flash"></span>
+              <span class="pet-pk-spark spark-1"></span>
+              <span class="pet-pk-spark spark-2"></span>
+              <span class="pet-pk-spark spark-3"></span>
+              <span class="pet-pk-spark spark-4"></span>
+              <span class="pet-pk-spark spark-5"></span>
+              <span class="pet-pk-spark spark-6"></span>
+            </div>
+            <div class="pet-pk-competitor right" id="petPkRight">
+              <div class="pet-pk-aura" aria-hidden="true"></div>
+              <div class="pet-pk-avatar-shell">
+                <img id="petPkRightImg" class="pet-pk-avatar" src="images/logo.svg" alt="" />
+              </div>
+              <div class="pet-pk-student" id="petPkRightStudent"></div>
+            </div>
+            <div class="pet-pk-result" id="petPkResult" aria-hidden="true">
+              <div class="pet-pk-result-kicker" id="petPkResultKicker">PK 结果</div>
+              <div class="pet-pk-result-title" id="petPkResultTitle">胜者诞生</div>
+              <div class="pet-pk-result-name" id="petPkResultName"></div>
+              <div class="pet-pk-result-meta" id="petPkResultMeta"></div>
             </div>
           </div>
         </div>

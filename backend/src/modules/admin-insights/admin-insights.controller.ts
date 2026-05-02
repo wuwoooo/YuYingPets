@@ -15,11 +15,15 @@ export class AdminInsightsController {
     @Query('gradeName') gradeName?: string,
     @Query('classId') classId?: string,
     @Query('regenerateAi') regenerateAi?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
   ) {
     return this.adminInsightsService.analytics(authorization, {
       gradeName,
       classId: classId ? Number(classId) : undefined,
       regenerateAi: regenerateAi === 'true',
+      startDate,
+      endDate,
     });
   }
 
@@ -28,11 +32,15 @@ export class AdminInsightsController {
     @Headers('authorization') authorization: string | undefined,
     @Query('classId') classId?: string,
     @Query('gradeName') gradeName?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
   ) {
     return this.adminInsightsService.analyticsReportStatus(
       authorization,
       classId ? Number(classId) : undefined,
       gradeName,
+      startDate,
+      endDate,
     );
   }
 

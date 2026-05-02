@@ -119,6 +119,8 @@ export type AdminClass = {
   studentCount: number;
   currentScoreTotal: number;
   totalScoreTotal: number;
+  classScore: number;
+  classTotalScore: number;
   homeroomTeacher: HomeroomTeacher | null;
 };
 
@@ -301,6 +303,7 @@ export type ScoreRule = {
   code: string;
   name: string;
   scoreType: 'add' | 'deduct';
+  scoreTarget: 'student' | 'class';
   scoreValue: number;
   dimension: string | null;
   tag: string | null;
@@ -391,6 +394,42 @@ export type ScoreRecord = {
   createdAt: string;
 };
 
+export type ClassScoreRecord = {
+  id: number;
+  schoolId: number;
+  semesterId: number;
+  classId: number;
+  batchId: number | null;
+  ruleId: number;
+  ruleName: string;
+  className: string;
+  gradeCode: string;
+  gradeName: string;
+  subjectCode: string | null;
+  sceneCode: string | null;
+  dimension: string | null;
+  tag: string | null;
+  sentiment: 'positive' | 'negative';
+  scoreDelta: number;
+  remark: string | null;
+  sourceTerminal: string;
+  sourceRole: string | null;
+  operatorId: number;
+  operatorName: string | null;
+  createdAt: string;
+};
+
+export type ClassScoreRankingRow = {
+  rank: number;
+  classId: number;
+  className: string;
+  gradeCode: string;
+  gradeName: string;
+  currentScore: number;
+  totalScore: number;
+  lastScoreAt: string | null;
+};
+
 export type RoleTemplate = {
   id?: number;
   code: string;
@@ -467,15 +506,82 @@ export type PermissionUser = {
   permissions: string[];
 };
 
+export type TeacherLiveStatusRow = {
+  teacherId: number;
+  teacherName: string;
+  roleCode: string;
+  roleName: string;
+  status: 'busy' | 'free';
+  busyType: 'class' | 'research' | null;
+  currentClassName: string | null;
+  currentSubject: string | null;
+  currentPeriodNo: number | null;
+  startTime: string | null;
+  endTime: string | null;
+};
+
+export type TeacherOccupancyRule = {
+  id: number;
+  name: string;
+  weekdays: number[];
+  subjectCodes: string[];
+  startTime: string;
+  endTime: string;
+  status: 'enabled' | 'disabled';
+  remark: string | null;
+};
+
+export type TeacherScheduleImportResult = {
+  sourceFile: string;
+  teacherSheetCount: number;
+  parsedSlotCount: number;
+  importedSlotCount: number;
+  matchedTeacherCount: number;
+  needConfirmCreateTeachers?: boolean;
+  missingTeachers?: Array<{
+    teacherName: string;
+    defaultUsername: string;
+    defaultPassword: string;
+    defaultRoleCode: 'subject_teacher' | 'homeroom_teacher';
+  }>;
+  missingClasses?: string[];
+  createdTeacherCount?: number;
+  createdClassCount?: number;
+  pendingSlotCount?: number;
+};
+
+export type TeacherScheduleSlotRow = {
+  id: number;
+  teacherId: number | null;
+  teacherName: string;
+  roleCode: string;
+  roleName: string;
+  weekday: number;
+  periodNo: number;
+  startTime: string;
+  endTime: string;
+  subject: string;
+  className: string | null;
+  isPending: boolean;
+};
+
 export type AnalyticsData = {
   totalScore: number;
   positiveRuleCount: number;
+  negativeRuleCount?: number;
   averageScore: number;
   activeDays: number;
   gradeTrend: Array<{ name: string; value: number }>;
   ruleDistribution: Array<{ name: string; value: number }>;
   subjectDistribution: Array<{ name: string; value: number }>;
   topClasses: Array<{ id: number; name: string; currentScoreTotal: number }>;
+  topStudents: Array<{
+    studentId: number;
+    studentName: string;
+    classId: number;
+    className: string;
+    currentScore: number;
+  }>;
   riskStudents: Array<{
     studentId: number;
     studentName: string;
@@ -508,6 +614,8 @@ export type AnalyticsQuery = {
   gradeName?: string;
   classId?: number;
   regenerateAi?: boolean;
+  startDate?: string;
+  endDate?: string;
 };
 
 export type AnalyticsReportStatus = {
@@ -624,6 +732,20 @@ export type ScoreRecordGroupPayload = {
   sourceTerminal: 'admin' | 'display';
 };
 
+export type ClassScoreRecordCreatePayload = {
+  classId: number;
+  ruleId: number;
+  remark?: string;
+  sourceTerminal: 'admin' | 'display';
+};
+
+export type ClassScoreRecordBatchPayload = {
+  classIds: number[];
+  ruleId: number;
+  remark?: string;
+  sourceTerminal: 'admin' | 'display';
+};
+
 export type ScoreRuleUpsertPayload = {
   semesterId: number;
   moduleType: 'general' | 'subject';
@@ -633,6 +755,7 @@ export type ScoreRuleUpsertPayload = {
   name: string;
   scoreType: 'add' | 'deduct';
   scoreValue: number;
+  scoreTarget?: 'student' | 'class';
   dimension?: string;
   tag?: string;
   sentiment: 'positive' | 'negative';
@@ -817,8 +940,11 @@ export const adminApi = {
   classGroups(token: string, classId: number) {
     return request<ApiListResponse<ClassGroupSummary>>(`/classes/${classId}/groups`, { token });
   },
-  scoreRules(token: string) {
-    return request<ApiListResponse<ScoreRule>>('/score-rules', { token });
+  scoreRules(token: string, query?: { scoreTarget?: 'student' | 'class' }) {
+    const params = new URLSearchParams();
+    if (query?.scoreTarget) params.set('scoreTarget', query.scoreTarget);
+    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    return request<ApiListResponse<ScoreRule>>(`/score-rules${suffix}`, { token });
   },
   scoreRecords(token: string, query?: { classId?: number; studentId?: number; subjectCode?: string }) {
     const params = new URLSearchParams();
@@ -844,6 +970,36 @@ export const adminApi = {
   },
   createScoreRecordGroup(token: string, body: ScoreRecordGroupPayload) {
     return request<ApiObjectResponse<{ batchId: number }>>('/score-records/group', {
+      method: 'POST',
+      token,
+      body,
+    });
+  },
+  classScoreRecords(token: string, query?: { classId?: number }) {
+    const params = new URLSearchParams();
+    if (query?.classId) params.set('classId', String(query.classId));
+    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    return request<ApiListResponse<ClassScoreRecord>>(`/class-score-records${suffix}`, { token });
+  },
+  classScoreRankings(token: string, query: { gradeCode?: string; classId?: number }) {
+    const params = new URLSearchParams();
+    if (query.gradeCode) params.set('gradeCode', query.gradeCode);
+    if (query.classId) params.set('classId', String(query.classId));
+    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    return request<ApiObjectResponse<{ gradeCode: string; gradeName: string | null; rows: ClassScoreRankingRow[] }>>(
+      `/class-score-records/rankings${suffix}`,
+      { token },
+    );
+  },
+  createClassScoreRecord(token: string, body: ClassScoreRecordCreatePayload) {
+    return request<ApiObjectResponse<{ classScoreRecordId: number }>>('/class-score-records', {
+      method: 'POST',
+      token,
+      body,
+    });
+  },
+  createClassScoreRecordBatch(token: string, body: ClassScoreRecordBatchPayload) {
+    return request<ApiObjectResponse<{ batchId: number }>>('/class-score-records/batch', {
       method: 'POST',
       token,
       body,
@@ -990,6 +1146,91 @@ export const adminApi = {
   roleTemplates(token: string) {
     return request<ApiListResponse<RoleTemplate>>('/admin/permissions/roles', { token });
   },
+  teacherLiveStatus(token: string, query?: { at?: string; startAt?: string; endAt?: string }) {
+    const params = new URLSearchParams();
+    if (query?.at) params.set('at', query.at);
+    if (query?.startAt) params.set('startAt', query.startAt);
+    if (query?.endAt) params.set('endAt', query.endAt);
+    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    return request<
+      ApiObjectResponse<{
+        at: string | null;
+        startAt: string | null;
+        endAt: string | null;
+        weekday: number;
+        currentTime: string;
+        busyCount: number;
+        freeCount: number;
+        rows: TeacherLiveStatusRow[];
+      }>
+    >(`/teacher-schedules/live-status${suffix}`, { token });
+  },
+  importTeacherScheduleFromXls(token: string, payload: { file?: File; filePath?: string; createMissingTeachers?: boolean }) {
+    return request<ApiObjectResponse<TeacherScheduleImportResult>>('/teacher-schedules/import-from-xls', {
+      method: 'POST',
+      token,
+      body: (() => {
+        const formData = new FormData();
+        if (payload.file) formData.append('file', payload.file);
+        if (payload.filePath) formData.append('filePath', payload.filePath);
+        if (payload.createMissingTeachers !== undefined) formData.append('createMissingTeachers', String(payload.createMissingTeachers));
+        return formData;
+      })(),
+    });
+  },
+  importTeacherScheduleFromXlsAdvanced(
+    token: string,
+    payload: {
+      file?: File;
+      filePath?: string;
+      createMissingTeachers?: boolean;
+      creationRoleCode?: string;
+      usernamePrefix?: string;
+      missingTeacherConfigs?: Array<{
+        teacherName: string;
+        create: boolean;
+        username?: string;
+        password?: string;
+        roleCode?: string;
+      }>;
+      missingClassConfigs?: Array<{
+        className: string;
+        create: boolean;
+        gradeName?: string;
+        gradeCode?: string;
+      }>;
+    },
+  ) {
+    const formData = new FormData();
+    if (payload.file) formData.append('file', payload.file);
+    if (payload.filePath) formData.append('filePath', payload.filePath);
+    if (payload.createMissingTeachers !== undefined) formData.append('createMissingTeachers', String(payload.createMissingTeachers));
+    if (payload.creationRoleCode) formData.append('creationRoleCode', payload.creationRoleCode);
+    if (payload.usernamePrefix) formData.append('usernamePrefix', payload.usernamePrefix);
+    if (payload.missingTeacherConfigs) formData.append('missingTeacherConfigs', JSON.stringify(payload.missingTeacherConfigs));
+    if (payload.missingClassConfigs) formData.append('missingClassConfigs', JSON.stringify(payload.missingClassConfigs));
+    return request<ApiObjectResponse<TeacherScheduleImportResult>>('/teacher-schedules/import-from-xls', {
+      method: 'POST',
+      token,
+      body: formData,
+    });
+  },
+  teacherScheduleSlots(token: string, teacherId?: number) {
+    const params = new URLSearchParams();
+    if (teacherId) params.set('teacherId', String(teacherId));
+    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    return request<ApiListResponse<TeacherScheduleSlotRow>>(`/teacher-schedules/slots${suffix}`, { token });
+  },
+  teacherOccupancyRules(token: string) {
+    return request<ApiListResponse<TeacherOccupancyRule>>('/teacher-schedules/occupancy-rules', { token });
+  },
+  updateTeacherOccupancyRules(token: string, rules: TeacherOccupancyRule[]) {
+    return request<ApiListResponse<TeacherOccupancyRule>>('/teacher-schedules/occupancy-rules', {
+      method: 'PUT',
+      token,
+      body: { rules },
+    });
+  },
   createPermissionUser(token: string, body: PermissionUserUpsertPayload) {
     return request<ApiObjectResponse<{ id: number; defaultPassword: string }>>('/admin/permissions/users', {
       method: 'POST',
@@ -1022,13 +1263,17 @@ export const adminApi = {
     if (query?.gradeName) params.set('gradeName', query.gradeName);
     if (query?.classId) params.set('classId', String(query.classId));
     if (query?.regenerateAi) params.set('regenerateAi', 'true');
+    if (query?.startDate) params.set('startDate', query.startDate);
+    if (query?.endDate) params.set('endDate', query.endDate);
     const suffix = params.size > 0 ? `?${params.toString()}` : '';
     return request<ApiObjectResponse<AnalyticsData>>(`/admin/analytics${suffix}`, { token });
   },
-  analyticsReportStatus(token: string, query?: { classId?: number; gradeName?: string }) {
+  analyticsReportStatus(token: string, query?: { classId?: number; gradeName?: string; startDate?: string; endDate?: string }) {
     const params = new URLSearchParams();
     if (query?.classId) params.set('classId', String(query.classId));
     if (query?.gradeName) params.set('gradeName', query.gradeName);
+    if (query?.startDate) params.set('startDate', query.startDate);
+    if (query?.endDate) params.set('endDate', query.endDate);
     const suffix = params.size > 0 ? `?${params.toString()}` : '';
     return request<ApiObjectResponse<AnalyticsReportStatus>>(`/admin/analytics/report-status${suffix}`, { token });
   },

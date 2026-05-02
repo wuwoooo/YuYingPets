@@ -47,6 +47,9 @@ const SUBJECT_LABELS: Record<string, string> = {
   history: '历史',
   politics: '政治',
   arts_it: '音美信综合',
+  computer: '计算机',
+  art: '美术',
+  music: '音乐',
   pe: '体育',
 };
 

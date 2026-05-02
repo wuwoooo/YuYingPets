@@ -1,4 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Modal } from "../components/Modal";
+import { PickerInput } from "../components/PickerInput";
 import { Shell } from "../components/Shell";
 import type {
   DisplaySettingsUpdatePayload,
@@ -6,6 +8,7 @@ import type {
   SemesterSettingsUpdatePayload,
   SessionUser,
   SystemSettings,
+  TeacherOccupancyRule,
 } from "../lib/api";
 import { adminApi } from "../lib/api";
 import type {
@@ -25,6 +28,44 @@ type SettingsPageProps = {
   loading: boolean;
   error: string | null;
 };
+
+type MissingTeacherDraft = {
+  teacherName: string;
+  create: boolean;
+  username: string;
+  password: string;
+  roleCode: "subject_teacher" | "homeroom_teacher";
+};
+
+type MissingClassDraft = {
+  className: string;
+  create: boolean;
+  gradeName: string;
+};
+
+const subjectOptions = [
+  { code: "chinese", label: "语文" },
+  { code: "math", label: "数学" },
+  { code: "english", label: "英语" },
+  { code: "physics", label: "物理" },
+  { code: "chemistry", label: "化学" },
+  { code: "geography", label: "地理" },
+  { code: "biology", label: "生物" },
+  { code: "history", label: "历史" },
+  { code: "politics", label: "政治" },
+  { code: "computer", label: "计算机" },
+  { code: "art", label: "美术" },
+  { code: "music", label: "音乐" },
+  { code: "pe", label: "体育" },
+] as const;
+
+const weekdayOptions = [
+  { value: 1, label: "周一" },
+  { value: 2, label: "周二" },
+  { value: 3, label: "周三" },
+  { value: 4, label: "周四" },
+  { value: 5, label: "周五" },
+] as const;
 
 export function SettingsPage({
   token,
@@ -47,10 +88,15 @@ export function SettingsPage({
   );
   const [pageLoading, setPageLoading] = useState(false);
   const [savingKey, setSavingKey] = useState<
-    "semester" | "petGrowth" | "display" | null
+    "semester" | "research" | "petGrowth" | "display" | null
   >(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
+  const [scheduleFile, setScheduleFile] = useState<File | null>(null);
+  const [importingSchedule, setImportingSchedule] = useState(false);
+  const [pendingMissingTeachers, setPendingMissingTeachers] = useState<MissingTeacherDraft[]>([]);
+  const [pendingMissingClasses, setPendingMissingClasses] = useState<MissingClassDraft[]>([]);
+  const [researchRules, setResearchRules] = useState<TeacherOccupancyRule[]>([]);
 
   const displayModeLabel = "班级首页";
   const displayAnimationLabel = (
@@ -60,13 +106,19 @@ export function SettingsPage({
       fast: "快速切换",
     } as const
   )[displayForm.animationSpeed];
+  const gradeOptions = useMemo(
+    () => (settings?.gradeConfigs ?? []).filter((item) => item.status === "enabled").map((item) => item.name),
+    [settings?.gradeConfigs],
+  );
 
   async function loadSettings(activeRef?: { active: boolean }) {
     setPageLoading(true);
     try {
       const response = await adminApi.settings(token);
+      const researchRuleResponse = await adminApi.teacherOccupancyRules(token);
       if (activeRef && !activeRef.active) return;
       setSettings(response.data);
+      setResearchRules(researchRuleResponse.data);
       setPetGrowthForm(createPetGrowthForm(response.data.school));
       setSemesterForm(createSemesterForm(response.data.semester));
       setDisplayForm({
@@ -205,6 +257,138 @@ export function SettingsPage({
     }
   }
 
+  async function handleResearchRulesSave() {
+    if (savingKey) return;
+    setSubmitError(null);
+    setSubmitSuccess(null);
+    setSavingKey("research");
+    try {
+      await adminApi.updateTeacherOccupancyRules(token, researchRules);
+      await loadSettings();
+      setSubmitSuccess("教研时间规则已保存");
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : "教研时间规则保存失败");
+    } finally {
+      setSavingKey(null);
+    }
+  }
+
+  function toggleResearchRuleWeekday(ruleId: number, weekday: number, checked: boolean) {
+    setResearchRules((prev) =>
+      prev.map((rule) =>
+        rule.id === ruleId
+          ? {
+              ...rule,
+              weekdays: checked
+                ? Array.from(new Set([...rule.weekdays, weekday])).sort()
+                : rule.weekdays.filter((item) => item !== weekday),
+            }
+          : rule,
+      ),
+    );
+  }
+
+  function toggleResearchRuleSubject(ruleId: number, subjectCode: string, checked: boolean) {
+    setResearchRules((prev) =>
+      prev.map((rule) =>
+        rule.id === ruleId
+          ? {
+              ...rule,
+              subjectCodes: checked
+                ? Array.from(new Set([...rule.subjectCodes, subjectCode]))
+                : rule.subjectCodes.filter((item) => item !== subjectCode),
+            }
+          : rule,
+      ),
+    );
+  }
+
+  async function handleImportSchedule() {
+    if (importingSchedule) return;
+    setSubmitError(null);
+    setSubmitSuccess(null);
+    setImportingSchedule(true);
+    try {
+      const result = await adminApi.importTeacherScheduleFromXls(token, {
+        file: scheduleFile ?? undefined,
+        createMissingTeachers: false,
+      });
+      if (
+        result.data.needConfirmCreateTeachers &&
+        ((result.data.missingTeachers?.length ?? 0) > 0 || (result.data.missingClasses?.length ?? 0) > 0)
+      ) {
+        setPendingMissingTeachers(
+          (result.data.missingTeachers ?? []).map((item) => ({
+            teacherName: item.teacherName,
+            create: true,
+            username: item.defaultUsername,
+            password: item.defaultPassword,
+            roleCode: item.defaultRoleCode,
+          })),
+        );
+        setPendingMissingClasses(
+          (result.data.missingClasses ?? []).map((className) => ({
+            className,
+            create: true,
+            gradeName: gradeOptions[0] ?? "",
+          })),
+        );
+        return;
+      }
+      await loadSettings();
+      setSubmitSuccess(
+        `课表导入完成：匹配教师 ${result.data.matchedTeacherCount} 人，导入课时 ${result.data.importedSlotCount} 条，待关联课时 ${result.data.pendingSlotCount ?? 0} 条`,
+      );
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : "课表导入失败");
+    } finally {
+      setImportingSchedule(false);
+    }
+  }
+
+  async function handleConfirmScheduleImport() {
+    if (importingSchedule) return;
+    setSubmitError(null);
+    setSubmitSuccess(null);
+    setImportingSchedule(true);
+    try {
+      const missingGradeClass = pendingMissingClasses.find((item) => item.create && !item.gradeName.trim());
+      if (missingGradeClass) {
+        throw new Error(`请为班级 ${missingGradeClass.className} 选择所属年级`);
+      }
+      const result = await adminApi.importTeacherScheduleFromXlsAdvanced(token, {
+        file: scheduleFile ?? undefined,
+        createMissingTeachers: true,
+        missingTeacherConfigs: pendingMissingTeachers.map((item) => ({
+          teacherName: item.teacherName,
+          create: item.create,
+          username: item.username,
+          password: item.password,
+          roleCode: item.roleCode,
+        })),
+        missingClassConfigs: pendingMissingClasses.map((item) => {
+          const grade = settings?.gradeConfigs?.find((gradeItem) => gradeItem.name === item.gradeName);
+          return {
+            className: item.className,
+            create: item.create,
+            gradeName: item.gradeName,
+            gradeCode: grade?.code,
+          };
+        }),
+      });
+      setPendingMissingTeachers([]);
+      setPendingMissingClasses([]);
+      await loadSettings();
+      setSubmitSuccess(
+        `课表导入完成：新增教师 ${result.data.createdTeacherCount ?? 0} 人，新增班级 ${result.data.createdClassCount ?? 0} 个，匹配教师 ${result.data.matchedTeacherCount} 人，导入课时 ${result.data.importedSlotCount} 条，待关联课时 ${result.data.pendingSlotCount ?? 0} 条`,
+      );
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : "课表导入确认失败");
+    } finally {
+      setImportingSchedule(false);
+    }
+  }
+
   return (
     <Shell
       title="系统设置"
@@ -279,7 +463,7 @@ export function SettingsPage({
             <div className="s-row">
               <div className="s-field">
                 <label>开始日期</label>
-                <input
+                <PickerInput
                   type="date"
                   value={semesterForm.startDate}
                   onChange={(event) =>
@@ -292,7 +476,7 @@ export function SettingsPage({
               </div>
               <div className="s-field">
                 <label>结束日期</label>
-                <input
+                <PickerInput
                   type="date"
                   value={semesterForm.endDate}
                   onChange={(event) =>
@@ -313,6 +497,163 @@ export function SettingsPage({
               >
                 {savingKey === "semester" ? "保存中..." : "保存学期配置"}
               </button>
+            </div>
+            <div className="panel" style={{ marginTop: 20 }}>
+              <div className="page-header" style={{ alignItems: "center" }}>
+                <div>
+                  <div className="panel-title">课程表导入</div>
+                  <p className="page-desc">上传 `.xls/.xlsx` 后，系统会预检缺失教师与缺失班级，再决定创建或继续导入。</p>
+                </div>
+                <div className="page-actions">
+                  <label className="teacher-upload-trigger">
+                    <input
+                      type="file"
+                      accept=".xls,.xlsx"
+                      onChange={(event) => setScheduleFile(event.target.files?.[0] ?? null)}
+                    />
+                    <span>{scheduleFile ? "重新选择文件" : "选择课表文件"}</span>
+                  </label>
+                  <div className="teacher-upload-file-name">
+                    {scheduleFile ? scheduleFile.name : "支持 .xls / .xlsx"}
+                  </div>
+                  <button
+                    type="button"
+                    className="toolbar-button"
+                    onClick={() => void handleImportSchedule()}
+                    disabled={importingSchedule}
+                  >
+                    {importingSchedule ? "导入中..." : "执行导入"}
+                  </button>
+                </div>
+              </div>
+              <div className="settings-note" style={{ marginTop: 14 }}>
+                这里只负责导入与预检。课程表查看已经放回“教师管理”，方便领导按教师与班级随时查看排课情况。
+              </div>
+            </div>
+            <div className="panel" style={{ marginTop: 20 }}>
+              <div className="page-header" style={{ alignItems: "center" }}>
+                <div>
+                  <div className="panel-title">教研时间规则</div>
+                  <p className="page-desc">教研活动会计入教师忙闲状态。教师管理里筛选空闲老师时，会自动排除命中教研规则的教师。</p>
+                </div>
+                <button
+                  type="button"
+                  className="toolbar-button"
+                  onClick={() => void handleResearchRulesSave()}
+                  disabled={savingKey !== null}
+                >
+                  {savingKey === "research" ? "保存中..." : "保存教研规则"}
+                </button>
+              </div>
+              <div className="data-table-wrap">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>规则</th>
+                      <th>星期</th>
+                      <th>时间</th>
+                      <th>学科</th>
+                      <th>状态</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {researchRules.map((rule) => (
+                      <tr key={rule.id}>
+                        <td>
+                          <input
+                            className="filter-select"
+                            value={rule.name}
+                            onChange={(event) =>
+                              setResearchRules((prev) =>
+                                prev.map((item) => (item.id === rule.id ? { ...item, name: event.target.value } : item)),
+                              )
+                            }
+                          />
+                        </td>
+                        <td>
+                          <div className="settings-tag-row compact">
+                            {weekdayOptions.map((weekday) => (
+                              <label className="checkbox-item compact" key={`${rule.id}-${weekday.value}`}>
+                                <input
+                                  type="checkbox"
+                                  checked={rule.weekdays.includes(weekday.value)}
+                                  onChange={(event) => toggleResearchRuleWeekday(rule.id, weekday.value, event.target.checked)}
+                                />
+                                {weekday.label}
+                              </label>
+                            ))}
+                          </div>
+                        </td>
+                        <td>
+                          <div className="page-actions">
+                            <PickerInput
+                              wrapperClassName="picker-input-inline"
+                              className="filter-select"
+                              type="time"
+                              step="60"
+                              value={rule.startTime}
+                              onChange={(event) =>
+                                setResearchRules((prev) =>
+                                  prev.map((item) => (item.id === rule.id ? { ...item, startTime: event.target.value } : item)),
+                                )
+                              }
+                            />
+                            <PickerInput
+                              wrapperClassName="picker-input-inline"
+                              className="filter-select"
+                              type="time"
+                              step="60"
+                              value={rule.endTime}
+                              onChange={(event) =>
+                                setResearchRules((prev) =>
+                                  prev.map((item) => (item.id === rule.id ? { ...item, endTime: event.target.value } : item)),
+                                )
+                              }
+                            />
+                          </div>
+                        </td>
+                        <td>
+                          <div className="settings-tag-row compact">
+                            {subjectOptions.map((subject) => (
+                              <label className="checkbox-item compact" key={`${rule.id}-${subject.code}`}>
+                                <input
+                                  type="checkbox"
+                                  checked={rule.subjectCodes.includes(subject.code)}
+                                  onChange={(event) => toggleResearchRuleSubject(rule.id, subject.code, event.target.checked)}
+                                />
+                                {subject.label}
+                              </label>
+                            ))}
+                          </div>
+                        </td>
+                        <td>
+                          <select
+                            className="filter-select"
+                            value={rule.status}
+                            onChange={(event) =>
+                              setResearchRules((prev) =>
+                                prev.map((item) =>
+                                  item.id === rule.id
+                                    ? { ...item, status: event.target.value as "enabled" | "disabled" }
+                                    : item,
+                                ),
+                              )
+                            }
+                          >
+                            <option value="enabled">启用</option>
+                            <option value="disabled">停用</option>
+                          </select>
+                        </td>
+                      </tr>
+                    ))}
+                    {researchRules.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="table-empty">暂无教研时间规则</td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         ) : null}
@@ -585,6 +926,170 @@ export function SettingsPage({
           </div>
         ) : null}
       </div>
+      {pendingMissingTeachers.length > 0 || pendingMissingClasses.length > 0 ? (
+        <Modal
+          title="导入前确认"
+          subtitle="缺失教师与班级可逐行创建；创建班级时需要选择所属年级。"
+          onClose={() => {
+            setPendingMissingTeachers([]);
+            setPendingMissingClasses([]);
+          }}
+        >
+          <div className="settings-form">
+            {pendingMissingTeachers.length > 0 ? (
+              <div className="detail-card">
+                <h4>缺失教师</h4>
+                <div className="data-table-wrap">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>创建</th>
+                        <th>教师姓名</th>
+                        <th>角色</th>
+                        <th>账号</th>
+                        <th>密码</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pendingMissingTeachers.map((item, index) => (
+                        <tr key={item.teacherName}>
+                          <td>
+                            <input
+                              type="checkbox"
+                              checked={item.create}
+                              onChange={(event) =>
+                                setPendingMissingTeachers((prev) =>
+                                  prev.map((row, rowIndex) => (rowIndex === index ? { ...row, create: event.target.checked } : row)),
+                                )
+                              }
+                            />
+                          </td>
+                          <td>{item.teacherName}</td>
+                          <td>
+                            <select
+                              value={item.roleCode}
+                              disabled={!item.create}
+                              onChange={(event) =>
+                                setPendingMissingTeachers((prev) =>
+                                  prev.map((row, rowIndex) =>
+                                    rowIndex === index
+                                      ? { ...row, roleCode: event.target.value as "subject_teacher" | "homeroom_teacher" }
+                                      : row,
+                                  ),
+                                )
+                              }
+                            >
+                              <option value="subject_teacher">任课教师</option>
+                              <option value="homeroom_teacher">班主任</option>
+                            </select>
+                          </td>
+                          <td>
+                            <input
+                              value={item.username}
+                              disabled={!item.create}
+                              onChange={(event) =>
+                                setPendingMissingTeachers((prev) =>
+                                  prev.map((row, rowIndex) => (rowIndex === index ? { ...row, username: event.target.value } : row)),
+                                )
+                              }
+                            />
+                          </td>
+                          <td>
+                            <input
+                              value={item.password}
+                              disabled={!item.create}
+                              onChange={(event) =>
+                                setPendingMissingTeachers((prev) =>
+                                  prev.map((row, rowIndex) => (rowIndex === index ? { ...row, password: event.target.value } : row)),
+                                )
+                              }
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : null}
+            {pendingMissingClasses.length > 0 ? (
+              <div className="detail-card">
+                <h4>缺失班级</h4>
+                <div className="data-table-wrap">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>创建</th>
+                        <th>班级名称</th>
+                        <th>所属年级</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pendingMissingClasses.map((item, index) => (
+                        <tr key={item.className}>
+                          <td>
+                            <input
+                              type="checkbox"
+                              checked={item.create}
+                              onChange={(event) =>
+                                setPendingMissingClasses((prev) =>
+                                  prev.map((row, rowIndex) => (rowIndex === index ? { ...row, create: event.target.checked } : row)),
+                                )
+                              }
+                            />
+                          </td>
+                          <td>{item.className}</td>
+                          <td>
+                            <select
+                              value={item.gradeName}
+                              disabled={!item.create}
+                              onChange={(event) =>
+                                setPendingMissingClasses((prev) =>
+                                  prev.map((row, rowIndex) => (rowIndex === index ? { ...row, gradeName: event.target.value } : row)),
+                                )
+                              }
+                            >
+                              <option value="">请选择年级</option>
+                              {gradeOptions.map((gradeName) => (
+                                <option key={gradeName} value={gradeName}>
+                                  {gradeName}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {gradeOptions.length === 0 ? (
+                  <p className="settings-note">请先在系统设置中维护年级，再创建缺失班级。</p>
+                ) : null}
+              </div>
+            ) : null}
+            <div className="form-actions">
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={() => {
+                  setPendingMissingTeachers([]);
+                  setPendingMissingClasses([]);
+                }}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className="toolbar-button"
+                onClick={() => void handleConfirmScheduleImport()}
+                disabled={importingSchedule}
+              >
+                {importingSchedule ? "处理中..." : "继续导入"}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
     </Shell>
   );
 }

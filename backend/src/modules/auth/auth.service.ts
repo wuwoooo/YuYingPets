@@ -6,6 +6,13 @@ import { LoginDto } from './dto/login.dto';
 import { AuthUser } from '@/common/auth/auth-user.interface';
 import { toNumber } from '@/common/utils/bigint.util';
 
+const SUBJECT_RULE_COMPATIBILITY: Record<string, string[]> = {
+  computer: ['computer', 'arts_it'],
+  art: ['art', 'arts_it'],
+  music: ['music', 'arts_it'],
+  pe: ['pe', 'arts_it'],
+};
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -47,6 +54,10 @@ export class AuthService {
     };
 
     const token = await this.jwtService.signAsync(payload);
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { lastLoginAt: new Date() },
+    });
 
     return {
       code: 0,
@@ -170,6 +181,14 @@ export class AuthService {
     );
   }
 
+  getRuleSubjectCodesForClass(user: AuthUser, classId: bigint | number) {
+    return Array.from(
+      new Set(
+        this.getSubjectCodesForClass(user, classId).flatMap((subjectCode) => SUBJECT_RULE_COMPATIBILITY[subjectCode] ?? [subjectCode]),
+      ),
+    );
+  }
+
   canUseRuleForClass(
     user: AuthUser,
     classId: bigint | number,
@@ -191,7 +210,7 @@ export class AuthService {
       return false;
     }
 
-    return this.getSubjectCodesForClass(user, classId).includes(rule.subjectCode);
+    return this.getRuleSubjectCodesForClass(user, classId).includes(rule.subjectCode);
   }
 
   ensureCanUseRuleForClass(

@@ -21,6 +21,12 @@ SHEET_CONFIG = {
     "体育组": {"module_type": "subject", "subject_code": "pe", "sheet_code": "PE"},
 }
 
+CLASS_SCORE_RULE_NAMES = {
+    "学生工具单收纳混乱",
+    "学生工具单收纳整齐",
+    "课间学生纪律",
+}
+
 
 @dataclass
 class ParsedScore:
@@ -245,6 +251,7 @@ def build_rows(workbook_path: Path):
                         "code": code,
                         "name": expanded_name,
                         "score_type": parsed.score_type,
+                        "score_target": "class" if rule_name in CLASS_SCORE_RULE_NAMES else "student",
                         "score_value": score_value,
                         "dimension": dimension,
                         "tag": tag,
@@ -274,6 +281,7 @@ def render_sql(rows: list[dict]) -> str:
             f"{sql_quote(row['name'])}, "
             f"{sql_quote(row['score_type'])}, "
             "'fixed', "
+            f"{sql_quote(row['score_target'])}, "
             f"{row['score_value']}, "
             f"{sql_quote(row['dimension'])}, "
             f"{sql_quote(row['tag'])}, "
@@ -325,6 +333,7 @@ INSERT INTO `score_rule` (
   `name`,
   `score_type`,
   `score_mode`,
+  `score_target`,
   `score_value`,
   `dimension`,
   `tag`,

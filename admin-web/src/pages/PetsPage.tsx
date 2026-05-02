@@ -16,7 +16,7 @@ import {
   createPetForm,
   normalizeKeyword
 } from '../utils/adminForms';
-import { canManageRewards } from '../utils/adminPermissions';
+import { canManagePets } from '../utils/adminPermissions';
 
 type PetsPageProps = {
   token: string;
@@ -29,6 +29,8 @@ const PET_CARD_ACCENTS = ['#39a0ed', '#33c26b', '#f5b11f', '#ef476f', '#9b5de5',
 const PET_STAGE_COUNT = 10;
 const PET_FAMILY_OPTIONS = [
   { key: 'all', label: '全部' },
+  { key: 'star', label: '星宠' },
+  { key: 'zodiac', label: '十二生肖' },
   { key: 'cat', label: '猫咪系' },
   { key: 'dog', label: '犬类系' },
   { key: 'rabbit', label: '兔子系' },
@@ -40,6 +42,8 @@ const PET_FAMILY_OPTIONS = [
 type PetFamilyKey = (typeof PET_FAMILY_OPTIONS)[number]['key'];
 
 const PET_CATEGORY_META: Record<string, { family: PetFamilyKey; label: string }> = {
+  star: { family: 'star', label: '星宠' },
+  zodiac: { family: 'zodiac', label: '十二生肖' },
   cat: { family: 'cat', label: '猫咪系' },
   dog: { family: 'dog', label: '犬类系' },
   rabbit: { family: 'rabbit', label: '兔子系' },
@@ -76,19 +80,20 @@ export function PetsPage({
   const [cardPreviewStages, setCardPreviewStages] = useState<Record<number, number>>({});
   const [selectedPreviewStage, setSelectedPreviewStage] = useState(1);
   const [defaultGrowthThresholds, setDefaultGrowthThresholds] = useState<number[]>([0, 140, 240, 360, 500, 660, 840, 1040, 1260, 1500]);
-  const allowManage = canManageRewards(user?.roleCode);
+  const allowManage = canManagePets(user?.roleCode);
 
   async function loadPets() {
     setPageLoading(true);
     setSubmitError(null);
     try {
-      const [petsResponse, settingsResponse] = await Promise.all([
-        adminApi.pets(token),
-        adminApi.settings(token),
-      ]);
+      const petsResponse = await adminApi.pets(token);
       setPets(petsResponse.data);
-      if (settingsResponse.data.school.petGrowth.thresholds?.length === 10) {
-        setDefaultGrowthThresholds(settingsResponse.data.school.petGrowth.thresholds);
+
+      if (allowManage) {
+        const settingsResponse = await adminApi.settings(token);
+        if (settingsResponse.data.school.petGrowth.thresholds?.length === 10) {
+          setDefaultGrowthThresholds(settingsResponse.data.school.petGrowth.thresholds);
+        }
       }
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : '萌宠图鉴加载失败');
@@ -99,7 +104,7 @@ export function PetsPage({
 
   useEffect(() => {
     void loadPets();
-  }, [token]);
+  }, [allowManage, token]);
   const rarityOptions = useMemo(
     () => Array.from(new Set(pets.map((item) => item.rarity).filter((item): item is string => Boolean(item)))),
     [pets],
@@ -291,6 +296,8 @@ export function PetsPage({
     if (!category) return PET_CATEGORY_META.other;
     const normalized = category.trim().toLowerCase();
     if (PET_CATEGORY_META[normalized]) return PET_CATEGORY_META[normalized];
+    if (normalized.includes('星宠')) return PET_CATEGORY_META.star;
+    if (normalized.includes('生肖')) return PET_CATEGORY_META.zodiac;
     if (normalized.includes('猫')) return PET_CATEGORY_META.cat;
     if (normalized.includes('狗') || normalized.includes('犬')) return PET_CATEGORY_META.dog;
     if (normalized.includes('兔')) return PET_CATEGORY_META.rabbit;
@@ -551,6 +558,8 @@ export function PetsPage({
             <label>
               <span>分类</span>
               <select value={form.category || 'cat'} onChange={(event) => setForm((prev) => ({ ...prev, category: event.target.value }))}>
+                <option value="star">星宠</option>
+                <option value="zodiac">十二生肖</option>
                 <option value="cat">猫咪系</option>
                 <option value="dog">犬类系</option>
                 <option value="rabbit">兔子系</option>

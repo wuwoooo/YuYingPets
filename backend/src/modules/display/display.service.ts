@@ -34,6 +34,25 @@ type ResolvedWeatherLocation = {
   longitude: number;
 };
 
+const PET_CATEGORY_PRIORITY: Record<string, number> = {
+  star: 0,
+  zodiac: 1,
+};
+
+function normalizePetCategory(category: string | null | undefined): string {
+  return (category ?? '').trim().toLowerCase();
+}
+
+function comparePetCatalogOrder(
+  left: { category: string | null; code: string },
+  right: { category: string | null; code: string },
+): number {
+  const leftPriority = PET_CATEGORY_PRIORITY[normalizePetCategory(left.category)] ?? 99;
+  const rightPriority = PET_CATEGORY_PRIORITY[normalizePetCategory(right.category)] ?? 99;
+  if (leftPriority !== rightPriority) return leftPriority - rightPriority;
+  return left.code.localeCompare(right.code, 'en', { numeric: true });
+}
+
 @Injectable()
 export class DisplayService {
   private readonly weatherCache = new Map<string, CachedDisplayWeather>();
@@ -163,6 +182,7 @@ export class DisplayService {
       },
       include: {
         homeroomTeacher: true,
+        classScoreProfile: true,
       },
     });
 
@@ -476,6 +496,7 @@ export class DisplayService {
           },
         },
         homeroomTeacher: true,
+        classScoreProfile: true,
       },
     });
 
@@ -512,6 +533,8 @@ export class DisplayService {
             (sum, item) => sum + (item.profile?.totalScore ?? 0),
             0,
           ),
+          classScore: classroom.classScoreProfile?.currentScore ?? 0,
+          classTotalScore: classroom.classScoreProfile?.totalScore ?? 0,
         },
         topStudents: topStudents.map((student) => ({
           id: toNumber(student.id),
@@ -785,6 +808,76 @@ export class DisplayService {
     return { code: 0, message: 'ok', data: { classId, type: type === 'pet-level' ? 'pet-level' : 'score', rows } };
   }
 
+  async classScoreRanking(classId: number) {
+    const currentClass = await this.prisma.classroom.findFirst({
+      where: {
+        id: BigInt(classId),
+        deletedAt: null,
+        status: 'enabled',
+      },
+      select: {
+        schoolId: true,
+        gradeCode: true,
+        gradeName: true,
+      },
+    });
+    if (!currentClass) {
+      throw new NotFoundException('班级不存在');
+    }
+
+    const classrooms = await this.prisma.classroom.findMany({
+      where: {
+        schoolId: currentClass.schoolId,
+        gradeCode: currentClass.gradeCode,
+        deletedAt: null,
+        status: 'enabled',
+      },
+      include: {
+        classScoreProfile: true,
+      },
+      orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+    });
+
+    const sortedRows = classrooms.sort((left, right) => {
+      const scoreDiff = (right.classScoreProfile?.currentScore ?? 0) - (left.classScoreProfile?.currentScore ?? 0);
+      if (scoreDiff !== 0) return scoreDiff;
+      return (left.sortOrder ?? 999999) - (right.sortOrder ?? 999999) || Number(left.id - right.id);
+    });
+
+    let lastScore: number | null = null;
+    let currentRank = 0;
+
+    const rows = sortedRows.map((row, index) => {
+      const currentScore = row.classScoreProfile?.currentScore ?? 0;
+      if (lastScore === null || currentScore !== lastScore) {
+        currentRank = index + 1;
+        lastScore = currentScore;
+      }
+      return {
+        rank: currentRank,
+        classId: toNumber(row.id),
+        className: row.name,
+        gradeCode: row.gradeCode,
+        gradeName: row.gradeName,
+        currentScore,
+        totalScore: row.classScoreProfile?.totalScore ?? 0,
+        lastScoreAt: row.classScoreProfile?.lastScoreAt ?? null,
+        isCurrentClass: row.id === BigInt(classId),
+      };
+    });
+
+    return {
+      code: 0,
+      message: 'ok',
+      data: {
+        classId,
+        gradeCode: currentClass.gradeCode,
+        gradeName: currentClass.gradeName,
+        rows,
+      },
+    };
+  }
+
   async petCatalog() {
     const [school, pets] = await Promise.all([
       this.prisma.school.findFirst({
@@ -801,15 +894,15 @@ export class DisplayService {
             orderBy: { stageNo: 'asc' },
           },
         },
-        orderBy: [{ category: 'asc' }, { code: 'asc' }],
       }),
     ]);
     const petGrowthThresholds = normalizePetGrowthThresholds(school?.petGrowthThresholds);
+    const sortedPets = [...pets].sort(comparePetCatalogOrder);
 
     return {
       code: 0,
       message: 'ok',
-      data: pets.map((pet) => ({
+      data: sortedPets.map((pet) => ({
         id: toNumber(pet.id),
         code: pet.code,
         name: pet.name,

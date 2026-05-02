@@ -32,6 +32,14 @@ export function canManageRewards(roleCode?: string | null) {
   return ['super_admin', 'school_admin', 'moral_admin'].includes(roleCode ?? '');
 }
 
+export function canManagePets(roleCode?: string | null) {
+  return ['super_admin', 'school_admin', 'moral_admin'].includes(roleCode ?? '');
+}
+
 export function canManageHonors(roleCode?: string | null) {
+  return ['super_admin', 'school_admin', 'moral_admin'].includes(roleCode ?? '');
+}
+
+export function canManageAdminConfig(roleCode?: string | null) {
   return ['super_admin', 'school_admin', 'moral_admin'].includes(roleCode ?? '');
 }

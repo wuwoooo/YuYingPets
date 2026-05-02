@@ -51,7 +51,7 @@ export function PresentationPage({
     };
   }, [navigate]);
 
-  const totalScore = classes.reduce((sum, item) => sum + item.currentScoreTotal, 0);
+  const totalScore = classes.reduce((sum, item) => sum + item.classScore, 0);
   const activeClasses = classes.filter((item) => item.displayStatus === 'enabled').length;
   const averagePetLevel =
     students.length > 0 ? (students.reduce((sum, item) => sum + item.currentPetLevel, 0) / students.length).toFixed(1) : '0.0';
@@ -68,7 +68,7 @@ export function PresentationPage({
 
   const gradeStats = useMemo(() => {
     const grouped = new Map<string, number>();
-    for (const item of classes) grouped.set(item.gradeName, (grouped.get(item.gradeName) ?? 0) + item.currentScoreTotal);
+    for (const item of classes) grouped.set(item.gradeName, (grouped.get(item.gradeName) ?? 0) + item.classScore);
     const rows = Array.from(grouped.entries()).map(([name, score]) => ({ name, score }));
     const max = Math.max(...rows.map((item) => item.score), 1);
     return rows.map((item, index) => ({
@@ -78,7 +78,7 @@ export function PresentationPage({
     }));
   }, [classes]);
 
-  const topClasses = useMemo(() => [...classes].sort((left, right) => right.currentScoreTotal - left.currentScoreTotal).slice(0, 3), [classes]);
+  const topClasses = useMemo(() => [...classes].sort((left, right) => right.classScore - left.classScore).slice(0, 3), [classes]);
   const topStudents = useMemo(() => [...students].sort((left, right) => right.currentScore - left.currentScore).slice(0, 3), [students]);
   const topHonors = useMemo(() => [...honors].sort((left, right) => right.grantedCount - left.grantedCount).slice(0, 3), [honors]);
   const topRewards = useMemo(() => [...rewards].sort((left, right) => left.scoreCost - right.scoreCost).slice(0, 3), [rewards]);
@@ -93,7 +93,7 @@ export function PresentationPage({
   }, [rules]);
 
   const trendPoints = useMemo(() => {
-    const values = [...classes].sort((left, right) => right.currentScoreTotal - left.currentScoreTotal).slice(0, 7).map((item) => item.currentScoreTotal).reverse();
+    const values = [...classes].sort((left, right) => right.classScore - left.classScore).slice(0, 7).map((item) => item.classScore).reverse();
     const source = values.length > 1 ? values : [120, 180, 150, 210, 260, 240, 300];
     const max = Math.max(...source, 1);
     const min = Math.min(...source, 0);
@@ -190,7 +190,7 @@ export function PresentationPage({
                 <div key={item.id} className="presentation-rank-item">
                   <span className={`presentation-rank-num top-${index + 1}`}>{index + 1}</span>
                   <span className="presentation-rank-name">{item.name}</span>
-                  <span className="presentation-rank-score">{item.currentScoreTotal} 分</span>
+                  <span className="presentation-rank-score">{item.classScore} 分</span>
                 </div>
               ))}
             </div>

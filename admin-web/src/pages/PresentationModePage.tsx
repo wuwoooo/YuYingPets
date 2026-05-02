@@ -45,7 +45,7 @@ export function PresentationModePage({
   const classFilter = searchParams.get('classId') || 'all';
   const returnTo = searchParams.get('returnTo');
 
-  const totalScore = classes.reduce((sum, item) => sum + item.currentScoreTotal, 0);
+  const totalScore = classes.reduce((sum, item) => sum + item.classScore, 0);
   const activeClasses = classes.filter((item) => item.displayStatus === 'enabled').length;
   const totalHonorsGranted = honors.reduce((sum, item) => sum + item.grantedCount, 0);
   const averagePetLevel = students.length > 0 ? Number((students.reduce((sum, item) => sum + item.currentPetLevel, 0) / students.length).toFixed(1)) : 0;
@@ -142,7 +142,7 @@ export function PresentationModePage({
 
   const gradeStats = useMemo(() => {
     const grouped = new Map<string, number>();
-    for (const item of classes) grouped.set(item.gradeName, (grouped.get(item.gradeName) ?? 0) + item.currentScoreTotal);
+    for (const item of classes) grouped.set(item.gradeName, (grouped.get(item.gradeName) ?? 0) + item.classScore);
     const rows = Array.from(grouped.entries()).map(([name, score]) => ({ name, score }));
     const max = Math.max(...rows.map((item) => item.score), 1);
     return rows.map((item, index) => ({
@@ -152,12 +152,12 @@ export function PresentationModePage({
     }));
   }, [classes]);
 
-  const topClasses = useMemo(() => [...classes].sort((left, right) => right.currentScoreTotal - left.currentScoreTotal).slice(0, 3), [classes]);
+  const topClasses = useMemo(() => [...classes].sort((left, right) => right.classScore - left.classScore).slice(0, 3), [classes]);
   const topStudents = useMemo(() => [...students].sort((left, right) => right.currentScore - left.currentScore).slice(0, 3), [students]);
   const topHonors = useMemo(() => [...honors].sort((left, right) => right.grantedCount - left.grantedCount).slice(0, 4), [honors]);
   const alerts = useMemo(() => {
     const lowClasses = [...classes]
-      .sort((left, right) => left.currentScoreTotal - right.currentScoreTotal)
+      .sort((left, right) => left.classScore - right.classScore)
       .slice(0, 2)
       .map((item) => ({ type: 'warn' as const, text: `${item.name} 当前积分偏低，建议提升班级激励频率` }));
     const noPetStudents = students.filter((item) => !item.pet).length;
@@ -203,7 +203,7 @@ export function PresentationModePage({
     const items = [
       ...topStudents.map((item) => `${item.name} · ${item.className} 当前积分达到 ${item.currentScore} 分`),
       ...topHonors.map((item) => `${item.name} 本周累计颁发 ${item.grantedCount} 人次`),
-      ...topClasses.map((item) => `${item.name} 班级积分达到 ${item.currentScoreTotal} 分`),
+      ...topClasses.map((item) => `${item.name} 班级积分达到 ${item.classScore} 分`),
     ];
     return [...items, ...items];
   }, [topClasses, topHonors, topStudents]);
@@ -232,7 +232,7 @@ export function PresentationModePage({
     return Array.from(grouped.entries()).sort((left, right) => right[1] - left[1]).slice(0, 4);
   }, [rules]);
   const trendPoints = useMemo(() => {
-    const values = [...classes].sort((left, right) => right.currentScoreTotal - left.currentScoreTotal).slice(0, 7).map((item) => item.currentScoreTotal).reverse();
+    const values = [...classes].sort((left, right) => right.classScore - left.classScore).slice(0, 7).map((item) => item.classScore).reverse();
     const source = values.length > 1 ? values : [120, 180, 150, 210, 260, 240, 300];
     const max = Math.max(...source, 1);
     const min = Math.min(...source, 0);
@@ -355,7 +355,7 @@ export function PresentationModePage({
                 <div key={item.id} className="presentation-rank-item" style={{ ['--rank-glow' as string]: index === 0 ? 'rgba(240,180,41,.3)' : index === 1 ? 'rgba(136,153,170,.2)' : 'rgba(230,126,34,.2)' }}>
                   <span className={`presentation-rank-num top-${index + 1}`}>{index + 1}</span>
                   <span className="presentation-rank-name">{item.name}</span>
-                  <span className="presentation-rank-score">{item.currentScoreTotal} 分</span>
+                  <span className="presentation-rank-score">{item.classScore} 分</span>
                 </div>
               ))}
             </div>

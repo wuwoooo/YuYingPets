@@ -95,6 +95,7 @@ export function createRuleForm(defaultSemesterId?: number, row?: ScoreRule): Rul
     code: row?.code ?? '',
     name: row?.name ?? '',
     scoreType: row?.scoreType ?? 'add',
+    scoreTarget: row?.scoreTarget ?? 'student',
     scoreValue: row?.scoreValue === undefined ? '2' : String(row.scoreValue),
     dimension: row?.dimension ?? resolveRuleDimension(row?.sceneCode, row?.scoreType ?? 'add'),
     tag: row?.tag ?? '',

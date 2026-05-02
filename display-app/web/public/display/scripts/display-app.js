@@ -260,6 +260,8 @@ const PET_STAGE_COUNT = 10;
 
 const PET_FAMILY_OPTIONS = [
   { key: "all", label: "全部" },
+  { key: "star", label: "星宠" },
+  { key: "zodiac", label: "十二生肖" },
   { key: "cat", label: "猫咪系" },
   { key: "dog", label: "犬类系" },
   { key: "rabbit", label: "兔子系" },
@@ -269,6 +271,8 @@ const PET_FAMILY_OPTIONS = [
 ];
 
 const PET_CATEGORY_META = {
+  star: { family: "star", label: "星宠" },
+  zodiac: { family: "zodiac", label: "十二生肖" },
   cat: { family: "cat", label: "猫咪系" },
   dog: { family: "dog", label: "犬类系" },
   rabbit: { family: "rabbit", label: "兔子系" },
@@ -327,6 +331,23 @@ let adoptTargetName = null;
 let currentProfileStudent = null;
 let currentAllHistoryRecords = [];
 let currentPetProfileRecords = [];
+const petPkState = {
+  cleanup: null,
+  proxyEl: null,
+  proxyFrame: 0,
+  proxyX: 0,
+  proxyY: 0,
+  proxyLocked: false,
+  dragAtmosphereEl: null,
+  targetLockEl: null,
+  sourceCard: null,
+  sourceTrigger: null,
+  hoverTargetCard: null,
+  overlayTimer: null,
+  countdownTimers: [],
+  audioCtx: null,
+  lastHoverName: "",
+};
 const adoptModalState = {
   family: "all",
   selectedPetCode: null,
@@ -985,7 +1006,7 @@ function renderStudentGrid() {
       const qn = s.name.replace(/'/g, "\\'");
       const avatarBlock = noPet
         ? `<div class="card-nameplate card-nameplate--empty" role="button" tabindex="0" title="点击领养萌宠" onclick="event.stopPropagation();openAdoptModal('${qn}')"><span class="card-nameplate-placeholder">待领养</span></div>`
-        : `<button type="button" class="card-pet-trigger" title="查看萌宠档案" onclick="event.stopPropagation();openPetProfileByName('${qn}')"><img class="card-pet-img" src="${petImg(s)}" alt="${escapeHtml(s.petName || `${s.name}的萌宠`)}" loading="lazy" onerror="this.src='images/logo.svg'"></button>`;
+        : `<button type="button" class="card-pet-trigger" title="查看萌宠档案" data-student-name="${escName(s.name)}"><img class="card-pet-img" src="${petImg(s)}" alt="${escapeHtml(s.petName || `${s.name}的萌宠`)}" loading="lazy" draggable="false" onerror="this.src='images/logo.svg'"></button>`;
       return `
       <div class="student-card ${rankClass}${noPetClass}${batchCls}${modeCls}" data-student-id="${s.id ?? ""}" data-student-name="${escName(s.name)}">
         ${topRight}
@@ -1000,6 +1021,489 @@ function renderStudentGrid() {
       </div>`;
     })
     .join("");
+  initPetPkInteractions();
+}
+
+function initPetPkInteractions() {
+  document.querySelectorAll(".card-pet-trigger").forEach((trigger) => {
+    if (trigger.dataset.pkBound === "1") return;
+    trigger.dataset.pkBound = "1";
+
+    trigger.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (trigger.dataset.pkSuppressClick === "1") {
+        trigger.dataset.pkSuppressClick = "0";
+        return;
+      }
+      const studentName = trigger.dataset.studentName || "";
+      if (studentName) {
+        openPetProfileByName(studentName);
+      }
+    });
+
+    trigger.addEventListener("pointerdown", (event) => {
+      if (event.button !== undefined && event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      startPetPkDrag(trigger, event);
+    });
+    trigger.addEventListener("dragstart", (event) => {
+      event.preventDefault();
+    });
+  });
+}
+
+function clearPetPkHoverTarget() {
+  if (petPkState.hoverTargetCard) {
+    petPkState.hoverTargetCard.classList.remove("pk-drop-ready");
+    petPkState.hoverTargetCard = null;
+  }
+  if (petPkState.targetLockEl) {
+    petPkState.targetLockEl.classList.remove("active");
+  }
+  petPkState.lastHoverName = "";
+}
+
+function clearPetPkSource() {
+  petPkState.sourceCard?.classList.remove("pk-source-active");
+  petPkState.sourceTrigger?.classList.remove("pk-drag-origin");
+  petPkState.sourceCard = null;
+  petPkState.sourceTrigger = null;
+}
+
+function removePetPkProxy() {
+  if (petPkState.proxyFrame) {
+    window.cancelAnimationFrame(petPkState.proxyFrame);
+    petPkState.proxyFrame = 0;
+  }
+  petPkState.proxyEl?.remove();
+  petPkState.proxyEl = null;
+}
+
+function ensurePetPkDragAtmosphere() {
+  if (petPkState.dragAtmosphereEl) return petPkState.dragAtmosphereEl;
+  const atmosphere = document.createElement("div");
+  atmosphere.className = "pet-pk-drag-atmosphere";
+  atmosphere.innerHTML = `
+    <span class="pet-pk-drag-bolt bolt-1"></span>
+    <span class="pet-pk-drag-bolt bolt-2"></span>
+    <span class="pet-pk-drag-bolt bolt-3"></span>
+    <span class="pet-pk-drag-bolt bolt-4"></span>
+  `;
+  document.body.appendChild(atmosphere);
+  petPkState.dragAtmosphereEl = atmosphere;
+  return atmosphere;
+}
+
+function updatePetPkDragAtmosphere(clientX, clientY, locked = false) {
+  const atmosphere = ensurePetPkDragAtmosphere();
+  atmosphere.style.setProperty("--pk-x", `${Math.round(clientX)}px`);
+  atmosphere.style.setProperty("--pk-y", `${Math.round(clientY)}px`);
+  atmosphere.classList.add("active");
+  atmosphere.classList.toggle("locked", Boolean(locked));
+}
+
+function clearPetPkDragAtmosphere() {
+  if (!petPkState.dragAtmosphereEl) return;
+  petPkState.dragAtmosphereEl.classList.remove("active", "locked");
+}
+
+function finishPetPkDrag() {
+  if (typeof petPkState.cleanup === "function") {
+    petPkState.cleanup();
+  }
+  petPkState.cleanup = null;
+  clearPetPkDragAtmosphere();
+  clearPetPkHoverTarget();
+  clearPetPkSource();
+  removePetPkProxy();
+}
+
+function playPkTone(kind = "hover") {
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtx) return;
+  if (!petPkState.audioCtx) {
+    petPkState.audioCtx = new AudioCtx();
+  }
+  const ctx = petPkState.audioCtx;
+  if (ctx.state === "suspended") {
+    ctx.resume().catch(() => {});
+  }
+  const now = ctx.currentTime;
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = kind === "impact" ? "triangle" : "sine";
+  osc.frequency.setValueAtTime(kind === "impact" ? 220 : 540, now);
+  osc.frequency.exponentialRampToValueAtTime(
+    kind === "impact" ? 92 : 760,
+    now + (kind === "impact" ? 0.18 : 0.08),
+  );
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.exponentialRampToValueAtTime(
+    kind === "impact" ? 0.045 : 0.018,
+    now + 0.015,
+  );
+  gain.gain.exponentialRampToValueAtTime(
+    0.0001,
+    now + (kind === "impact" ? 0.22 : 0.1),
+  );
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.start(now);
+  osc.stop(now + (kind === "impact" ? 0.24 : 0.12));
+}
+
+function triggerCardPkImpact(card) {
+  if (!card) return;
+  card.classList.remove("pk-impact-burst");
+  void card.offsetWidth;
+  card.classList.add("pk-impact-burst");
+  window.setTimeout(() => {
+    card.classList.remove("pk-impact-burst");
+  }, 460);
+}
+
+function clearPetPkCountdownTimers() {
+  petPkState.countdownTimers.forEach((timer) => window.clearTimeout(timer));
+  petPkState.countdownTimers = [];
+}
+
+function animatePkCountText(nextValue) {
+  const countEl = document.getElementById("petPkCount");
+  if (!countEl) return;
+  countEl.classList.remove("animate");
+  void countEl.offsetWidth;
+  countEl.textContent = nextValue;
+  countEl.classList.add("animate");
+}
+
+function ensurePetPkTargetLock() {
+  if (petPkState.targetLockEl) return petPkState.targetLockEl;
+  const lock = document.createElement("div");
+  lock.className = "pet-pk-target-lock";
+  lock.innerHTML = `
+    <span class="pet-pk-target-lock-corner tl"></span>
+    <span class="pet-pk-target-lock-corner tr"></span>
+    <span class="pet-pk-target-lock-corner bl"></span>
+    <span class="pet-pk-target-lock-corner br"></span>
+  `;
+  document.body.appendChild(lock);
+  petPkState.targetLockEl = lock;
+  return lock;
+}
+
+function updatePetPkTargetLock(card) {
+  const lock = ensurePetPkTargetLock();
+  const rect = card.getBoundingClientRect();
+  lock.style.width = `${rect.width + 12}px`;
+  lock.style.height = `${rect.height + 12}px`;
+  lock.style.transform = `translate3d(${rect.left - 6}px, ${rect.top - 6}px, 0) scale(1)`;
+  lock.classList.add("active");
+}
+
+function getStudentByCard(card) {
+  const studentName = card?.getAttribute?.("data-student-name") || "";
+  return students.find((item) => item.name === studentName) || null;
+}
+
+function updatePetPkHoverTarget(sourceCard, clientX, clientY) {
+  const visibleCards = Array.from(document.querySelectorAll(".page.active .student-card"));
+  const geometryTarget =
+    visibleCards.find((card) => {
+      if (card === sourceCard || !card.querySelector(".card-pet-trigger")) return false;
+      const rect = card.getBoundingClientRect();
+      return (
+        clientX >= rect.left &&
+        clientX <= rect.right &&
+        clientY >= rect.top &&
+        clientY <= rect.bottom
+      );
+    }) || null;
+  const stack = geometryTarget ? [] : document.elementsFromPoint(clientX, clientY);
+  const targetCard =
+    geometryTarget ||
+    stack.find((node) => {
+      if (!(node instanceof Element)) return false;
+      const card = node.closest?.(".student-card");
+      return card && card !== sourceCard;
+    })?.closest?.(".student-card") || null;
+  const validTarget =
+    targetCard &&
+    targetCard !== sourceCard &&
+    targetCard.querySelector(".card-pet-trigger")
+      ? targetCard
+      : null;
+
+  if (petPkState.hoverTargetCard === validTarget) {
+    return validTarget;
+  }
+
+  clearPetPkHoverTarget();
+
+  if (validTarget) {
+    validTarget.classList.add("pk-drop-ready");
+    petPkState.hoverTargetCard = validTarget;
+    updatePetPkTargetLock(validTarget);
+    const hoverName = validTarget.getAttribute("data-student-name") || "";
+    if (hoverName && hoverName !== petPkState.lastHoverName) {
+      petPkState.lastHoverName = hoverName;
+      playPkTone("hover");
+    }
+  }
+
+  return validTarget;
+}
+
+function schedulePetPkProxyTransform() {
+  if (petPkState.proxyFrame) return;
+  petPkState.proxyFrame = window.requestAnimationFrame(() => {
+    petPkState.proxyFrame = 0;
+    const proxy = petPkState.proxyEl;
+    if (!proxy) return;
+    const scale = petPkState.proxyLocked ? 1.16 : 1.04;
+    const rotate = petPkState.proxyLocked ? 0 : -4;
+    proxy.classList.toggle("locked", petPkState.proxyLocked);
+    proxy.style.transform = `translate3d(${petPkState.proxyX}px, ${petPkState.proxyY}px, 0) scale(${scale}) rotate(${rotate}deg)`;
+  });
+}
+
+function ensurePetPkProxy(trigger, clientX, clientY, locked = false) {
+  petPkState.proxyX = clientX;
+  petPkState.proxyY = clientY;
+  petPkState.proxyLocked = Boolean(locked);
+  if (petPkState.proxyEl) {
+    schedulePetPkProxyTransform();
+    return;
+  }
+  const image = trigger.querySelector(".card-pet-img");
+  const proxy = document.createElement("div");
+  proxy.className = "pet-pk-drag-proxy";
+  proxy.innerHTML = `<img src="${image?.getAttribute("src") || "images/logo.svg"}" alt="">`;
+  document.body.appendChild(proxy);
+  petPkState.proxyEl = proxy;
+  schedulePetPkProxyTransform();
+}
+
+function getPetPkPower(student) {
+  const pts = Number(student?.pts || 0);
+  const lv = Number(student?.lv || 0);
+  const medals = Number(student?.medals || 0);
+  return pts + lv * 36 + medals * 18;
+}
+
+function getPetPkResult(sourceStudent, targetStudent) {
+  const sourcePower = getPetPkPower(sourceStudent);
+  const targetPower = getPetPkPower(targetStudent);
+  const sourceMeta = `${sourceStudent.name}：${sourcePower} 战力`;
+  const targetMeta = `${targetStudent.name}：${targetPower} 战力`;
+
+  if (sourcePower === targetPower) {
+    return {
+      side: "draw",
+      title: "势均力敌",
+      name: "平局",
+      meta: `${sourceMeta} · ${targetMeta}`,
+    };
+  }
+
+  const sourceWins = sourcePower > targetPower;
+  const winner = sourceWins ? sourceStudent : targetStudent;
+  const winnerPower = sourceWins ? sourcePower : targetPower;
+  const loserPower = sourceWins ? targetPower : sourcePower;
+  return {
+    side: sourceWins ? "left" : "right",
+    title: "胜者诞生",
+    name: winner.name || "胜利方",
+    meta: `${winner.petName || "萌宠"} 以 ${winnerPower} 战力胜出 · 领先 ${winnerPower - loserPower}`,
+  };
+}
+
+function playPetPkAnimation(sourceStudent, targetStudent) {
+  const overlay = document.getElementById("petPkOverlay");
+  const leftImg = document.getElementById("petPkLeftImg");
+  const rightImg = document.getElementById("petPkRightImg");
+  const leftStudent = document.getElementById("petPkLeftStudent");
+  const rightStudent = document.getElementById("petPkRightStudent");
+  const badgeEl = document.getElementById("petPkBadge");
+  const countEl = document.getElementById("petPkCount");
+  const resultEl = document.getElementById("petPkResult");
+  const resultTitleEl = document.getElementById("petPkResultTitle");
+  const resultNameEl = document.getElementById("petPkResultName");
+  const resultMetaEl = document.getElementById("petPkResultMeta");
+
+  if (
+    !overlay ||
+    !leftImg ||
+    !rightImg ||
+    !leftStudent ||
+    !rightStudent ||
+    !badgeEl ||
+    !countEl ||
+    !resultEl ||
+    !resultTitleEl ||
+    !resultNameEl ||
+    !resultMetaEl
+  ) {
+    return;
+  }
+
+  clearPetPkCountdownTimers();
+  window.clearTimeout(petPkState.overlayTimer);
+  overlay.classList.remove("active");
+  overlay.classList.remove("countdown-active");
+  overlay.classList.remove("impact-active");
+  overlay.classList.remove("climax-active");
+  overlay.classList.remove("result-active");
+  overlay.classList.remove("winner-left");
+  overlay.classList.remove("winner-right");
+  overlay.classList.remove("winner-draw");
+  void overlay.offsetWidth;
+
+  leftImg.onerror = () => {
+    leftImg.onerror = null;
+    leftImg.src = "images/logo.svg";
+  };
+  rightImg.onerror = () => {
+    rightImg.onerror = null;
+    rightImg.src = "images/logo.svg";
+  };
+  leftImg.src = petImg(sourceStudent);
+  leftImg.alt = sourceStudent.petName || `${sourceStudent.name}的萌宠`;
+  rightImg.src = petImg(targetStudent);
+  rightImg.alt = targetStudent.petName || `${targetStudent.name}的萌宠`;
+  leftStudent.textContent = sourceStudent.name || "";
+  rightStudent.textContent = targetStudent.name || "";
+
+  const result = getPetPkResult(sourceStudent, targetStudent);
+  resultTitleEl.textContent = result.title;
+  resultNameEl.textContent = result.name;
+  resultMetaEl.textContent = result.meta;
+  resultEl.setAttribute("aria-hidden", "true");
+
+  overlay.classList.add("active");
+  overlay.classList.add("countdown-active");
+  badgeEl.textContent = "PK";
+  animatePkCountText("3");
+  playPkTone("hover");
+
+  petPkState.countdownTimers.push(
+    window.setTimeout(() => {
+      animatePkCountText("2");
+      playPkTone("hover");
+    }, 650),
+  );
+  petPkState.countdownTimers.push(
+    window.setTimeout(() => {
+      animatePkCountText("1");
+      playPkTone("hover");
+    }, 1300),
+  );
+  petPkState.countdownTimers.push(
+    window.setTimeout(() => {
+      badgeEl.textContent = "PK";
+      animatePkCountText("GO");
+      overlay.classList.remove("countdown-active");
+      overlay.classList.add("impact-active");
+      playPkTone("impact");
+    }, 1950),
+  );
+  petPkState.countdownTimers.push(
+    window.setTimeout(() => {
+      overlay.classList.add("climax-active");
+      playPkTone("impact");
+    }, 3000),
+  );
+  petPkState.countdownTimers.push(
+    window.setTimeout(() => {
+      overlay.classList.remove("countdown-active");
+      overlay.classList.remove("impact-active");
+      overlay.classList.remove("climax-active");
+      overlay.classList.add("result-active");
+      overlay.classList.add(`winner-${result.side}`);
+      resultEl.setAttribute("aria-hidden", "false");
+      playPkTone(result.side === "draw" ? "hover" : "impact");
+    }, 4300),
+  );
+  petPkState.overlayTimer = window.setTimeout(() => {
+    overlay.classList.remove("active");
+    overlay.classList.remove("countdown-active");
+    overlay.classList.remove("impact-active");
+    overlay.classList.remove("climax-active");
+    overlay.classList.remove("result-active");
+    overlay.classList.remove("winner-left");
+    overlay.classList.remove("winner-right");
+    overlay.classList.remove("winner-draw");
+    resultEl.setAttribute("aria-hidden", "true");
+  }, 6900);
+}
+
+function startPetPkDrag(trigger, event) {
+  if (petPkState.cleanup) {
+    finishPetPkDrag();
+  }
+
+  const sourceCard = trigger.closest(".student-card");
+  const studentName = trigger.dataset.studentName || "";
+  if (!sourceCard || !studentName) return;
+
+  const sourceStudent = students.find((item) => item.name === studentName);
+  if (!sourceStudent || sourceStudent.hasPet === false) return;
+
+  let moved = false;
+  let dragStarted = false;
+  const startX = event.clientX;
+  const startY = event.clientY;
+  const moveThreshold = 14;
+
+  petPkState.sourceCard = sourceCard;
+  petPkState.sourceTrigger = trigger;
+
+  const onMove = (moveEvent) => {
+    const clientX = moveEvent.clientX;
+    const clientY = moveEvent.clientY;
+    const deltaX = clientX - startX;
+    const deltaY = clientY - startY;
+    const distance = Math.hypot(deltaX, deltaY);
+
+    if (!dragStarted && distance < moveThreshold) {
+      return;
+    }
+
+    dragStarted = true;
+    moved = true;
+    moveEvent.preventDefault();
+    trigger.dataset.pkSuppressClick = "1";
+    sourceCard.classList.add("pk-source-active");
+    trigger.classList.add("pk-drag-origin");
+
+    const targetCard = updatePetPkHoverTarget(sourceCard, clientX, clientY);
+    updatePetPkDragAtmosphere(clientX, clientY, Boolean(targetCard));
+    ensurePetPkProxy(trigger, clientX, clientY, Boolean(targetCard));
+  };
+
+  const onEnd = () => {
+    const targetName =
+      petPkState.hoverTargetCard?.getAttribute("data-student-name") || "";
+    const targetStudent = students.find((item) => item.name === targetName);
+
+    finishPetPkDrag();
+
+    if (moved && targetStudent && targetStudent.hasPet !== false) {
+      playPetPkAnimation(sourceStudent, targetStudent);
+    }
+  };
+
+  const cleanup = () => {
+    document.removeEventListener("pointermove", onMove);
+    document.removeEventListener("pointerup", onEnd);
+    document.removeEventListener("pointercancel", onEnd);
+  };
+
+  petPkState.cleanup = cleanup;
+  document.addEventListener("pointermove", onMove, { passive: false });
+  document.addEventListener("pointerup", onEnd);
+  document.addEventListener("pointercancel", onEnd);
 }
 
 function queuePetUpgradeAnimations(upgrades) {
@@ -1281,6 +1785,7 @@ function navigateTo(key) {
   });
   if (key === "login") {
     setLoginMessage("");
+    hydrateLoginCredentials();
   }
   if (key === "entry") {
     runtimeState.lockOverlayForced = false;
@@ -1695,6 +2200,19 @@ function makeInteractive(card) {
     moveY = 0;
   let isDragging = false;
   let hasMoved = false;
+  let pkSourceStudent = null;
+  let lastMagneticTarget = null;
+  let dragFrame = 0;
+  let pendingDragTransform = "";
+
+  const applyDragTransform = (transformValue) => {
+    pendingDragTransform = transformValue;
+    if (dragFrame) return;
+    dragFrame = window.requestAnimationFrame(() => {
+      dragFrame = 0;
+      card.style.transform = pendingDragTransform;
+    });
+  };
 
   card.addEventListener("mousemove", (e) => {
     if (isDragging) return;
@@ -1728,6 +2246,9 @@ function makeInteractive(card) {
       return;
     isDragging = true;
     hasMoved = false;
+    pkSourceStudent = card.classList.contains("student-card")
+      ? getStudentByCard(card)
+      : null;
     card.classList.remove("snapping");
     card.classList.add("dragging");
 
@@ -1753,9 +2274,32 @@ function makeInteractive(card) {
     moveX = clientX - startX;
     moveY = clientY - startY;
 
-    const rotZ = moveX * 0.08;
+    let scaleBoost = 1.08;
+    let rotZ = Math.max(-9, Math.min(9, moveX * 0.045));
 
-    card.style.transform = `translate(${moveX}px, ${moveY}px) rotateZ(${rotZ}deg) scale(1.08)`;
+    if (
+      pkSourceStudent &&
+      pkSourceStudent.hasPet !== false &&
+      !batchMode
+    ) {
+      card.classList.add("pk-source-active");
+      const magneticTarget = updatePetPkHoverTarget(card, clientX, clientY);
+      updatePetPkDragAtmosphere(clientX, clientY, Boolean(magneticTarget));
+      if (magneticTarget) {
+        const targetRect = magneticTarget.getBoundingClientRect();
+        const targetCenterX = targetRect.left + targetRect.width / 2;
+        const dx = targetCenterX - clientX;
+        scaleBoost = 1.11;
+        rotZ += Math.max(-4, Math.min(4, dx * 0.01));
+        card.classList.add("pk-magnetic");
+        lastMagneticTarget = magneticTarget;
+      } else {
+        card.classList.remove("pk-magnetic");
+        lastMagneticTarget = null;
+      }
+    }
+
+    applyDragTransform(`translate(${moveX}px, ${moveY}px) rotateZ(${rotZ}deg) scale(${scaleBoost})`);
   };
 
   const onEnd = () => {
@@ -1768,17 +2312,40 @@ function makeInteractive(card) {
 
     // 修复 Bug：无论拖拽还是点击，都必须移除 dragging 状态
     card.classList.remove("dragging");
+    card.classList.remove("pk-source-active");
+    card.classList.remove("pk-magnetic");
+    lastMagneticTarget = null;
+
+    const targetCard = petPkState.hoverTargetCard;
+    const targetStudent =
+      pkSourceStudent && targetCard
+        ? getStudentByCard(targetCard)
+        : null;
+    clearPetPkDragAtmosphere();
+    clearPetPkHoverTarget();
 
     if (hasMoved) {
       card.classList.add("snapping");
 
       moveX = 0;
       moveY = 0;
-      card.style.transform = `translate(0px, 0px) perspective(1000px) rotateX(0deg) rotateY(0deg) scale(1)`;
+      applyDragTransform(`translate(0px, 0px) perspective(1000px) rotateX(0deg) rotateY(0deg) scale(1)`);
 
       setTimeout(() => {
         card.classList.remove("snapping");
       }, 600);
+
+      if (
+        pkSourceStudent &&
+        pkSourceStudent.hasPet !== false &&
+        targetStudent &&
+        targetStudent.hasPet !== false &&
+        targetStudent.name !== pkSourceStudent.name
+      ) {
+        triggerCardPkImpact(card);
+        triggerCardPkImpact(targetCard);
+        playPetPkAnimation(pkSourceStudent, targetStudent);
+      }
     } else {
       const name = card.getAttribute("data-student-name");
       if (name !== null) {
@@ -1790,6 +2357,7 @@ function makeInteractive(card) {
         }
       }
     }
+    pkSourceStudent = null;
   };
 
   card.addEventListener("mousedown", onStart);
@@ -2248,6 +2816,8 @@ const runtimeState = {
   setupStep: 1,
   setupMode: "initialize",
   selectedSetupClassId: null,
+  selectedSetupGradeName: "",
+  setupClassGridDrag: null,
   socket: null,
   subscribedClassId: null,
   subscribedDisplayCode: null,
@@ -2280,6 +2850,9 @@ const DISPLAY_SCENE_LABELS = {
   self_study: "自习",
   activity: "活动",
 };
+
+const DISPLAY_LOGIN_CREDENTIALS_KEY =
+  "yuyingpets_display_login_credentials";
 
 function getShellLocation() {
   return window.location;
@@ -2375,6 +2948,45 @@ function setLoginMessage(message, type = "error") {
   el.style.color = type === "success" ? "#1e8e5a" : "#d64343";
 }
 
+function getStoredLoginCredentials() {
+  const raw = localStorage.getItem(DISPLAY_LOGIN_CREDENTIALS_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (
+      typeof parsed?.username !== "string" ||
+      typeof parsed?.password !== "string"
+    ) {
+      return null;
+    }
+    return {
+      username: parsed.username,
+      password: parsed.password,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function setStoredLoginCredentials(username, password) {
+  localStorage.setItem(
+    DISPLAY_LOGIN_CREDENTIALS_KEY,
+    JSON.stringify({
+      username,
+      password,
+    }),
+  );
+}
+
+function hydrateLoginCredentials() {
+  const stored = getStoredLoginCredentials();
+  if (!stored) return;
+  const usernameInput = document.getElementById("loginUsername");
+  const passwordInput = document.getElementById("loginPassword");
+  if (usernameInput) usernameInput.value = stored.username;
+  if (passwordInput) passwordInput.value = stored.password;
+}
+
 function setPersistentToken(token) {
   runtimeState.token = token || "";
   if (token) {
@@ -2446,12 +3058,22 @@ function getGroupOptions() {
 function connectRealtime() {
   if (runtimeState.socket || typeof window.io !== "function") return;
   const socket = window.io(`${getSocketBase()}/ws`, {
-    transports: ["websocket"],
+    transports: ["websocket", "polling"],
+    reconnection: true,
+    reconnectionAttempts: Infinity,
+    reconnectionDelay: 1000,
+    reconnectionDelayMax: 5000,
   });
   runtimeState.socket = socket;
 
   socket.on("connect", () => {
     subscribeRealtimeRooms();
+  });
+  socket.on("connect_error", (error) => {
+    console.warn("[display-realtime] connect_error:", error?.message || error);
+  });
+  socket.on("disconnect", (reason) => {
+    console.warn("[display-realtime] disconnected:", reason);
   });
 
   [
@@ -2584,8 +3206,8 @@ function syncSetupMode() {
       : "为保证终端绑定安全，只有超级管理员可完成首次启用和后续改绑。授权成功后，即可继续选择本终端要绑定的班级。",
     bindTitle: isRebind ? "选择新的默认展示班级" : "选择本终端要进入的班级",
     bindDesc: isRebind
-      ? "确认后，当前终端会切换为新班级的大屏展示端。后续仍可由超级管理员再次修改绑定。"
-      : "绑定成功后，这块大屏默认会进入对应班级的展示页。后续仍可由超级管理员重新修改绑定。",
+      ? "请先筛选年级，再勾选要绑定的班级。确认后，当前终端会切换为新班级的大屏展示端。"
+      : "请先筛选年级，再勾选要绑定的班级。绑定成功后，这块大屏默认会进入对应班级的展示页。",
     bindAction: isRebind ? "确认重新绑定" : "确认绑定并启用终端",
     successTitle: isRebind ? "终端重新绑定完成" : "终端初始化完成",
   };
@@ -2645,25 +3267,170 @@ async function openTerminalRebind() {
 function closeTerminalRebind() {
   runtimeState.setupMode = "initialize";
   runtimeState.setupAdminToken = "";
+  runtimeState.selectedSetupGradeName = "";
   setSetupMessage("setupAdminMessage", "");
   setSetupMessage("setupBindMessage", "");
   syncSetupMode();
   navigateTo("entry");
 }
 
+function normalizeGradeName(row) {
+  return String(row?.gradeName || "未设置年级").trim() || "未设置年级";
+}
+
+function getSetupGradeNames() {
+  const seen = new Set();
+  return runtimeState.availableClasses
+    .map((row) => normalizeGradeName(row))
+    .filter((gradeName) => {
+      if (seen.has(gradeName)) return false;
+      seen.add(gradeName);
+      return true;
+    });
+}
+
+function getFilteredSetupClasses() {
+  if (!runtimeState.selectedSetupGradeName) {
+    return [];
+  }
+  return runtimeState.availableClasses.filter(
+    (row) => normalizeGradeName(row) === runtimeState.selectedSetupGradeName,
+  );
+}
+
+function ensureSelectedSetupGrade() {
+  const gradeNames = getSetupGradeNames();
+  const selectedRow = runtimeState.availableClasses.find(
+    (row) => Number(row.id) === Number(runtimeState.selectedSetupClassId),
+  );
+  if (selectedRow) {
+    runtimeState.selectedSetupGradeName = normalizeGradeName(selectedRow);
+    return;
+  }
+  if (
+    runtimeState.selectedSetupGradeName &&
+    gradeNames.includes(runtimeState.selectedSetupGradeName)
+  ) {
+    return;
+  }
+  runtimeState.selectedSetupGradeName = gradeNames[0] || "";
+}
+
+function renderSetupGradeFilter() {
+  const wrap = document.getElementById("setupGradeFilter");
+  if (!wrap) return;
+  const gradeNames = getSetupGradeNames();
+  if (gradeNames.length === 0) {
+    wrap.innerHTML = '<div class="setup-empty">暂无可绑定班级</div>';
+    return;
+  }
+  wrap.innerHTML = gradeNames
+    .map((gradeName) => {
+      const count = runtimeState.availableClasses.filter(
+        (row) => normalizeGradeName(row) === gradeName,
+      ).length;
+      return `
+        <button
+          type="button"
+          class="setup-grade-chip ${runtimeState.selectedSetupGradeName === gradeName ? "active" : ""}"
+          onclick="selectSetupGrade(${escapeHtml(JSON.stringify(gradeName))})"
+        >
+          <span>${escapeHtml(gradeName)}</span>
+          <b>${count}</b>
+        </button>`;
+    })
+    .join("");
+}
+
+function selectSetupGrade(gradeName) {
+  runtimeState.selectedSetupGradeName = gradeName;
+  const filtered = getFilteredSetupClasses();
+  if (
+    !filtered.some(
+      (row) => Number(row.id) === Number(runtimeState.selectedSetupClassId),
+    )
+  ) {
+    runtimeState.selectedSetupClassId = null;
+  }
+  renderSetupClassGrid();
+}
+
+function bindSetupClassGridDrag() {
+  const wrap = document.getElementById("setupClassGrid");
+  if (!wrap || runtimeState.setupClassGridDrag === wrap) return;
+  runtimeState.setupClassGridDrag = wrap;
+  let pointerId = null;
+  let isPointerDown = false;
+  let isDragging = false;
+  let didDrag = false;
+  let startY = 0;
+  let startScrollTop = 0;
+
+  wrap.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || wrap.scrollHeight <= wrap.clientHeight) return;
+    pointerId = event.pointerId;
+    isPointerDown = true;
+    isDragging = false;
+    didDrag = false;
+    startY = event.clientY;
+    startScrollTop = wrap.scrollTop;
+  });
+  wrap.addEventListener("pointermove", (event) => {
+    if (!isPointerDown || event.pointerId !== pointerId) return;
+    if (Math.abs(event.clientY - startY) > 4) {
+      didDrag = true;
+      isDragging = true;
+      wrap.classList.add("dragging");
+      wrap.setPointerCapture?.(event.pointerId);
+    }
+    if (!isDragging) return;
+    event.preventDefault();
+    wrap.scrollTop = startScrollTop - (event.clientY - startY);
+  });
+  ["pointerup", "pointercancel", "pointerleave"].forEach((eventName) => {
+    wrap.addEventListener(eventName, (event) => {
+      if (!isPointerDown || event.pointerId !== pointerId) return;
+      isPointerDown = false;
+      isDragging = false;
+      pointerId = null;
+      wrap.classList.remove("dragging");
+      wrap.releasePointerCapture?.(event.pointerId);
+    });
+  });
+  wrap.addEventListener(
+    "click",
+    (event) => {
+      if (!didDrag) return;
+      event.preventDefault();
+      event.stopPropagation();
+      didDrag = false;
+    },
+    true,
+  );
+}
+
 function renderSetupClassGrid() {
   const wrap = document.getElementById("setupClassGrid");
   if (!wrap) return;
-  wrap.innerHTML = runtimeState.availableClasses
+  ensureSelectedSetupGrade();
+  renderSetupGradeFilter();
+  bindSetupClassGridDrag();
+  const filteredClasses = getFilteredSetupClasses();
+  if (filteredClasses.length === 0) {
+    wrap.innerHTML = '<div class="setup-empty">当前年级暂无可绑定班级</div>';
+    return;
+  }
+  wrap.innerHTML = filteredClasses
     .map(
       (row) => `
-            <div class="setup-class-card ${runtimeState.selectedSetupClassId === row.id ? "selected" : ""}" onclick="selectSetupClass(${row.id})">
+            <button type="button" class="setup-class-card ${Number(runtimeState.selectedSetupClassId) === Number(row.id) ? "selected" : ""}" onclick="selectSetupClass(${row.id})">
+              <span class="setup-class-check" aria-hidden="true"><i class="fa-solid fa-check"></i></span>
               <div class="setup-class-name">${escapeHtml(row.gradeName || "")} ${escapeHtml(row.name)}</div>
               <div class="setup-class-sub">
                 班主任：${escapeHtml(row.homeroomTeacher?.name || "未设置")}<br />
                 口号：${escapeHtml(row.slogan || "未设置")}
               </div>
-            </div>`,
+            </button>`,
     )
     .join("");
 }
@@ -2700,7 +3467,13 @@ async function handleSetupAdminLogin() {
     );
     runtimeState.availableClasses = classes || [];
     runtimeState.selectedSetupClassId =
-      runtimeState.availableClasses[0]?.id || null;
+      runtimeState.setupMode === "rebind" &&
+      runtimeState.availableClasses.some(
+        (row) => Number(row.id) === Number(runtimeState.classId),
+      )
+        ? Number(runtimeState.classId)
+        : null;
+    runtimeState.selectedSetupGradeName = "";
     renderSetupClassGrid();
     setSetupMessage("setupAdminMessage", "授权成功", "success");
     goSetupStep(4);
@@ -2965,7 +3738,7 @@ function syncClassroomMeta() {
   if (!home) return;
   const className = home.className || "育英星宠";
   const teacherName = home.homeroomTeacher?.name || "未设置";
-  const slogan = home.slogan || "团结奋进 超越自我";
+  const slogan = home.slogan || "待设置";
   const targetScore = Number(home.targetScore || 0);
   const currentScore = Number(home.scoreSummary?.currentScoreTotal || 0);
   const goalPercent =
@@ -4025,16 +4798,17 @@ async function bootstrapDisplayData(options = {}) {
     runtimeState.home = home;
     runtimeState.rewards = rewards.rewards || [];
 
+    const petCatalog = await apiFetch("/display/pet-catalog").catch(() => adoptPetCatalog);
+    runtimeState.petCatalog = normalizePetCatalog(petCatalog || []);
+
     if (authenticated) {
-      const [studentsData, groups, scoreRules, petCatalog] = await Promise.all([
+      const [studentsData, groups, scoreRules] = await Promise.all([
         apiFetch(`/students?classId=${runtimeState.classId}`),
         apiFetch(`/classes/${runtimeState.classId}/groups`),
         apiFetch(`/score-rules?displayEnabled=true&classId=${runtimeState.classId}`),
-        apiFetch("/display/pet-catalog").catch(() => adoptPetCatalog),
       ]);
       runtimeState.groups = groups || [];
       runtimeState.scoreRules = scoreRules || [];
-      runtimeState.petCatalog = normalizePetCatalog(petCatalog || []);
       syncStudentCollection(studentsData || [], runtimeState.groups);
       updateGroupToolbar();
       configureRuleButtons();
@@ -4093,16 +4867,23 @@ async function handleLogin() {
     setPersistentToken(result.token);
     runtimeState.user = result.user;
     runtimeState.scopes = result.scopes || [];
+    const shouldStoreLoginCredentials = result.user?.roleCode !== "super_admin";
 
     if (runtimeState.classId) {
       if (!canCurrentUserAccessClass(runtimeState.classId)) {
         throw new Error("当前账号无权进入这块大屏绑定的班级");
+      }
+      if (shouldStoreLoginCredentials) {
+        setStoredLoginCredentials(username, password);
       }
       await finalizeTeacherSession();
     } else {
       const classScopeIds = getClassScopeIds();
       if (classScopeIds.length === 0) {
         throw new Error("当前账号未分配任何班级权限");
+      }
+      if (shouldStoreLoginCredentials) {
+        setStoredLoginCredentials(username, password);
       }
       if (classScopeIds.length === 1) {
         runtimeState.classId = classScopeIds[0];
@@ -4141,6 +4922,7 @@ async function handleLogin() {
 document.addEventListener("DOMContentLoaded", () => {
   resolveRuntimeParams();
   clearAuthState({ preserveClassId: true });
+  hydrateLoginCredentials();
   syncSetupMode();
   updateGroupToolbar();
   goSetupStep(1);

@@ -55,6 +55,7 @@ export type RuleFormState = {
   code: string;
   name: string;
   scoreType: 'add' | 'deduct';
+  scoreTarget: 'student' | 'class';
   scoreValue: string;
   dimension: string;
   tag: string;

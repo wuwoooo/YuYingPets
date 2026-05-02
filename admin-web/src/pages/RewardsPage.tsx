@@ -1,7 +1,9 @@
-import { useMemo, useState, type ChangeEvent, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react';
 import { Modal } from '../components/Modal';
 import { Shell } from '../components/Shell';
 import type { 
+  AdminClass,
+  AdminStudent,
   Reward,
   RewardOrder,
   RewardUpsertPayload,
@@ -23,6 +25,8 @@ import { canManageRewards } from '../utils/adminPermissions';
 type RewardsPageProps = {
   token: string;
   user: SessionUser | null;
+  classes: AdminClass[];
+  students: AdminStudent[];
   rewards: Reward[];
   loading: boolean;
   error: string | null;
@@ -32,6 +36,8 @@ type RewardsPageProps = {
 export function RewardsPage({
   token,
   user,
+  classes,
+  students,
   rewards,
   loading,
   error,
@@ -49,8 +55,58 @@ export function RewardsPage({
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
   const [searchKeyword, setSearchKeyword] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'enabled' | 'disabled'>('all');
+  const [orderStatusFilter, setOrderStatusFilter] = useState<'all' | string>('all');
+  const [activeClassId, setActiveClassId] = useState<number | null>(null);
+  const [classRewardOrders, setClassRewardOrders] = useState<RewardOrder[]>([]);
+  const [classOrdersLoading, setClassOrdersLoading] = useState(false);
+  const [classOrdersError, setClassOrdersError] = useState<string | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
   const allowManage = canManageRewards(user?.roleCode);
+  const isHomeroomTeacher = user?.roleCode === 'homeroom_teacher';
+
+  const homeroomClasses = useMemo(
+    () =>
+      classes
+        .filter((item) => item.homeroomTeacher?.id === user?.id || classes.length === 1)
+        .sort((left, right) => right.studentCount - left.studentCount || left.name.localeCompare(right.name, 'zh-CN')),
+    [classes, user?.id],
+  );
+
+  useEffect(() => {
+    if (!isHomeroomTeacher) return;
+    if (activeClassId && homeroomClasses.some((item) => item.id === activeClassId)) return;
+    setActiveClassId(homeroomClasses[0]?.id ?? null);
+  }, [activeClassId, homeroomClasses, isHomeroomTeacher]);
+
+  useEffect(() => {
+    if (!isHomeroomTeacher || !activeClassId) {
+      setClassRewardOrders([]);
+      return;
+    }
+
+    let active = true;
+    setClassOrdersLoading(true);
+    setClassOrdersError(null);
+    adminApi
+      .rewardOrders(token, { classId: activeClassId })
+      .then((response) => {
+        if (!active) return;
+        setClassRewardOrders(response.data);
+      })
+      .catch((err) => {
+        if (!active) return;
+        setClassRewardOrders([]);
+        setClassOrdersError(err instanceof Error ? err.message : '兑换记录加载失败');
+      })
+      .finally(() => {
+        if (!active) return;
+        setClassOrdersLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [activeClassId, isHomeroomTeacher, token]);
 
   const rewardCategories = useMemo(
     () => ['all', ...Array.from(new Set(rewards.map((item) => item.category).filter(Boolean)))],
@@ -70,6 +126,82 @@ export function RewardsPage({
       return matchesTab && matchesKeyword && matchesStatus;
     });
   }, [rewards, searchKeyword, statusFilter, tab]);
+
+  const activeClass = useMemo(
+    () => homeroomClasses.find((item) => item.id === activeClassId) ?? null,
+    [activeClassId, homeroomClasses],
+  );
+
+  const orderStatusOptions = useMemo(
+    () => ['all', ...Array.from(new Set(classRewardOrders.map((item) => item.status).filter(Boolean)))],
+    [classRewardOrders],
+  );
+
+  const filteredClassOrders = useMemo(() => {
+    const keyword = normalizeKeyword(searchKeyword);
+    return classRewardOrders.filter((item) => {
+      const matchesKeyword =
+        !keyword ||
+        normalizeKeyword(item.student.name).includes(keyword) ||
+        normalizeKeyword(item.student.studentNo).includes(keyword) ||
+        normalizeKeyword(item.reward.name).includes(keyword);
+      const matchesStatus = orderStatusFilter === 'all' || item.status === orderStatusFilter;
+      return matchesKeyword && matchesStatus;
+    });
+  }, [classRewardOrders, orderStatusFilter, searchKeyword]);
+
+  const classOrderStats = useMemo(() => {
+    const studentIds = new Set(classRewardOrders.map((item) => item.studentId));
+    const totalScoreCost = classRewardOrders.reduce((sum, item) => sum + item.scoreCost, 0);
+    const latestOrder = classRewardOrders[0] ?? null;
+    return {
+      orderCount: classRewardOrders.length,
+      studentCount: studentIds.size,
+      totalScoreCost,
+      latestOrder,
+    };
+  }, [classRewardOrders]);
+
+  const classStudents = useMemo(
+    () => students.filter((item) => item.classId === activeClassId),
+    [activeClassId, students],
+  );
+
+  const studentOrderCounts = useMemo(() => {
+    const map = new Map<number, { name: string; count: number; scoreCost: number }>();
+    classRewardOrders.forEach((item) => {
+      const current = map.get(item.studentId) ?? { name: item.student.name, count: 0, scoreCost: 0 };
+      current.count += 1;
+      current.scoreCost += item.scoreCost;
+      map.set(item.studentId, current);
+    });
+    return Array.from(map.values()).sort((left, right) => right.count - left.count || right.scoreCost - left.scoreCost).slice(0, 6);
+  }, [classRewardOrders]);
+
+  function formatOrderStatus(status: string) {
+    const statusMap: Record<string, string> = {
+      pending: '待确认',
+      approved: '已确认',
+      received: '已领取',
+      rejected: '已拒绝',
+      cancelled: '已取消',
+    };
+    return statusMap[status] ?? status;
+  }
+
+  async function reloadClassRewardOrders() {
+    if (!activeClassId) return;
+    setClassOrdersLoading(true);
+    setClassOrdersError(null);
+    try {
+      const response = await adminApi.rewardOrders(token, { classId: activeClassId });
+      setClassRewardOrders(response.data);
+    } catch (err) {
+      setClassOrdersError(err instanceof Error ? err.message : '兑换记录加载失败');
+    } finally {
+      setClassOrdersLoading(false);
+    }
+  }
 
   async function openRewardRecords(reward: Reward) {
     setSelectedReward(reward);
@@ -196,6 +328,164 @@ export function RewardsPage({
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : '奖励删除失败');
     }
+  }
+
+  if (isHomeroomTeacher) {
+    return (
+      <Shell
+        title="兑换处理"
+        subtitle="查看本班学生兑换记录，确认实物领取与班级反馈"
+        user={user}
+        status={
+          <>
+            {loading ? <div className="status-card">兑换数据加载中...</div> : null}
+            {error ? <div className="status-card error">{error}</div> : null}
+            {classOrdersError ? <div className="status-card error">{classOrdersError}</div> : null}
+          </>
+        }
+      >
+        <div className="page-header">
+          <div>
+            <h2>本班兑换处理</h2>
+            <p className="page-desc">
+              {activeClass ? `${activeClass.gradeName} ${activeClass.name}` : '当前账号尚未绑定班级'} · 只展示学生已经发起的兑换记录
+            </p>
+          </div>
+          <div className="page-actions">
+            {homeroomClasses.length > 1 ? (
+              <select
+                className="filter-select"
+                value={activeClassId ?? ''}
+                onChange={(event) => setActiveClassId(Number(event.target.value) || null)}
+              >
+                {homeroomClasses.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.gradeName} {item.name}
+                  </option>
+                ))}
+              </select>
+            ) : null}
+            <div className="search-box">
+              <span className="s-icon">⌕</span>
+              <input
+                placeholder="搜索学生或奖励..."
+                value={searchKeyword}
+                onChange={(event) => setSearchKeyword(event.target.value)}
+              />
+            </div>
+            <select className="filter-select" value={orderStatusFilter} onChange={(event) => setOrderStatusFilter(event.target.value)}>
+              {orderStatusOptions.map((item) => (
+                <option key={item} value={item}>
+                  {item === 'all' ? '全部状态' : formatOrderStatus(item)}
+                </option>
+              ))}
+            </select>
+            <button className="ghost-button" type="button" onClick={() => void reloadClassRewardOrders()} disabled={classOrdersLoading || !activeClassId}>
+              {classOrdersLoading ? '刷新中...' : '刷新'}
+            </button>
+          </div>
+        </div>
+
+        <div className="metric-strip">
+          <div className="metric-card mc-blue">
+            <div className="label">兑换记录</div>
+            <div className="metric-value-line"><span className="value">{classOrderStats.orderCount}</span><span className="metric-value-suffix">条</span></div>
+            <div className="metric-footer"><span className="metric-sub">本班学生累计兑换</span></div>
+          </div>
+          <div className="metric-card mc-green">
+            <div className="label">涉及学生</div>
+            <div className="metric-value-line"><span className="value">{classOrderStats.studentCount}</span><span className="metric-value-suffix">人</span></div>
+            <div className="metric-footer"><span className="metric-sub">班级学生共 {classStudents.length} 人</span></div>
+          </div>
+          <div className="metric-card mc-gold">
+            <div className="label">消耗积分</div>
+            <div className="metric-value-line"><span className="value">{classOrderStats.totalScoreCost}</span><span className="metric-value-suffix">分</span></div>
+            <div className="metric-footer"><span className="metric-sub">用于兑换奖励</span></div>
+          </div>
+          <div className="metric-card mc-teal">
+            <div className="label">最近兑换</div>
+            <div className="metric-value-line">
+              <span className="value">{classOrderStats.latestOrder ? formatOrderStatus(classOrderStats.latestOrder.status) : '暂无'}</span>
+            </div>
+            <div className="metric-footer">
+              <span className="metric-sub">
+                {classOrderStats.latestOrder
+                  ? `${classOrderStats.latestOrder.student.name} · ${classOrderStats.latestOrder.reward.name}`
+                  : '学生兑换后会出现在这里'}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="exchange-processing-grid">
+          <div className="data-table-wrap exchange-orders-table">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>学生</th>
+                  <th>兑换奖励</th>
+                  <th>消耗积分</th>
+                  <th>状态</th>
+                  <th>发起时间</th>
+                  <th>来源</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredClassOrders.map((item) => (
+                  <tr key={item.id}>
+                    <td>
+                      <strong>{item.student.name}</strong>
+                      <div className="page-desc">学号 {item.student.studentNo}</div>
+                    </td>
+                    <td>{item.reward.name}</td>
+                    <td>{item.scoreCost} 分</td>
+                    <td><span className="status-on">{formatOrderStatus(item.status)}</span></td>
+                    <td>{new Date(item.createdAt).toLocaleString('zh-CN', { hour12: false })}</td>
+                    <td>{item.sourceTerminal === 'display' ? '展示端' : '管理端'}</td>
+                  </tr>
+                ))}
+                {!classOrdersLoading && filteredClassOrders.length === 0 ? (
+                  <tr>
+                    <td className="table-empty" colSpan={6}>
+                      {classRewardOrders.length === 0 ? '本班暂无学生兑换记录。' : '没有匹配当前筛选条件的兑换记录。'}
+                    </td>
+                  </tr>
+                ) : null}
+                {classOrdersLoading ? (
+                  <tr>
+                    <td className="table-empty" colSpan={6}>兑换记录加载中...</td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="panel">
+            <div className="panel-title">学生兑换排行</div>
+            <div className="mini-list">
+              {studentOrderCounts.map((item) => (
+                <div className="mini-list-item" key={item.name}>
+                  <div>
+                    <strong>{item.name}</strong>
+                    <span>累计兑换 {item.count} 次，消耗 {item.scoreCost} 分</span>
+                  </div>
+                  <b>{item.count} 次</b>
+                </div>
+              ))}
+              {studentOrderCounts.length === 0 ? (
+                <div className="mini-list-item">
+                  <div>
+                    <strong>暂无兑换</strong>
+                    <span>学生完成兑换后，这里会显示需要跟进的对象。</span>
+                  </div>
+                  <b>待更新</b>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      </Shell>
+    );
   }
 
   return (

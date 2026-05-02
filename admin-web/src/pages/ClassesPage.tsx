@@ -125,6 +125,7 @@ export function ClassesPage({
 
   useEffect(() => {
     const keyword = searchParams.get("keyword");
+    const classIds = searchParams.get("classIds");
     const teacherStatus = searchParams.get("teacherStatus");
     const nextGradeName = searchParams.get("gradeName");
     const nextStatusFilter = searchParams.get("statusFilter");
@@ -132,6 +133,7 @@ export function ClassesPage({
     const classId = searchParams.get("classId");
     const nextStatsView = searchParams.get("statsView");
     if (keyword) setSearchKeyword(keyword);
+    if (classIds) setSearchKeyword("");
     if (nextGradeName) setGradeFilter(nextGradeName);
     if (nextStatusFilter === "enabled" || nextStatusFilter === "disabled" || nextStatusFilter === "all") {
       setStatusFilter(nextStatusFilter);
@@ -218,7 +220,16 @@ export function ClassesPage({
 
   const filteredClasses = useMemo(() => {
     const keyword = normalizeKeyword(searchKeyword);
+    const classIdFilter = new Set(
+      (searchParams.get("classIds") ?? "")
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .map((item) => Number(item))
+        .filter((item) => Number.isFinite(item)),
+    );
     return classes.filter((row) => {
+      const matchesClassIds = classIdFilter.size === 0 || classIdFilter.has(row.id);
       const matchesKeyword =
         !keyword ||
         normalizeKeyword(row.name).includes(keyword) ||
@@ -236,7 +247,7 @@ export function ClassesPage({
           row.targetScore === undefined);
       const matchesTeacherStatus =
         searchParams.get("teacherStatus") !== "unassigned" || !row.homeroomTeacher;
-      return matchesKeyword && matchesGrade && matchesStatus && matchesFocus && matchesTeacherStatus;
+      return matchesClassIds && matchesKeyword && matchesGrade && matchesStatus && matchesFocus && matchesTeacherStatus;
     });
   }, [classes, focusFilter, gradeFilter, searchKeyword, statusFilter, searchParams]);
   const sortedClasses = useMemo(() => {
@@ -459,6 +470,8 @@ export function ClassesPage({
   function buildClassesLocation(selectedClassId?: number) {
     const params = new URLSearchParams();
     if (searchKeyword.trim()) params.set("keyword", searchKeyword.trim());
+    const classIds = searchParams.get("classIds");
+    if (classIds) params.set("classIds", classIds);
     if (searchParams.get("teacherStatus") === "unassigned") params.set("teacherStatus", "unassigned");
     if (gradeFilter !== "all") params.set("gradeName", gradeFilter);
     if (statusFilter !== "all") params.set("statusFilter", statusFilter);
@@ -482,6 +495,13 @@ export function ClassesPage({
     setGradeFilter("all");
     setStatusFilter("all");
     setFocusFilter("all");
+    const params = new URLSearchParams(searchParams);
+    params.delete("classIds");
+    params.delete("keyword");
+    params.delete("gradeName");
+    params.delete("statusFilter");
+    params.delete("focusFilter");
+    setSearchParams(params, { replace: true });
   }
 
   function toggleSort(key: ClassSortKey) {
@@ -662,7 +682,7 @@ export function ClassesPage({
           <h2>{pageTitle}</h2>
           <p className="page-desc">
             {isHomeroomTeacher
-              ? "班主任可在这里维护本班口号、目标积分，并进入学生管理和班级评价。"
+              ? "班主任可在这里维护本班口号、目标积分，并进入学生管理和学生评价。"
               : user?.roleCode === "subject_teacher"
                 ? "任课教师在这里查看自己的授课班级，并进入学生查看与学科评价。"
                 : "聚合查看全校班级规模、展示状态和班主任配置覆盖情况。"}

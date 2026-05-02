@@ -6,7 +6,16 @@ const sourceDir = path.resolve(backendRoot, 'public/assets/pets');
 const outputPath = path.resolve(backendRoot, 'sql/pet_catalog_full.sql');
 
 const STAGE_EXP_TOTALS = [0, 140, 240, 360, 500, 660, 840, 1040, 1260, 1500];
+const STAR_PET_NAMES = [
+  '星尘鸮', '星糖喵', '晨露鹿', '曜虎机', '月纱兔', '森歌獭', '樱铃猫', '泡泡狐', '潮汐獭', '烈焰牛', '玉麒团',
+  '电波狸', '竹团貘', '糖霜鹿', '绒雪喵', '蜜桃狐', '钢牙鲨', '雷翼狼', '霓虹豚', '风暴柴', '岩角龙', '布丁兔', '云团熊',
+];
+const ZODIAC_PET_NAMES = [
+  '子鼠宝', '丑牛宝', '寅虎宝', '卯兔宝', '辰龙宝', '巳蛇宝', '午马宝', '未羊宝', '申猴宝', '酉鸡宝', '戌狗宝', '亥猪宝',
+];
 const CATEGORY_LABELS = {
+  star: '星宠',
+  zodiac: '十二生肖',
   rabbit: '兔子系',
   dog: '犬类系',
   cat: '猫咪系',
@@ -19,6 +28,8 @@ const CATEGORY_LABELS = {
 };
 
 const CATEGORY_RULES = [
+  { category: 'star', match: STAR_PET_NAMES },
+  { category: 'zodiac', match: ZODIAC_PET_NAMES },
   { category: 'rabbit', match: ['兔'] },
   { category: 'dog', match: ['柯基', '边牧', '萨摩耶', '博美', '比熊', '金毛', '哈士奇', '拉布拉多', '柴犬', '泰迪', '非洲犬'] },
   { category: 'cat', match: ['猫', '金渐层', '银渐层', '布偶'] },
@@ -76,8 +87,11 @@ function chooseStageFilename(files, stageNo) {
   return files.get(fallback);
 }
 
-function mapDisplayStageToAssetStage(stageNo) {
-  return stageNo === 1 ? 1 : stageNo + 1;
+function resolveAssetStageNo(files, stageNo) {
+  if (files.has(11)) {
+    return stageNo === 1 ? 1 : stageNo + 1;
+  }
+  return stageNo;
 }
 
 function buildSql(pets) {
@@ -99,7 +113,7 @@ function buildSql(pets) {
     );
     lines.push(`SET @pet_id = (SELECT \`id\` FROM \`pet\` WHERE \`school_id\` = @school_id AND \`code\` = '${escapeSql(pet.code)}' LIMIT 1);`);
     for (let stageNo = 1; stageNo <= 10; stageNo += 1) {
-      const imageFilename = chooseStageFilename(pet.files, mapDisplayStageToAssetStage(stageNo));
+      const imageFilename = chooseStageFilename(pet.files, resolveAssetStageNo(pet.files, stageNo));
       const imageUrl = `/assets/pets/${imageFilename}`;
       const stageName = `${pet.name}·Lv.${stageNo}`;
       const needScoreTotal = STAGE_EXP_TOTALS[stageNo - 1];

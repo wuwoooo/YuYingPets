@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ModuleType, Sentiment } from '@prisma/client';
+import { ModuleType, ScoreTarget, Sentiment } from '@prisma/client';
 import { AuthService } from '../auth/auth.service';
 import { PrismaService } from '@/prisma/prisma.service';
 import { ScoreRuleUpsertDto } from './dto/score-rule-upsert.dto';
@@ -23,6 +23,9 @@ const SUBJECT_LABELS: Record<string, string> = {
   history: '历史',
   politics: '政治',
   arts_it: '音美信综合',
+  computer: '计算机',
+  art: '美术',
+  music: '音乐',
   pe: '体育',
 };
 
@@ -62,6 +65,7 @@ export class ScoreRulesService {
     const rows = await this.prisma.scoreRule.findMany({
       where: {
         moduleType,
+        scoreTarget: query.scoreTarget === 'student' || query.scoreTarget === 'class' ? query.scoreTarget : undefined,
         subjectCode: query.subjectCode || undefined,
         sceneCode: query.sceneCode || undefined,
         displayEnabled:
@@ -89,6 +93,7 @@ export class ScoreRulesService {
     return this.prisma.scoreRule.findMany({
       where: {
         moduleType,
+        scoreTarget: query.scoreTarget === 'student' || query.scoreTarget === 'class' ? query.scoreTarget : undefined,
         subjectCode: query.subjectCode || undefined,
         sceneCode: query.sceneCode || undefined,
         displayEnabled:
@@ -190,6 +195,7 @@ export class ScoreRulesService {
         code: payload.code,
         name: payload.name,
         scoreType: payload.scoreType,
+        scoreTarget: payload.scoreTarget,
         scoreValue: payload.scoreValue,
         dimension: payload.dimension,
         tag: payload.tag,
@@ -264,6 +270,7 @@ export class ScoreRulesService {
         code: payload.code,
         name: payload.name,
         scoreType: payload.scoreType,
+        scoreTarget: payload.scoreTarget,
         scoreValue: payload.scoreValue,
         dimension: payload.dimension,
         tag: payload.tag,
@@ -374,6 +381,7 @@ export class ScoreRulesService {
       code,
       name,
       scoreType: body.scoreType,
+      scoreTarget: body.scoreTarget === 'class' ? ScoreTarget.class : ScoreTarget.student,
       scoreValue,
       dimension,
       tag,

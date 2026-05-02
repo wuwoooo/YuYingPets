@@ -181,6 +181,9 @@ export class ScoreRecordsService {
         where: { id: BigInt(body.ruleId), deletedAt: null, status: 'enabled' },
       });
       if (!rule) throw new NotFoundException('积分规则不存在');
+      if (rule.scoreTarget === 'class') {
+        throw new ForbiddenException('班级积分规则不能用于学生评价');
+      }
       this.authService.ensureCanUseRuleForClass(user, body.classId, rule);
 
       const batch = await tx.scoreRecordBatch.create({
@@ -345,6 +348,9 @@ export class ScoreRecordsService {
       },
     });
     if (!rule) throw new NotFoundException('积分规则不存在');
+    if (rule.scoreTarget === 'class') {
+      throw new ForbiddenException('班级积分规则不能用于学生评价');
+    }
 
     return {
       schoolId: student.schoolId,
@@ -371,6 +377,7 @@ export class ScoreRecordsService {
         sentiment: 'positive' | 'negative';
         scoreType: 'add' | 'deduct';
         scoreValue: number;
+        scoreTarget?: 'student' | 'class';
       };
       operatorId: bigint;
       operatorName: string;
@@ -380,6 +387,9 @@ export class ScoreRecordsService {
     },
   ) {
     const scoreDelta = this.resolveSignedValue(params.rule.scoreType, params.rule.scoreValue);
+    if (params.rule.scoreTarget === 'class') {
+      throw new ForbiddenException('班级积分规则不能用于学生评价');
+    }
 
     const profile = await tx.studentProfile.upsert({
       where: { studentId: params.studentId },

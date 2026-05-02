@@ -293,11 +293,23 @@ export function RulesPage({
     }));
   }
 
+  function openNode(nodeKey: string) {
+    setExpandedNodes((prev) => ({
+      ...prev,
+      [nodeKey]: true,
+    }));
+  }
+
   function applyTreeSelection(nextSelection: TreeSelection) {
     setTreeSelection(nextSelection);
     requestAnimationFrame(() => {
       rulesMainRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
     });
+  }
+
+  function selectTreeGroup(nodeKey: string, nextSelection: TreeSelection) {
+    openNode(nodeKey);
+    applyTreeSelection(nextSelection);
   }
 
   function selectRule(ruleId: number) {
@@ -352,6 +364,7 @@ export function RulesPage({
         code: row.code,
         name: row.name,
         scoreType: row.scoreType,
+        scoreTarget: row.scoreTarget,
         scoreValue: row.scoreValue,
         ...(row.dimension ? { dimension: row.dimension } : {}),
         ...(row.tag ? { tag: row.tag } : {}),
@@ -424,6 +437,7 @@ export function RulesPage({
         code: ruleCode,
         name,
         scoreType: form.scoreType,
+        scoreTarget: form.scoreTarget,
         scoreValue: Number(scoreValueText),
         ...(resolvedDimension ? { dimension: resolvedDimension } : {}),
         ...(form.tag.trim() ? { tag: form.tag.trim() } : {}),
@@ -514,7 +528,7 @@ export function RulesPage({
                   <button
                     type="button"
                     className="tree-group-button"
-                    onClick={() => applyTreeSelection({ type: 'module', key: moduleNode.moduleType })}
+                    onClick={() => selectTreeGroup(moduleKey, { type: 'module', key: moduleNode.moduleType })}
                   >
                     <span>{moduleNode.moduleLabel}</span>
                     <span className="tree-count">{moduleNode.count}</span>
@@ -540,7 +554,7 @@ export function RulesPage({
                             <button
                               type="button"
                               className="tree-group-button"
-                              onClick={() => applyTreeSelection({ type: 'subject', key: subjectFilterKey })}
+                              onClick={() => selectTreeGroup(subjectNodeKey, { type: 'subject', key: subjectFilterKey })}
                             >
                               <span>{subjectNode.subjectLabel}</span>
                               <span className="tree-count">{subjectNode.count}</span>
@@ -611,6 +625,7 @@ export function RulesPage({
                 <tr>
                   <th>规则名称</th>
                   <th>适用分类</th>
+                  <th>评价对象</th>
                   <th>积分方向</th>
                   <th>分值</th>
                   <th>使用位置</th>
@@ -635,6 +650,7 @@ export function RulesPage({
                         .filter(Boolean)
                         .join(' / ')}
                     </td>
+                    <td>{row.scoreTarget === 'class' ? '班级评价' : '学生评价'}</td>
                     <td>
                       <span className={row.scoreType === 'deduct' ? 'score-badge deduct' : 'score-badge add'}>
                         {row.scoreType === 'deduct' ? '减分' : '加分'}
@@ -776,6 +792,21 @@ export function RulesPage({
                 {ruleSceneOptions.map((item) => (
                   <option key={item.value} value={item.value}>{item.label}</option>
                 ))}
+              </select>
+            </label>
+            <label>
+              <span>评价对象</span>
+              <select
+                value={form.scoreTarget}
+                onChange={(event) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    scoreTarget: event.target.value as RuleFormState['scoreTarget'],
+                  }))
+                }
+              >
+                <option value="student">学生评价</option>
+                <option value="class">班级评价</option>
               </select>
             </label>
             <label>

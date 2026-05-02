@@ -4,7 +4,8 @@ export const navItems = [
   ['students', '学生管理'],
   ['teachers', '教师管理'],
   ['classes', '班级管理'],
-  ['evaluation', '班级评价'],
+  ['evaluation', '学生评价'],
+  ['class-evaluation', '班级评价'],
   ['rules', '积分规则'],
   ['honors', '荣誉勋章'],
   ['rewards', '奖励中心'],
@@ -21,6 +22,7 @@ export const roleAccessMap: Record<string, NavKey[]> = {
   super_admin: navItems.map(([key]) => key),
   school_admin: navItems.map(([key]) => key),
   moral_admin: navItems.map(([key]) => key),
+  grade_admin: navItems.map(([key]) => key),
   homeroom_teacher: ['dashboard', 'classes', 'students', 'evaluation', 'rules', 'rewards', 'pets', 'analytics'],
   subject_teacher: ['dashboard', 'classes', 'students', 'evaluation', 'rules', 'analytics'],
 };
@@ -30,7 +32,7 @@ export const roleNavLabelMap: Record<string, Partial<Record<NavKey, string>>> = 
     dashboard: '班级工作台',
     classes: '我的班级',
     students: '学生管理',
-    evaluation: '班级评价',
+    evaluation: '学生评价',
     rules: '规则查询',
     rewards: '兑换处理',
     pets: '萌宠图鉴',
@@ -80,7 +82,9 @@ export const ruleSubjectOptions = [
   { value: 'biology', label: '生物' },
   { value: 'history', label: '历史' },
   { value: 'politics', label: '政治' },
-  { value: 'arts_it', label: '音美信综合' },
+  { value: 'computer', label: '计算机' },
+  { value: 'art', label: '美术' },
+  { value: 'music', label: '音乐' },
   { value: 'pe', label: '体育' },
 ] as const;
 export const ruleDimensionOptions = ['课堂表现', '学习习惯', '文明礼仪', '团队合作', '劳动实践', '品德成长'] as const;

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { PresentationGlyph } from '../components/PresentationGlyph';
 import { Shell } from '../components/Shell';
 import { metricThemes } from '../constants/admin';
+import { canManageAdminConfig } from '../utils/adminPermissions';
 import type { 
   AdminClass,
   AdminStudent,
@@ -21,6 +22,35 @@ type DashboardPageProps = Omit<AdminState, 'token'> & {
   token: string;
 };
 
+function compareGradeName(a: string, b: string) {
+  const chineseDigitMap: Record<string, number> = {
+    一: 1,
+    二: 2,
+    三: 3,
+    四: 4,
+    五: 5,
+    六: 6,
+    七: 7,
+    八: 8,
+    九: 9,
+    十: 10,
+  };
+  const parseGradeNumber = (value: string) => {
+    const arabic = value.match(/\d+/)?.[0];
+    if (arabic) return Number(arabic);
+    const chinese = value.match(/[一二三四五六七八九十]/)?.[0];
+    if (chinese) return chineseDigitMap[chinese] ?? NaN;
+    return NaN;
+  };
+  const aNum = parseGradeNumber(a);
+  const bNum = parseGradeNumber(b);
+  const aHasNum = Number.isFinite(aNum);
+  const bHasNum = Number.isFinite(bNum);
+  if (aHasNum && bHasNum && aNum !== bNum) return aNum - bNum;
+  if (aHasNum !== bHasNum) return aHasNum ? -1 : 1;
+  return a.localeCompare(b, 'zh-CN');
+}
+
 export function DashboardPage({
   token,
   user,
@@ -36,7 +66,9 @@ export function DashboardPage({
   const isHomeroomTeacher = user?.roleCode === 'homeroom_teacher';
   const isSubjectTeacher = user?.roleCode === 'subject_teacher';
   const isTeacherDashboard = isHomeroomTeacher || isSubjectTeacher;
+  const canViewGovernance = canManageAdminConfig(user?.roleCode);
   const [rankTab, setRankTab] = useState<'class' | 'student' | 'honor'>('class');
+  const [rankGradeName, setRankGradeName] = useState<string>('');
   const [presentSubmitting, setPresentSubmitting] = useState(false);
   const [presentMessage, setPresentMessage] = useState<string | null>(null);
   const [permissionUsers, setPermissionUsers] = useState<PermissionUser[]>([]);
@@ -47,7 +79,7 @@ export function DashboardPage({
   const [activeTeacherClassId, setActiveTeacherClassId] = useState<number | null>(null);
 
   useEffect(() => {
-    if (isTeacherDashboard) {
+    if (!user || !canViewGovernance) {
       setPermissionUsers([]);
       return;
     }
@@ -66,7 +98,7 @@ export function DashboardPage({
     return () => {
       active = false;
     };
-  }, [isTeacherDashboard, token]);
+  }, [canViewGovernance, token, user]);
 
   useEffect(() => {
     if (isTeacherDashboard) {
@@ -91,7 +123,7 @@ export function DashboardPage({
   }, [isTeacherDashboard, token]);
 
   const metrics = useMemo(() => {
-    const totalScore = classes.reduce((sum, item) => sum + item.currentScoreTotal, 0);
+    const totalScore = classes.reduce((sum, item) => sum + item.classScore, 0);
     const displayReadyClasses = classes.filter((item) => item.displayStatus === 'enabled').length;
     const activeStudents = students.filter((item) => item.currentScore > 0 || item.currentPetLevel > 0).length;
     const positiveRules = rules.filter((item) => item.sentiment === 'positive').length;
@@ -152,7 +184,7 @@ export function DashboardPage({
     const grouped = new Map<string, { score: number; count: number }>();
     for (const item of classes) {
       const current = grouped.get(item.gradeName) ?? { score: 0, count: 0 };
-      current.score += item.currentScoreTotal;
+      current.score += item.classScore;
       current.count += 1;
       grouped.set(item.gradeName, current);
     }
@@ -171,10 +203,36 @@ export function DashboardPage({
     }));
   }, [classes]);
 
+  const rankGradeOptions = useMemo(
+    () => Array.from(new Set(classes.map((item) => item.gradeName))).sort(compareGradeName),
+    [classes],
+  );
+
+  useEffect(() => {
+    if (!rankGradeOptions.includes(rankGradeName)) {
+      setRankGradeName(rankGradeOptions[0] ?? '');
+    }
+  }, [rankGradeName, rankGradeOptions]);
+
+  const gradeTopClasses = useMemo(() => {
+    const rows = classes
+      .filter((item) => item.gradeName === rankGradeName)
+      .sort((left, right) => right.classScore - left.classScore || left.name.localeCompare(right.name, 'zh-CN'))
+      .slice(0, 3);
+    let prevScore: number | null = null;
+    let prevRank = 0;
+    return rows.map((item, index) => {
+      const rank = prevScore === item.classScore ? prevRank : index + 1;
+      prevScore = item.classScore;
+      prevRank = rank;
+      return { ...item, rank };
+    });
+  }, [classes, rankGradeName]);
+
   const topClasses = useMemo(
     () =>
       [...classes]
-        .sort((left, right) => right.currentScoreTotal - left.currentScoreTotal)
+        .sort((left, right) => right.classScore - left.classScore)
         .slice(0, 3),
     [classes],
   );
@@ -226,10 +284,11 @@ export function DashboardPage({
 
   const rankRows = useMemo(() => {
     if (rankTab === 'class') {
-      return topClasses.map((item) => ({
+      return gradeTopClasses.map((item) => ({
         id: `class-${item.id}`,
-        name: item.name,
-        score: `${item.currentScoreTotal} 分`,
+        rank: item.rank,
+        name: `${item.gradeName} ${item.name}`,
+        score: `${item.classScore} 分`,
       }));
     }
     if (rankTab === 'student') {
@@ -244,7 +303,7 @@ export function DashboardPage({
       name: `${item.studentName} · ${item.className}`,
       score: `${item.honorCount} 枚`,
     }));
-  }, [rankTab, topClasses, topHonorStudents, topStudents]);
+  }, [gradeTopClasses, rankTab, topHonorStudents, topStudents]);
 
   const recentHighlights = useMemo(
     () =>
@@ -257,7 +316,7 @@ export function DashboardPage({
 
   const alerts = useMemo(() => {
     const lowClasses = [...classes]
-      .sort((left, right) => left.currentScoreTotal - right.currentScoreTotal)
+      .sort((left, right) => left.classScore - right.classScore)
       .slice(0, 2)
       .map((item) => `${item.name} 当前积分偏低，建议关注班级激励频率`);
     const noPetStudents = students.filter((item) => !item.pet).length;
@@ -309,10 +368,18 @@ export function DashboardPage({
 
   const trendPoints = useMemo(() => {
     const source = [...classes]
-      .sort((left, right) => right.currentScoreTotal - left.currentScoreTotal)
+      .sort((left, right) => right.classScore - left.classScore)
       .slice(0, 7)
-      .map((item) => item.currentScoreTotal);
+      .map((item) => item.classScore);
     const values = source.length > 0 ? source.reverse() : [120, 180, 150, 210, 260, 240, 300];
+    const dateLabels = values.map((_, index) => {
+      const offset = values.length - 1 - index;
+      const date = new Date();
+      date.setDate(date.getDate() - offset);
+      const month = `${date.getMonth() + 1}`.padStart(2, '0');
+      const day = `${date.getDate()}`.padStart(2, '0');
+      return `${month}/${day}`;
+    });
     const max = Math.max(...values, 1);
     const min = Math.min(...values, 0);
     const range = Math.max(max - min, 1);
@@ -320,7 +387,7 @@ export function DashboardPage({
     return values.map((value, index) => {
       const x = 40 + index * 60;
       const y = 150 - ((value - min) / range) * 100;
-      return { x, y, value };
+      return { x, y, value, label: dateLabels[index] };
     });
   }, [classes]);
 
@@ -424,7 +491,7 @@ export function DashboardPage({
     if (!isHomeroomTeacher) return null;
     return (
       [...classes].sort(
-        (left, right) => right.studentCount - left.studentCount || right.currentScoreTotal - left.currentScoreTotal,
+        (left, right) => right.studentCount - left.studentCount || right.classScore - left.classScore,
       )[0] ?? null
     );
   }, [classes, isHomeroomTeacher]);
@@ -509,7 +576,7 @@ export function DashboardPage({
   const teacherClassCards = useMemo(
     () =>
       [...classes]
-        .sort((left, right) => right.currentScoreTotal - left.currentScoreTotal || right.studentCount - left.studentCount)
+        .sort((left, right) => right.classScore - left.classScore || right.studentCount - left.studentCount)
         .slice(0, 4),
     [classes],
   );
@@ -738,7 +805,7 @@ export function DashboardPage({
         title={isHomeroomTeacher ? '班级工作台' : '教学工作台'}
         subtitle={
           isHomeroomTeacher
-            ? '面向班主任的本班运营首页，聚合班级管理、学生管理和班级评价。'
+            ? '面向班主任的本班运营首页，聚合班级管理、学生管理和学生评价。'
             : '面向任课教师的授课工作台，聚合授课班级、学生查看和学科评价。'
         }
         user={user}
@@ -770,7 +837,7 @@ export function DashboardPage({
               }
             >
               <PresentationGlyph name="summary" className="present-trigger-icon" />
-              {isHomeroomTeacher ? '进入班级评价' : '进入学科评价'}
+              {isHomeroomTeacher ? '进入学生评价' : '进入学科评价'}
             </button>
           </div>
         </div>
@@ -785,7 +852,7 @@ export function DashboardPage({
                 </h3>
                 <p>
                   {primaryHomeroomClass?.slogan ||
-                    '这里聚合本班运营、学生管理和班级评价，班主任进入后台后先看这一页。'}
+                    '这里聚合本班运营、学生管理和学生评价，班主任进入后台后先看这一页。'}
                 </p>
                 <div className="teacher-hero-actions">
                   <button
@@ -812,7 +879,7 @@ export function DashboardPage({
                 </div>
                 <div className="teacher-hero-stat">
                   <span>当前总积分</span>
-                  <strong>{primaryHomeroomClass?.currentScoreTotal ?? 0}</strong>
+                  <strong>{primaryHomeroomClass?.classScore ?? 0}</strong>
                 </div>
                 <div className="teacher-hero-stat">
                   <span>目标积分</span>
@@ -914,7 +981,7 @@ export function DashboardPage({
                     onClick={() => navigateToEvaluation({ classId: primaryHomeroomClass?.id, mode: 'single' })}
                   >
                     <div>
-                      <strong>班级评价</strong>
+                      <strong>学生评价</strong>
                       <span>支持单人、批量和按组评价。</span>
                     </div>
                     <b>进入</b>
@@ -922,7 +989,7 @@ export function DashboardPage({
                   <button type="button" className="mini-list-item mini-list-item-button" onClick={() => navigate('/rewards')}>
                     <div>
                       <strong>兑换处理</strong>
-                      <span>查看奖励中心并跟进本班兑换。</span>
+                      <span>查看本班学生兑换记录，确认领取与后续反馈。</span>
                     </div>
                     <b>进入</b>
                   </button>
@@ -987,7 +1054,7 @@ export function DashboardPage({
                             {matchedStudent?.name ?? `学生#${item.studentId}`} · {item.scoreDelta > 0 ? '+' : ''}
                             {item.scoreDelta} 分
                           </strong>
-                          <span>{item.ruleName || item.tag || item.dimension || item.sceneCode || '班级评价'} · {new Date(item.createdAt).toLocaleString('zh-CN')}</span>
+                          <span>{item.ruleName || item.tag || item.dimension || item.sceneCode || '学生评价'} · {new Date(item.createdAt).toLocaleString('zh-CN')}</span>
                         </div>
                         <b>{item.operatorName || item.sourceRole}</b>
                       </div>
@@ -997,7 +1064,7 @@ export function DashboardPage({
                     <div className="mini-list-item">
                       <div>
                         <strong>暂无评价记录</strong>
-                        <span>提交一次班级评价后，这里会展示最近动态。</span>
+                        <span>提交一次学生评价后，这里会展示最近动态。</span>
                       </div>
                       <b>待更新</b>
                     </div>
@@ -1294,7 +1361,7 @@ export function DashboardPage({
                     >
                       <div>
                         <strong>{item.gradeName} {item.name}</strong>
-                        <span>{item.studentCount} 人 · 当前总积分 {item.currentScoreTotal}</span>
+                        <span>{item.studentCount} 人 · 当前总积分 {item.classScore}</span>
                       </div>
                       <b>{item.displayStatus === 'enabled' ? '展示中' : '未展示'}</b>
                     </button>
@@ -1581,7 +1648,7 @@ export function DashboardPage({
                     {point.value}
                   </text>
                   <text x={point.x} y="172" textAnchor="middle" className="chart-label">
-                    {`节点${index + 1}`}
+                    {point.label}
                   </text>
                 </g>
               ))}
@@ -1605,10 +1672,23 @@ export function DashboardPage({
               </button>
             </div>
           </div>
+          {rankTab === 'class' ? (
+            <div className="page-actions" style={{ marginBottom: 12 }}>
+              <select className="filter-select" value={rankGradeName} onChange={(event) => setRankGradeName(event.target.value)}>
+                {rankGradeOptions.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
           <div className="rank-list">
             {rankRows.map((item, index) => (
               <div className="rank-item" key={item.id}>
-                <span className={`rank-num r${Math.min(index + 1, 3)}`}>{index + 1}</span>
+                <span className={`rank-num r${Math.min((item as { rank?: number }).rank ?? index + 1, 3)}`}>
+                  {(item as { rank?: number }).rank ?? index + 1}
+                </span>
                 <span className="name">{item.name}</span>
                 <span className="score">{item.score}</span>
               </div>
@@ -1696,101 +1776,105 @@ export function DashboardPage({
           </div>
         </div>
       </div>
-      <div className="section-divider">
-        <span>组织治理概览</span>
-      </div>
-      <div className="metric-strip">
-        <div className="metric-card">
-          <span>教师账号</span>
-          <strong>{governanceMetrics.teacherUsers.length}</strong>
-          <p>当前已纳入教学岗位体系的账号数量。</p>
-          <button className="ghost-button" type="button" onClick={() => navigateWithQuery('/teachers', { teacherView: 'all' })}>
-            查看教师管理
-          </button>
-        </div>
-        <div className="metric-card">
-          <span>待补班主任</span>
-          <strong>{governanceMetrics.uncoveredClasses}</strong>
-          <p>仍未完成班主任绑定的班级数量。</p>
-          <button className="ghost-button" type="button" onClick={() => navigateWithQuery('/classes', { teacherStatus: 'unassigned' })}>
-            查看待补班级
-          </button>
-        </div>
-        <div className="metric-card">
-          <span>停用账号</span>
-          <strong>{governanceMetrics.disabledUsers}</strong>
-          <p>建议校级定期巡检的停用账号数量。</p>
-          <button className="ghost-button" type="button" onClick={() => navigateWithQuery('/organization', { activeTab: 'accounts', quickFilter: 'disabled' })}>
-            查看停用账号
-          </button>
-        </div>
-        <div className="metric-card">
-          <span>高权限账号</span>
-          <strong>{governanceMetrics.highPrivilegeUsers}</strong>
-          <p>超管与学校管理员等高权限身份数量。</p>
-          <button className="ghost-button" type="button" onClick={() => navigateWithQuery('/organization', { activeTab: 'accounts', quickFilter: 'high_privilege' })}>
-            查看高权限账号
-          </button>
-        </div>
-      </div>
-      <div className="row-2 c50">
-        <div className="panel">
-          <div className="panel-title">教师覆盖观察</div>
-          <div className="mini-list">
-            <div className="mini-list-item">
-              <div>
-                <strong>跨班教师</strong>
-                <span>同时负责多个班级的教师账号，适合作为排课与负载观察重点。</span>
-              </div>
-              <b>{governanceMetrics.multiClassTeachers} 人</b>
+      {canViewGovernance ? (
+        <>
+          <div className="section-divider">
+            <span>组织治理概览</span>
+          </div>
+          <div className="metric-strip">
+            <div className="metric-card">
+              <span>教师账号</span>
+              <strong>{governanceMetrics.teacherUsers.length}</strong>
+              <p>当前已纳入教学岗位体系的账号数量。</p>
+              <button className="ghost-button" type="button" onClick={() => navigateWithQuery('/teachers', { teacherView: 'all' })}>
+                查看教师管理
+              </button>
             </div>
-            {governanceHighlights.gradeCoverage.map((item) => (
-              <button
-                type="button"
-                className="mini-list-item mini-list-item-button"
-                key={item.gradeName}
-                onClick={() => navigateWithQuery('/teachers', { teacherView: 'all', statsView: 'grade', gradeName: item.gradeName })}
-              >
-                <div>
-                  <strong>{item.gradeName}</strong>
-                  <span>当前年级已建立教师覆盖关系。</span>
-                </div>
-                <b>{item.teacherCount} 人</b>
+            <div className="metric-card">
+              <span>待补班主任</span>
+              <strong>{governanceMetrics.uncoveredClasses}</strong>
+              <p>仍未完成班主任绑定的班级数量。</p>
+              <button className="ghost-button" type="button" onClick={() => navigateWithQuery('/classes', { teacherStatus: 'unassigned' })}>
+                查看待补班级
               </button>
-            ))}
+            </div>
+            <div className="metric-card">
+              <span>停用账号</span>
+              <strong>{governanceMetrics.disabledUsers}</strong>
+              <p>建议校级定期巡检的停用账号数量。</p>
+              <button className="ghost-button" type="button" onClick={() => navigateWithQuery('/organization', { activeTab: 'accounts', quickFilter: 'disabled' })}>
+                查看停用账号
+              </button>
+            </div>
+            <div className="metric-card">
+              <span>高权限账号</span>
+              <strong>{governanceMetrics.highPrivilegeUsers}</strong>
+              <p>超管与学校管理员等高权限身份数量。</p>
+              <button className="ghost-button" type="button" onClick={() => navigateWithQuery('/organization', { activeTab: 'accounts', quickFilter: 'high_privilege' })}>
+                查看高权限账号
+              </button>
+            </div>
           </div>
-        </div>
-        <div className="panel">
-          <div className="panel-title">账号治理提醒</div>
-          <div className="mini-list">
-            {governanceHighlights.riskyAccounts.map((item) => (
-              <button
-                type="button"
-                className="mini-list-item mini-list-item-button"
-                key={item.id}
-                onClick={() => navigateWithQuery('/organization', { activeTab: 'accounts', userId: item.id })}
-              >
-                <div>
-                  <strong>{item.name}</strong>
-                  <span>
-                    {item.roleName} · {item.lastLoginAt ? '已停用，建议确认是否仍需保留' : '从未登录，建议核查是否完成交付'}
-                  </span>
+          <div className="row-2 c50">
+            <div className="panel">
+              <div className="panel-title">教师覆盖观察</div>
+              <div className="mini-list">
+                <div className="mini-list-item">
+                  <div>
+                    <strong>跨班教师</strong>
+                    <span>同时负责多个班级的教师账号，适合作为排课与负载观察重点。</span>
+                  </div>
+                  <b>{governanceMetrics.multiClassTeachers} 人</b>
                 </div>
-                <b>{item.status === 'enabled' ? '未登录' : '已停用'}</b>
-              </button>
-            ))}
-            {governanceHighlights.riskyAccounts.length === 0 ? (
-              <div className="mini-list-item">
-                <div>
-                  <strong>治理状态良好</strong>
-                  <span>当前没有明显的停用/未登录账号风险信号。</span>
-                </div>
-                <b>正常</b>
+                {governanceHighlights.gradeCoverage.map((item) => (
+                  <button
+                    type="button"
+                    className="mini-list-item mini-list-item-button"
+                    key={item.gradeName}
+                    onClick={() => navigateWithQuery('/teachers', { teacherView: 'all', statsView: 'grade', gradeName: item.gradeName })}
+                  >
+                    <div>
+                      <strong>{item.gradeName}</strong>
+                      <span>当前年级已建立教师覆盖关系。</span>
+                    </div>
+                    <b>{item.teacherCount} 人</b>
+                  </button>
+                ))}
               </div>
-            ) : null}
+            </div>
+            <div className="panel">
+              <div className="panel-title">账号治理提醒</div>
+              <div className="mini-list">
+                {governanceHighlights.riskyAccounts.map((item) => (
+                  <button
+                    type="button"
+                    className="mini-list-item mini-list-item-button"
+                    key={item.id}
+                    onClick={() => navigateWithQuery('/organization', { activeTab: 'accounts', userId: item.id })}
+                  >
+                    <div>
+                      <strong>{item.name}</strong>
+                      <span>
+                        {item.roleName} · {item.lastLoginAt ? '已停用，建议确认是否仍需保留' : '从未登录，建议核查是否完成交付'}
+                      </span>
+                    </div>
+                    <b>{item.status === 'enabled' ? '未登录' : '已停用'}</b>
+                  </button>
+                ))}
+                {governanceHighlights.riskyAccounts.length === 0 ? (
+                  <div className="mini-list-item">
+                    <div>
+                      <strong>治理状态良好</strong>
+                      <span>当前没有明显的停用/未登录账号风险信号。</span>
+                    </div>
+                    <b>正常</b>
+                  </div>
+                ) : null}
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
+        </>
+      ) : null}
     </Shell>
   );
 }

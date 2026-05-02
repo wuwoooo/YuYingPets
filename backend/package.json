@@ -17,10 +17,13 @@
     "prisma:studio": "prisma studio",
     "pet-catalog:generate-sql": "node scripts/generate-pet-catalog-sql.cjs",
     "pet-catalog:import": "node scripts/import-pet-catalog.cjs",
-    "deploy:seed-default-data": "npm run score-rules:import-xls && npm run pet-catalog:import && npm run prisma:db:execute:pet-assets-png",
+    "deploy:seed-default-data": "npm run seed:default && npm run prisma:db:execute:pet-assets-png",
     "pet-growth:reconcile": "node scripts/reconcile-pet-growth.cjs",
     "score-rules:generate-sql": "node scripts/import-score-rules-from-xls.cjs --generate-only",
-    "score-rules:import-xls": "node scripts/import-score-rules-from-xls.cjs"
+    "score-rules:import-xls": "node scripts/import-score-rules-from-xls.cjs",
+    "seed:default": "ts-node prisma/seed.default.ts",
+    "seed:mock": "ts-node prisma/seed.mock.ts",
+    "seed:all": "npm run seed:default && npm run seed:mock"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.8",
@@ -35,10 +38,12 @@
     "bcryptjs": "^2.4.3",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
+    "pinyin-pro": "^3.28.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "socket.io": "^4.8.1",
-    "swagger-ui-express": "^5.0.1"
+    "swagger-ui-express": "^5.0.1",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.4.8",

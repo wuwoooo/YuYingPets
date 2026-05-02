@@ -16,6 +16,11 @@ enum SentimentDto {
   NEGATIVE = 'negative',
 }
 
+enum ScoreTargetDto {
+  STUDENT = 'student',
+  CLASS = 'class',
+}
+
 export class ScoreRuleUpsertDto {
   @ApiProperty()
   @IsInt()
@@ -45,6 +50,11 @@ export class ScoreRuleUpsertDto {
   @ApiProperty({ enum: ScoreTypeDto })
   @IsEnum(ScoreTypeDto)
   scoreType!: ScoreTypeDto;
+
+  @ApiProperty({ enum: ScoreTargetDto, default: ScoreTargetDto.STUDENT })
+  @IsOptional()
+  @IsEnum(ScoreTargetDto)
+  scoreTarget?: ScoreTargetDto;
 
   @ApiProperty()
   @IsInt()

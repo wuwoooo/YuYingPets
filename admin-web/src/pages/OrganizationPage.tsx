@@ -20,7 +20,9 @@ const subjectOptions = [
   { code: 'biology', label: '生物' },
   { code: 'history', label: '历史' },
   { code: 'politics', label: '政治' },
-  { code: 'arts_it', label: '音美信综合' },
+  { code: 'computer', label: '计算机' },
+  { code: 'art', label: '美术' },
+  { code: 'music', label: '音乐' },
   { code: 'pe', label: '体育' },
 ] as const;
 const tabOptions = [

@@ -62,6 +62,13 @@ ON DUPLICATE KEY UPDATE
   `status` = VALUES(`status`),
   `updated_at` = NOW(3);
 
+INSERT INTO `class_score_profile` (`school_id`, `semester_id`, `class_id`, `current_score`, `total_score`, `positive_count_7d`, `negative_count_7d`, `updated_at`)
+SELECT `school_id`, `semester_id`, `id`, 0, 0, 0, 0, NOW(3)
+FROM `class`
+WHERE `school_id` = 1
+ON DUPLICATE KEY UPDATE
+  `updated_at` = VALUES(`updated_at`);
+
 INSERT INTO `user_scope` (`id`, `user_id`, `scope_type`, `class_id`, `created_at`)
 VALUES
   (1, 1, 'class_scope', 1, NOW(3)),
@@ -117,16 +124,17 @@ ON DUPLICATE KEY UPDATE
   `updated_at` = NOW(3);
 
 INSERT INTO `score_rule` (
-  `id`, `school_id`, `semester_id`, `module_type`, `scene_code`, `code`, `name`, `score_type`, `score_mode`,
+  `id`, `school_id`, `semester_id`, `module_type`, `scene_code`, `code`, `name`, `score_type`, `score_mode`, `score_target`,
   `score_value`, `dimension`, `tag`, `sentiment`, `is_high_frequency`, `display_enabled`, `admin_enabled`,
   `status`, `created_by`, `updated_by`, `created_at`, `updated_at`
 )
 VALUES
-  (1, 1, 1, 'general', 'classroom', 'CLASS_POSITIVE_SPEAK', '课堂积极发言', 'add', 'fixed', 2, '课堂表现', '积极发言', 'positive', 1, 1, 1, 'enabled', 1, 1, NOW(3), NOW(3)),
-  (2, 1, 1, 'general', 'classroom', 'CLASS_DISCIPLINE_REMIND', '课堂纪律提醒', 'deduct', 'fixed', 1, '课堂表现', '课堂纪律', 'negative', 1, 1, 1, 'enabled', 1, 1, NOW(3), NOW(3))
+  (1, 1, 1, 'general', 'classroom', 'CLASS_POSITIVE_SPEAK', '课堂积极发言', 'add', 'fixed', 'student', 2, '课堂表现', '积极发言', 'positive', 1, 1, 1, 'enabled', 1, 1, NOW(3), NOW(3)),
+  (2, 1, 1, 'general', 'classroom', 'CLASS_DISCIPLINE_REMIND', '课堂纪律提醒', 'deduct', 'fixed', 'student', 1, '课堂表现', '课堂纪律', 'negative', 1, 1, 1, 'enabled', 1, 1, NOW(3), NOW(3))
 ON DUPLICATE KEY UPDATE
   `name` = VALUES(`name`),
   `score_type` = VALUES(`score_type`),
+  `score_target` = VALUES(`score_target`),
   `score_value` = VALUES(`score_value`),
   `dimension` = VALUES(`dimension`),
   `tag` = VALUES(`tag`),

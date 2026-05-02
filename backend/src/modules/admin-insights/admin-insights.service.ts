@@ -21,6 +21,25 @@ type CachedAnalyticsInsight = {
   className: string;
 };
 
+const PET_CATEGORY_PRIORITY: Record<string, number> = {
+  star: 0,
+  zodiac: 1,
+};
+
+function normalizePetCategory(category: string | null | undefined): string {
+  return (category ?? '').trim().toLowerCase();
+}
+
+function comparePetCatalogOrder(
+  left: { category: string | null; code: string },
+  right: { category: string | null; code: string },
+): number {
+  const leftPriority = PET_CATEGORY_PRIORITY[normalizePetCategory(left.category)] ?? 99;
+  const rightPriority = PET_CATEGORY_PRIORITY[normalizePetCategory(right.category)] ?? 99;
+  if (leftPriority !== rightPriority) return leftPriority - rightPriority;
+  return left.code.localeCompare(right.code, 'en', { numeric: true });
+}
+
 @Injectable()
 export class AdminInsightsService {
   constructor(
@@ -36,6 +55,8 @@ export class AdminInsightsService {
       gradeName?: string;
       classId?: number;
       regenerateAi?: boolean;
+      startDate?: string;
+      endDate?: string;
     },
   ) {
     const user = await this.authService.getAuthUserFromAuthorization(authorization);
@@ -57,12 +78,15 @@ export class AdminInsightsService {
           where: { deletedAt: null, status: 'enabled' },
           include: { profile: true },
         },
+        classScoreProfile: true,
       },
       orderBy: [{ gradeCode: 'asc' }, { code: 'asc' }],
     });
 
     const resolvedClassIds = classes.map((item) => item.id);
     const hasClassScope = resolvedClassIds.length > 0;
+
+    const dateRange = this.resolveAnalyticsDateRange(filters?.startDate, filters?.endDate);
 
     const [students, rules, scoreRecords] = await Promise.all([
       this.prisma.student.findMany({
@@ -84,6 +108,10 @@ export class AdminInsightsService {
         where: {
           schoolId: user.schoolId,
           ...(hasClassScope ? { classId: { in: resolvedClassIds } } : { classId: BigInt(-1) }),
+          createdAt: {
+            gte: dateRange.startAt,
+            lt: dateRange.endAtExclusive,
+          },
         },
         include: {
           rule: true,
@@ -91,15 +119,18 @@ export class AdminInsightsService {
           student: true,
         },
         orderBy: { createdAt: 'desc' },
-        take: 2000,
+        take: 8000,
       }),
     ]);
 
-    const sumClassScore = (studentsOfClass: Array<{ profile: { currentScore: number } | null }>) =>
+    const sumStudentScore = (studentsOfClass: Array<{ profile: { currentScore: number } | null }>) =>
       studentsOfClass.reduce((sum, student) => sum + (student.profile?.currentScore ?? 0), 0);
 
-    const totalScore = classes.reduce((sum, classroom) => sum + sumClassScore(classroom.students), 0);
+    const getClassScore = (classroom: (typeof classes)[number]) => classroom.classScoreProfile?.currentScore ?? 0;
+
+    const totalScore = classes.reduce((sum, classroom) => sum + getClassScore(classroom), 0);
     const positiveRuleCount = scoreRecords.filter((item) => item.sentiment === 'positive').length;
+    const negativeRuleCount = scoreRecords.filter((item) => item.sentiment === 'negative').length;
     const averageScore = students.length > 0
       ? Math.round(students.reduce((sum, student) => sum + (student.profile?.currentScore ?? 0), 0) / students.length)
       : 0;
@@ -107,11 +138,13 @@ export class AdminInsightsService {
 
     const gradeTrend = Array.from(
       classes.reduce((map, item) => {
-        const currentScore = sumClassScore(item.students);
-        map.set(item.gradeName, (map.get(item.gradeName) ?? 0) + currentScore);
+        const current = map.get(item.gradeName) ?? { score: 0, count: 0 };
+        current.score += getClassScore(item);
+        current.count += 1;
+        map.set(item.gradeName, current);
         return map;
-      }, new Map<string, number>()),
-    ).map(([name, value]) => ({ name, value }));
+      }, new Map<string, { score: number; count: number }>()),
+    ).map(([name, value]) => ({ name, value: value.count > 0 ? Math.round(value.score / value.count) : 0 }));
 
     const ruleDistribution = Array.from(
       scoreRecords.reduce((map, item) => {
@@ -139,10 +172,23 @@ export class AdminInsightsService {
       .map((item) => ({
         id: toNumber(item.id),
         name: item.name,
-        currentScoreTotal: sumClassScore(item.students),
+        currentScoreTotal: getClassScore(item),
       }))
       .sort((left, right) => right.currentScoreTotal - left.currentScoreTotal)
       .slice(0, 8);
+
+    const topStudents = classes
+      .flatMap((item) =>
+        item.students.map((student) => ({
+          studentId: toNumber(student.id) ?? 0,
+          studentName: student.name,
+          classId: toNumber(item.id) ?? 0,
+          className: item.name,
+          currentScore: student.profile?.currentScore ?? 0,
+        })),
+      )
+      .sort((left, right) => right.currentScore - left.currentScore)
+      .slice(0, 15);
 
     const heatMapRows = ['早读', '上午', '午后', '晚辅'];
     const heatMapCols = ['一', '二', '三', '四', '五'];
@@ -212,9 +258,12 @@ export class AdminInsightsService {
     const fallbackSummary = this.buildAnalyticsSummary({
       gradeName: filters?.gradeName,
       className: scopedClass?.name,
+      dateRangeLabel: dateRange.label,
       totalScore,
       averageScore,
       activeDays,
+      positiveRuleCount,
+      negativeRuleCount,
       ruleDistribution,
       subjectDistribution,
       topClasses,
@@ -229,9 +278,12 @@ export class AdminInsightsService {
     const fallbackReportSummary = this.buildAnalyticsReportSummary({
       gradeName: filters?.gradeName,
       className: scopedClass?.name,
+      dateRangeLabel: dateRange.label,
       totalScore,
       averageScore,
       activeDays,
+      positiveRuleCount,
+      negativeRuleCount,
       ruleDistribution,
       subjectDistribution,
       riskStudents,
@@ -242,10 +294,15 @@ export class AdminInsightsService {
           classId: filters?.classId ?? (toNumber(scopedClass.id) ?? 0),
           className: scopedClass.name,
           gradeName: scopedClass.gradeName,
+          dateRangeLabel: dateRange.label,
+          dateRangeKey: dateRange.key,
+          reportDate: dateRange.endDate,
           regenerateAi: Boolean(filters?.regenerateAi),
           totalScore,
           averageScore,
           activeDays,
+          positiveRuleCount,
+          negativeRuleCount,
           gradeTrend,
           ruleDistribution,
           subjectDistribution,
@@ -258,10 +315,15 @@ export class AdminInsightsService {
       : await this.resolveGlobalAnalyticsInsight({
           schoolId: toNumber(user.schoolId) ?? 0,
           gradeName: filters?.gradeName,
+          dateRangeLabel: dateRange.label,
+          dateRangeKey: dateRange.key,
+          reportDate: dateRange.endDate,
           regenerateAi: Boolean(filters?.regenerateAi),
           totalScore,
           averageScore,
           activeDays,
+          positiveRuleCount,
+          negativeRuleCount,
           gradeTrend,
           ruleDistribution,
           subjectDistribution,
@@ -278,12 +340,14 @@ export class AdminInsightsService {
       data: {
         totalScore,
         positiveRuleCount,
+        negativeRuleCount,
         averageScore,
         activeDays,
         gradeTrend,
         ruleDistribution,
         subjectDistribution,
         topClasses,
+        topStudents,
         riskStudents,
         aiInsight,
         heatMap: {
@@ -295,14 +359,15 @@ export class AdminInsightsService {
     };
   }
 
-  async analyticsReportStatus(authorization: string | undefined, classId?: number, gradeName?: string) {
+  async analyticsReportStatus(authorization: string | undefined, classId?: number, gradeName?: string, startDate?: string, endDate?: string) {
     const user = await this.authService.getAuthUserFromAuthorization(authorization);
+    const dateRange = this.resolveAnalyticsDateRange(startDate, endDate);
 
     if (!classId) {
       const cached = await this.readCachedAnalyticsInsight(
         toNumber(user.schoolId) ?? 0,
-        this.buildAnalyticsScopeKey(null, gradeName),
-        this.getLocalDateString(),
+        this.buildAnalyticsScopeKey(null, gradeName, dateRange.key),
+        dateRange.endDate,
       );
       return {
         code: 0,
@@ -311,7 +376,7 @@ export class AdminInsightsService {
           hasTodayReport: Boolean(cached),
           classId: null,
           className: null,
-          reportDate: cached?.reportDate ?? this.getLocalDateString(),
+          reportDate: cached?.reportDate ?? dateRange.endDate,
           generatedAt: cached?.generatedAt ?? null,
           source: cached?.source ?? null,
         },
@@ -342,8 +407,8 @@ export class AdminInsightsService {
 
     const cached = await this.readCachedAnalyticsInsight(
       toNumber(user.schoolId) ?? 0,
-      this.buildAnalyticsScopeKey(classId),
-      this.getLocalDateString(),
+      this.buildAnalyticsScopeKey(classId, undefined, dateRange.key),
+      dateRange.endDate,
     );
 
     return {
@@ -353,7 +418,7 @@ export class AdminInsightsService {
         hasTodayReport: Boolean(cached),
         classId,
         className: classroom.name,
-        reportDate: cached?.reportDate ?? this.getLocalDateString(),
+        reportDate: cached?.reportDate ?? dateRange.endDate,
         generatedAt: cached?.generatedAt ?? null,
         source: cached?.source ?? null,
       },
@@ -411,7 +476,9 @@ export class AdminInsightsService {
           })),
         };
       })
-      .filter((pet) => accessibleClassIds === null || pet.bindCount > 0 || ['super_admin', 'school_admin', 'moral_admin'].includes(user.roleCode));
+      .filter((pet) => accessibleClassIds === null || pet.status === 'enabled');
+
+    filtered.sort(comparePetCatalogOrder);
 
     return { code: 0, message: 'ok', data: filtered };
   }
@@ -676,9 +743,12 @@ export class AdminInsightsService {
   private buildAnalyticsSummary(input: {
     gradeName?: string;
     className?: string;
+    dateRangeLabel: string;
     totalScore: number;
     averageScore: number;
     activeDays: number;
+    positiveRuleCount: number;
+    negativeRuleCount: number;
     ruleDistribution: Array<{ name: string; value: number }>;
     subjectDistribution: Array<{ name: string; value: number }>;
     topClasses: Array<{ id: number | null; name: string; currentScoreTotal: number }>;
@@ -686,12 +756,12 @@ export class AdminInsightsService {
   }) {
     const scopeLabel = input.className ? `${input.className}` : input.gradeName ? `${input.gradeName}` : '当前筛选范围';
     if (input.totalScore === 0 && input.averageScore === 0 && input.activeDays === 0) {
-      return `${scopeLabel}当前暂无有效积分与评价记录，班级学情数据尚未形成，暂时不能据此输出趋势判断。`;
+      return `${scopeLabel}在${input.dateRangeLabel}暂无有效积分与评价记录，班级学情数据尚未形成，暂时不能据此输出趋势判断。`;
     }
     const topRule = input.ruleDistribution[0]?.name ?? '未分类';
     const topSubject = input.subjectDistribution[0]?.name ?? '通用';
     const riskCount = input.riskStudents.length;
-    return `${scopeLabel}累计积分 ${input.totalScore} 分，人均积分 ${input.averageScore} 分，近阶段共有 ${input.activeDays} 个活跃评价日。当前高频行为维度集中在“${topRule}”，主要发生在“${topSubject}”相关学习场景，需重点关注 ${riskCount} 名存在负向聚集信号的学生。`;
+    return `${scopeLabel}在${input.dateRangeLabel}累计积分 ${input.totalScore} 分，人均积分 ${input.averageScore} 分，活跃评价日 ${input.activeDays} 天，正向/负向事件分别为 ${input.positiveRuleCount}/${input.negativeRuleCount}。当前高频行为维度集中在“${topRule}”，主要发生在“${topSubject}”相关学习场景，需重点关注 ${riskCount} 名存在负向聚集信号的学生。`;
   }
 
   private buildAnalyticsSuggestion(input: {
@@ -718,16 +788,19 @@ export class AdminInsightsService {
   private buildAnalyticsReportSummary(input: {
     gradeName?: string;
     className?: string;
+    dateRangeLabel: string;
     totalScore: number;
     averageScore: number;
     activeDays: number;
+    positiveRuleCount: number;
+    negativeRuleCount: number;
     ruleDistribution: Array<{ name: string; value: number }>;
     subjectDistribution: Array<{ name: string; value: number }>;
     riskStudents: Array<{ studentName: string; className: string; riskLevel: string }>;
   }) {
     const scopeLabel = input.className ? `${input.className}` : input.gradeName ? `${input.gradeName}` : '全校';
     if (input.totalScore === 0 && input.averageScore === 0 && input.activeDays === 0) {
-      return `${scopeLabel}当前暂无有效积分与评价记录，系统暂不输出趋势性结论。建议先完成班级日常评价数据采集后再生成汇报摘要。`;
+      return `${scopeLabel}在${input.dateRangeLabel}暂无有效积分与评价记录，系统暂不输出趋势性结论。建议先完成班级日常评价数据采集后再生成汇报摘要。`;
     }
     const topRule = input.ruleDistribution[0]?.name ?? '未分类';
     const topSubject = input.subjectDistribution[0]?.name ?? '通用';
@@ -737,7 +810,7 @@ export class AdminInsightsService {
         ? `需要重点关注的学生包括${highRiskStudents.map((item) => `${item.className}${item.studentName}`).join('、')}。`
         : '当前未发现高风险学生聚集现象。';
 
-    return `${scopeLabel}当前累计积分为 ${input.totalScore} 分，人均积分 ${input.averageScore} 分，近阶段共有 ${input.activeDays} 个活跃评价日。行为记录主要集中在“${topRule}”维度，学科事件以“${topSubject}”为主。${riskLine}整体上，当前数据能够支撑学校开展阶段性汇报与班级跟进。`;
+    return `${scopeLabel}在${input.dateRangeLabel}累计积分为 ${input.totalScore} 分，人均积分 ${input.averageScore} 分，活跃评价日 ${input.activeDays} 天，正向/负向事件为 ${input.positiveRuleCount}/${input.negativeRuleCount}。行为记录主要集中在“${topRule}”维度，学科事件以“${topSubject}”为主。${riskLine}整体上，当前数据能够支撑学校开展阶段性汇报与班级跟进。`;
   }
 
   private async resolveClassAnalyticsInsight(input: {
@@ -745,10 +818,15 @@ export class AdminInsightsService {
     classId: number;
     className: string;
     gradeName?: string;
+    dateRangeLabel: string;
+    dateRangeKey: string;
+    reportDate: string;
     regenerateAi: boolean;
     totalScore: number;
     averageScore: number;
     activeDays: number;
+    positiveRuleCount: number;
+    negativeRuleCount: number;
     gradeTrend: Array<{ name: string; value: number }>;
     ruleDistribution: Array<{ name: string; value: number }>;
     subjectDistribution: Array<{ name: string; value: number }>;
@@ -767,7 +845,7 @@ export class AdminInsightsService {
     fallbackSuggestion: string;
     fallbackReportSummary: string;
   }) {
-    const reportDate = this.getLocalDateString();
+    const reportDate = input.reportDate;
     if (input.totalScore === 0 && input.averageScore === 0 && input.activeDays === 0) {
       return {
         summary: input.fallbackSummary,
@@ -784,7 +862,7 @@ export class AdminInsightsService {
 
     const cached = input.regenerateAi
       ? null
-      : await this.readCachedAnalyticsInsight(input.schoolId, this.buildAnalyticsScopeKey(input.classId), reportDate);
+      : await this.readCachedAnalyticsInsight(input.schoolId, this.buildAnalyticsScopeKey(input.classId, undefined, input.dateRangeKey), reportDate);
 
     if (cached) {
       return {
@@ -804,9 +882,12 @@ export class AdminInsightsService {
     const generated = await this.generateAnalyticsInsightWithArk({
       gradeName: input.gradeName,
       className: input.className,
+      dateRangeLabel: input.dateRangeLabel,
       totalScore: input.totalScore,
       averageScore: input.averageScore,
       activeDays: input.activeDays,
+      positiveRuleCount: input.positiveRuleCount,
+      negativeRuleCount: input.negativeRuleCount,
       gradeTrend: input.gradeTrend,
       ruleDistribution: input.ruleDistribution,
       subjectDistribution: input.subjectDistribution,
@@ -817,7 +898,7 @@ export class AdminInsightsService {
       fallbackReportSummary: input.fallbackReportSummary,
     });
 
-    await this.writeCachedAnalyticsInsight(input.schoolId, this.buildAnalyticsScopeKey(input.classId), {
+    await this.writeCachedAnalyticsInsight(input.schoolId, this.buildAnalyticsScopeKey(input.classId, undefined, input.dateRangeKey), {
       summary: generated.summary,
       suggestion: generated.suggestion,
       reportSummary: generated.reportSummary,
@@ -844,10 +925,15 @@ export class AdminInsightsService {
   private async resolveGlobalAnalyticsInsight(input: {
     schoolId: number;
     gradeName?: string;
+    dateRangeLabel: string;
+    dateRangeKey: string;
+    reportDate: string;
     regenerateAi: boolean;
     totalScore: number;
     averageScore: number;
     activeDays: number;
+    positiveRuleCount: number;
+    negativeRuleCount: number;
     gradeTrend: Array<{ name: string; value: number }>;
     ruleDistribution: Array<{ name: string; value: number }>;
     subjectDistribution: Array<{ name: string; value: number }>;
@@ -866,8 +952,8 @@ export class AdminInsightsService {
     fallbackSuggestion: string;
     fallbackReportSummary: string;
   }) {
-    const reportDate = this.getLocalDateString();
-    const scopeKey = this.buildAnalyticsScopeKey(null, input.gradeName);
+    const reportDate = input.reportDate;
+    const scopeKey = this.buildAnalyticsScopeKey(null, input.gradeName, input.dateRangeKey);
 
     if (input.totalScore === 0 && input.averageScore === 0 && input.activeDays === 0) {
       return {
@@ -905,9 +991,12 @@ export class AdminInsightsService {
     const generated = await this.generateAnalyticsInsightWithArk({
       gradeName: input.gradeName,
       className: undefined,
+      dateRangeLabel: input.dateRangeLabel,
       totalScore: input.totalScore,
       averageScore: input.averageScore,
       activeDays: input.activeDays,
+      positiveRuleCount: input.positiveRuleCount,
+      negativeRuleCount: input.negativeRuleCount,
       gradeTrend: input.gradeTrend,
       ruleDistribution: input.ruleDistribution,
       subjectDistribution: input.subjectDistribution,
@@ -945,9 +1034,12 @@ export class AdminInsightsService {
   private async generateAnalyticsInsightWithArk(input: {
     gradeName?: string;
     className?: string;
+    dateRangeLabel: string;
     totalScore: number;
     averageScore: number;
     activeDays: number;
+    positiveRuleCount: number;
+    negativeRuleCount: number;
     gradeTrend: Array<{ name: string; value: number }>;
     ruleDistribution: Array<{ name: string; value: number }>;
     subjectDistribution: Array<{ name: string; value: number }>;
@@ -1003,7 +1095,10 @@ export class AdminInsightsService {
                     '你是学校数据分析助手。',
                     '你只能依据提供的数据输出校级/班级学情洞察，不夸大，不凭空推断。',
                     '请严格输出 JSON，字段只有 summary、suggestion、reportSummary，且都必须为字符串。',
-                    'summary 控制在 140 字以内，suggestion 控制在 90 字以内，reportSummary 控制在 220 字以内。',
+                    'summary 控制在 220 字以内，suggestion 控制在 160 字以内，reportSummary 控制在 360 字以内。',
+                    'summary 必须包含：统计范围、关键数据、主要变化或风险。',
+                    'suggestion 必须是可执行动作，至少 2 条动作意图（可写在一句中），并标明优先关注对象。',
+                    'reportSummary 需要能直接用于校务汇报：先结论，再依据，再行动建议。',
                   ].join(' '),
                 },
               ],
@@ -1018,10 +1113,13 @@ export class AdminInsightsService {
                       scope: {
                         gradeName: input.gradeName || null,
                         className: input.className || null,
+                        dateRange: input.dateRangeLabel,
                       },
                       totalScore: input.totalScore,
                       averageScore: input.averageScore,
                       activeDays: input.activeDays,
+                      positiveRuleCount: input.positiveRuleCount,
+                      negativeRuleCount: input.negativeRuleCount,
                       gradeTrend: input.gradeTrend,
                       ruleDistribution: input.ruleDistribution,
                       subjectDistribution: input.subjectDistribution,
@@ -1111,9 +1209,35 @@ export class AdminInsightsService {
     return `${year}-${month}-${day}`;
   }
 
-  private buildAnalyticsScopeKey(classId: number | null, gradeName?: string) {
+  private resolveAnalyticsDateRange(startDate?: string, endDate?: string) {
+    const today = this.getLocalDateString();
+    const resolvedStartDate = startDate?.trim() || this.shiftDateString(today, -29);
+    const resolvedEndDate = endDate?.trim() || today;
+    const orderedStart = resolvedStartDate <= resolvedEndDate ? resolvedStartDate : resolvedEndDate;
+    const orderedEnd = resolvedStartDate <= resolvedEndDate ? resolvedEndDate : resolvedStartDate;
+    return {
+      startDate: orderedStart,
+      endDate: orderedEnd,
+      startAt: new Date(`${orderedStart}T00:00:00.000Z`),
+      endAtExclusive: new Date(`${this.shiftDateString(orderedEnd, 1)}T00:00:00.000Z`),
+      label: `${orderedStart} 至 ${orderedEnd}`,
+      key: `${orderedStart}_${orderedEnd}`,
+    };
+  }
+
+  private shiftDateString(date: string, offsetDays: number) {
+    const base = new Date(`${date}T00:00:00.000Z`);
+    base.setUTCDate(base.getUTCDate() + offsetDays);
+    const year = base.getUTCFullYear();
+    const month = String(base.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(base.getUTCDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  private buildAnalyticsScopeKey(classId: number | null, gradeName?: string, dateRangeKey?: string) {
     if (classId) return `class-${classId}`;
-    return gradeName ? `global-grade-${gradeName}` : 'global-all';
+    const scope = gradeName ? `global-grade-${gradeName}` : 'global-all';
+    return dateRangeKey ? `${scope}-${dateRangeKey}` : scope;
   }
 
   private getAnalyticsInsightCachePath(schoolId: number, scopeKey: string, reportDate: string) {

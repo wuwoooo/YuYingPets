@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { PickerInput } from '../components/PickerInput';
 import { Shell } from '../components/Shell';
 import type { 
   AdminClass,
@@ -7,6 +8,7 @@ import type {
   SessionUser
 } from '../lib/api';
 import { adminApi } from '../lib/api';
+import { ruleSubjectLabelMap } from '../constants/admin';
 import { exportCsvFile } from '../utils/csv';
 import { exportTextFile } from '../utils/text';
 
@@ -37,6 +39,15 @@ export function AnalyticsPage({
   const [reportMaskText, setReportMaskText] = useState('正在生成班级 AI 报告，请稍候...');
   const [gradeFilter, setGradeFilter] = useState('all');
   const [classFilter, setClassFilter] = useState('all');
+  const today = new Date().toISOString().slice(0, 10);
+  const defaultStartDate = new Date(Date.now() - 29 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const [startDate, setStartDate] = useState(defaultStartDate);
+  const [endDate, setEndDate] = useState(today);
+  const quickRangeOptions = [
+    { key: '7d', label: '近7天' },
+    { key: '30d', label: '近30天' },
+    { key: 'month', label: '本月' },
+  ] as const;
 
   const gradeOptions = useMemo(
     () => Array.from(new Set(classes.map((item) => item.gradeName).filter(Boolean))),
@@ -72,6 +83,8 @@ export function AnalyticsPage({
         if (!options?.regenerateAi) {
           const status = await adminApi.analyticsReportStatus(token, {
             ...(gradeFilter !== 'all' ? { gradeName: gradeFilter } : {}),
+            startDate,
+            endDate,
           });
           if (!status.data.hasTodayReport) {
             setReportGenerating(true);
@@ -81,6 +94,8 @@ export function AnalyticsPage({
 
         const response = await adminApi.analytics(token, {
           ...(gradeFilter !== 'all' ? { gradeName: gradeFilter } : {}),
+          startDate,
+          endDate,
           ...(options?.regenerateAi ? { regenerateAi: true } : {}),
         });
         setAnalytics(response.data);
@@ -107,7 +122,7 @@ export function AnalyticsPage({
 
     try {
       if (!options?.regenerateAi) {
-        const status = await adminApi.analyticsReportStatus(token, { classId: Number(classFilter) });
+        const status = await adminApi.analyticsReportStatus(token, { classId: Number(classFilter), startDate, endDate });
         if (!status.data.hasTodayReport) {
           setReportGenerating(true);
           setReportMaskText('今日首次进入该班级，正在生成班级 AI 报告，请稍候...');
@@ -117,6 +132,8 @@ export function AnalyticsPage({
       const response = await adminApi.analytics(token, {
         ...(gradeFilter !== 'all' ? { gradeName: gradeFilter } : {}),
         classId: Number(classFilter),
+        startDate,
+        endDate,
         ...(options?.regenerateAi ? { regenerateAi: true } : {}),
       });
       setAnalytics(response.data);
@@ -134,7 +151,7 @@ export function AnalyticsPage({
 
   useEffect(() => {
     void loadAnalytics();
-  }, [classFilter, gradeFilter, token]);
+  }, [classFilter, gradeFilter, startDate, endDate, token]);
 
   const totalScore = analytics?.totalScore ?? 0;
   const positiveRuleCount = analytics?.positiveRuleCount ?? 0;
@@ -144,6 +161,7 @@ export function AnalyticsPage({
   const ruleDistribution = analytics?.ruleDistribution ?? [];
   const subjectDistribution = analytics?.subjectDistribution ?? [];
   const topClasses = analytics?.topClasses ?? [];
+  const topStudents = analytics?.topStudents ?? [];
   const riskStudents = analytics?.riskStudents ?? [];
   const aiInsight = analytics?.aiInsight ?? null;
   const heatMapRows = analytics?.heatMap.rows ?? ['早读', '上午', '午后', '晚辅'];
@@ -151,11 +169,98 @@ export function AnalyticsPage({
   const heatMapData = analytics?.heatMap.data ?? [];
   const isGlobalOverview = classFilter === 'all';
   const aiPanelTitle = isGlobalOverview ? 'AI 全局概览' : 'AI 班级报告';
+  const isClassScoped = classFilter !== 'all';
+  const isGradeScoped = classFilter === 'all' && gradeFilter !== 'all';
+
+  const overviewTitle = isClassScoped
+    ? '个人积分总览'
+    : isGradeScoped
+      ? '班级积分分布总览'
+      : '年级积分分布总览';
+  const rankingTitle = isClassScoped
+    ? '个人积分排行'
+    : isGradeScoped
+      ? `班级积分排行（${gradeFilter}）`
+      : '班级积分排行';
+  const overviewBars: Array<{ key: string | number; name: string; value: number }> = isClassScoped
+    ? topStudents.map((item) => ({
+        key: item.studentId,
+        name: item.studentName,
+        value: item.currentScore,
+      }))
+    : isGradeScoped
+      ? topClasses.map((item) => ({
+          key: item.id,
+          name: item.name,
+          value: item.currentScoreTotal,
+        }))
+      : gradeTrend.map((item) => ({
+          key: item.name,
+          name: item.name,
+          value: item.value,
+        }));
+  const overviewMax = Math.max(...overviewBars.map((item) => item.value), 1);
+  const rankingBars: Array<{ key: string | number; name: string; value: number }> = isClassScoped
+    ? topStudents.map((item) => ({
+        key: item.studentId,
+        name: item.studentName,
+        value: item.currentScore,
+      }))
+    : topClasses.map((item) => ({
+        key: item.id,
+        name: item.name,
+        value: item.currentScoreTotal,
+      }));
+  const rankingMax = Math.max(...rankingBars.map((item) => item.value), 1);
+  const reportSummaryText = aiInsight?.reportSummary?.trim() ?? '';
+  const reportSentences = reportSummaryText
+    .split(/[。！？]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const reportLead = reportSentences[0] ?? '';
+  const reportPoints = reportSentences.slice(1);
+  const activeQuickRange = useMemo(() => {
+    const monthStart = `${today.slice(0, 8)}01`;
+    if (endDate === today) {
+      if (startDate === new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)) return '7d';
+      if (startDate === new Date(Date.now() - 29 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)) return '30d';
+      if (startDate === monthStart) return 'month';
+    }
+    return null;
+  }, [startDate, endDate, today]);
+
+  function formatSubjectLabel(subjectName: string) {
+    if (!subjectName || subjectName === '通用') return '通用';
+    return ruleSubjectLabelMap[subjectName] ?? subjectName;
+  }
+
+  function shiftDate(date: string, offsetDays: number) {
+    const d = new Date(`${date}T00:00:00`);
+    d.setDate(d.getDate() + offsetDays);
+    return d.toISOString().slice(0, 10);
+  }
+
+  function applyQuickRange(key: '7d' | '30d' | 'month') {
+    if (key === '7d') {
+      setEndDate(today);
+      setStartDate(shiftDate(today, -6));
+      return;
+    }
+    if (key === '30d') {
+      setEndDate(today);
+      setStartDate(shiftDate(today, -29));
+      return;
+    }
+    setEndDate(today);
+    setStartDate(`${today.slice(0, 8)}01`);
+  }
 
   function buildAnalyticsReturnTo() {
     const params = new URLSearchParams();
     if (gradeFilter !== 'all') params.set('gradeName', gradeFilter);
     if (classFilter !== 'all') params.set('classId', classFilter);
+    if (startDate) params.set('startDate', startDate);
+    if (endDate) params.set('endDate', endDate);
     return params.size > 0 ? `${location.pathname}?${params.toString()}` : location.pathname;
   }
 
@@ -204,6 +309,9 @@ export function AnalyticsPage({
       ['行为分类', '规则数'],
       ...ruleDistribution.map((item) => [item.name, item.value]),
       [],
+      ['学科', '事件数'],
+      ...subjectDistribution.map((item) => [formatSubjectLabel(item.name), item.value]),
+      [],
       ['班级', '总积分'],
       ...topClasses.map((item) => [item.name, item.currentScoreTotal]),
     ];
@@ -227,6 +335,7 @@ export function AnalyticsPage({
       `育英星宠${isGlobalOverview ? '全局概览' : '汇报摘要'}`,
       `生成日期：${new Date().toLocaleDateString('zh-CN')}`,
       `统计范围：${scopeLabel}`,
+      `统计周期：${startDate} 至 ${endDate}`,
       '',
       '一、核心概况',
       aiInsight.summary,
@@ -265,11 +374,12 @@ export function AnalyticsPage({
         '育英星宠班级汇报摘要合集',
         `生成日期：${new Date().toLocaleDateString('zh-CN')}`,
         `统计范围：${classFilter !== 'all' ? '单班级' : gradeFilter !== 'all' ? gradeFilter : '全校全部班级'}`,
+        `统计周期：${startDate} 至 ${endDate}`,
         '',
       ];
 
       for (const item of targetClasses) {
-        const response = await adminApi.analytics(token, { classId: item.id });
+        const response = await adminApi.analytics(token, { classId: item.id, startDate, endDate });
         const insight = response.data.aiInsight;
         sections.push(
           `【${item.gradeName} ${item.name}】`,
@@ -306,7 +416,20 @@ export function AnalyticsPage({
       <div className="page-header">
         <h2>数据分析</h2>
         <div className="page-actions">
-          <select className="filter-select" disabled><option>本学期</option></select>
+          <PickerInput wrapperClassName="picker-input-inline" className="filter-select" type="date" value={startDate} max={endDate} onChange={(event) => setStartDate(event.target.value)} />
+          <PickerInput wrapperClassName="picker-input-inline" className="filter-select" type="date" value={endDate} min={startDate} max={today} onChange={(event) => setEndDate(event.target.value)} />
+          <div className="analytics-quick-range">
+            {quickRangeOptions.map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                className={`btn btn-outline analytics-quick-btn ${activeQuickRange === item.key ? 'active' : ''}`}
+                onClick={() => applyQuickRange(item.key)}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
           <select className="filter-select" value={gradeFilter} onChange={(event) => setGradeFilter(event.target.value)}>
             <option value="all">全部年级</option>
             {gradeOptions.map((item) => (
@@ -374,6 +497,7 @@ export function AnalyticsPage({
                 ? `基准班级：${aiInsight.className}`
                 : 'AI 报告按班级生成'}
             {aiInsight?.reportDate ? ` · 报告日期：${aiInsight.reportDate}` : ''}
+            {` · 统计周期：${startDate} 至 ${endDate}`}
             {aiInsight?.generatedAt ? ` · 生成时间：${new Date(aiInsight.generatedAt).toLocaleString('zh-CN')}` : ''}
             {aiInsight ? ` · ${aiInsight.isCached ? '复用当日报告' : '本次新生成'}` : ''}
           </div>
@@ -386,7 +510,20 @@ export function AnalyticsPage({
       </div>
       <div className="analytics-chart-panel">
         <div className="acp-title">汇报摘要</div>
-        <p className="analytics-report-copy">{aiInsight?.reportSummary ?? '当前筛选范围暂无汇报摘要。'}</p>
+        {reportSummaryText ? (
+          <div className="analytics-report-card">
+            <div className="analytics-report-lead">{reportLead}</div>
+            {reportPoints.length > 0 ? (
+              <ul className="analytics-report-points">
+                {reportPoints.map((item, index) => (
+                  <li key={`${index}-${item}`}>{item}</li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : (
+          <p className="analytics-report-copy">当前筛选范围暂无汇报摘要。</p>
+        )}
       </div>
       {reportGenerating ? (
         <div className="analytics-mask" role="status" aria-live="polite">
@@ -398,15 +535,15 @@ export function AnalyticsPage({
         </div>
       ) : null}
       <div className="analytics-chart-panel">
-        <div className="acp-title">年级积分分布总览</div>
+        <div className="acp-title">{overviewTitle}</div>
         <div className="bar-chart">
-          {gradeTrend.map(({ name, value }, index) => (
-            <div className="bar-row" key={name}>
+          {overviewBars.map(({ key, name, value }, index) => (
+            <div className="bar-row" key={key}>
               <span className="bar-label analytics-label">{name}</span>
               <div className="bar-track">
                 <div
                   className={`bar-fill ${index % 3 === 0 ? 'bar-blue' : index % 3 === 1 ? 'bar-green' : 'bar-red'}`}
-                    style={{ width: `${Math.max(30, Math.round((value / Math.max(...gradeTrend.map((item) => item.value), 1)) * 100))}%` }}
+                    style={{ width: `${Math.max(30, Math.round((value / overviewMax) * 100))}%` }}
                 >
                   {value}
                 </div>
@@ -437,11 +574,11 @@ export function AnalyticsPage({
           </div>
         </div>
         <div className="analytics-chart-panel">
-          <div className="acp-title">学科事件分布</div>
+          <div className="acp-title">评分事件分布</div>
           <div className="bar-chart">
             {subjectDistribution.map(({ name, value: count }, index) => (
               <div className="bar-row" key={name}>
-                <span className="bar-label analytics-label">{name}</span>
+                <span className="bar-label analytics-label">{formatSubjectLabel(name)}</span>
                 <div className="bar-track">
                   <div
                     className={`bar-fill ${index % 3 === 0 ? 'bar-blue' : index % 3 === 1 ? 'bar-green' : 'bar-red'}`}
@@ -458,20 +595,20 @@ export function AnalyticsPage({
       </div>
       <div className="row-2 c50">
         <div className="analytics-chart-panel">
-          <div className="acp-title">班级积分排行</div>
+          <div className="acp-title">{rankingTitle}</div>
           <div className="bar-chart analytics-ranking">
-            {topClasses.map((item, index) => (
-              <div className="bar-row" key={item.id}>
+            {rankingBars.map((item, index) => (
+              <div className="bar-row" key={item.key}>
                 <span className="bar-label analytics-label">{item.name}</span>
                 <div className="bar-track">
                   <div
                     className={`bar-fill ${index % 4 === 0 ? 'bar-red' : index % 4 === 1 ? 'bar-blue' : index % 4 === 2 ? 'bar-green' : 'bar-gold'}`}
-                    style={{ width: `${Math.max(26, Math.round((item.currentScoreTotal / Math.max(...topClasses.map((row) => row.currentScoreTotal), 1)) * 100))}%` }}
+                    style={{ width: `${Math.max(26, Math.round((item.value / rankingMax) * 100))}%` }}
                   >
-                    {item.currentScoreTotal}
+                    {item.value}
                   </div>
                 </div>
-                <span className="bar-val">{item.currentScoreTotal}</span>
+                <span className="bar-val">{item.value}</span>
               </div>
             ))}
           </div>

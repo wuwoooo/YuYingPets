@@ -33,6 +33,7 @@ export class ClassesService {
         studentProfiles: {
           select: { currentScore: true, totalScore: true },
         },
+        classScoreProfile: true,
       },
       orderBy: [{ gradeCode: 'asc' }, { sortOrder: 'asc' }, { id: 'asc' }],
     });
@@ -60,6 +61,8 @@ export class ClassesService {
         studentCount: row.students.length,
         currentScoreTotal: row.studentProfiles.reduce((sum, item) => sum + item.currentScore, 0),
         totalScoreTotal: row.studentProfiles.reduce((sum, item) => sum + item.totalScore, 0),
+        classScore: row.classScoreProfile?.currentScore ?? 0,
+        classTotalScore: row.classScoreProfile?.totalScore ?? 0,
         homeroomTeacher: row.homeroomTeacher
           ? {
               id: toNumber(row.homeroomTeacher.id),
@@ -132,6 +135,7 @@ export class ClassesService {
             profile: true,
           },
         },
+        classScoreProfile: true,
       },
     });
 
@@ -170,6 +174,8 @@ export class ClassesService {
         scoreSummary: {
           currentScoreTotal: row.students.reduce((sum, item) => sum + (item.profile?.currentScore ?? 0), 0),
           totalScoreTotal: row.students.reduce((sum, item) => sum + (item.profile?.totalScore ?? 0), 0),
+          classScore: row.classScoreProfile?.currentScore ?? 0,
+          classTotalScore: row.classScoreProfile?.totalScore ?? 0,
         },
       },
     };

@@ -24,6 +24,10 @@ export class RealtimeService {
     this.realtimeGateway.server.to(`class:${classId}`).emit('class.leaderboard.changed', payload);
   }
 
+  emitGradeClassRankingChanged(gradeCode: string, payload: Record<string, unknown>) {
+    this.realtimeGateway.server.to(`grade:${gradeCode}`).emit('grade.class_ranking.changed', payload);
+  }
+
   emitDisplayUnlocked(classId: number, terminalCode: string, payload: Record<string, unknown>) {
     this.realtimeGateway.server.to(`class:${classId}`).emit('display.unlock.changed', payload);
     this.realtimeGateway.server

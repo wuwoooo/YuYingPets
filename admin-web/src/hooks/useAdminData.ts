@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { adminApi } from '../lib/api';
 import { clearAdminToken, getAdminToken, setAdminToken } from '../lib/session';
 import type { AdminState, UseAdminDataResult } from '../types/admin';
+import { canManageRewards } from '../utils/adminPermissions';
 
 export function useAdminData(): UseAdminDataResult {
   const [reloadKey, setReloadKey] = useState(0);
@@ -24,15 +25,20 @@ export function useAdminData(): UseAdminDataResult {
     let active = true;
     setState((prev) => ({ ...prev, loading: true, error: null }));
 
-    Promise.all([
-      adminApi.me(state.token),
-      adminApi.classes(state.token),
-      adminApi.students(state.token),
-      adminApi.scoreRules(state.token),
-      adminApi.honors(state.token),
-      adminApi.rewards(state.token, { includeDisabled: true }),
-    ])
-      .then(([me, classes, students, rules, honors, rewards]) => {
+    adminApi
+      .me(state.token)
+      .then(async (me) => {
+        const canLoadAllRewards = canManageRewards(me.data.user.roleCode);
+        const [classes, students, rules, honors, rewards] = await Promise.all([
+          adminApi.classes(state.token!),
+          adminApi.students(state.token!),
+          adminApi.scoreRules(state.token!),
+          adminApi.honors(state.token!),
+          adminApi.rewards(state.token!, canLoadAllRewards ? { includeDisabled: true } : undefined),
+        ]);
+        return { me, classes, students, rules, honors, rewards };
+      })
+      .then(({ me, classes, students, rules, honors, rewards }) => {
         if (!active) return;
         setState((prev) => ({
           ...prev,
@@ -72,7 +78,19 @@ export function useAdminData(): UseAdminDataResult {
     setToken(token: string | null) {
       if (token) setAdminToken(token);
       else clearAdminToken();
-      setState((prev) => ({ ...prev, token }));
+      setState((prev) => ({
+        ...prev,
+        token,
+        user: null,
+        scopes: [],
+        classes: [],
+        students: [],
+        rules: [],
+        honors: [],
+        rewards: [],
+        loading: Boolean(token),
+        error: null,
+      }));
     },
   };
 }

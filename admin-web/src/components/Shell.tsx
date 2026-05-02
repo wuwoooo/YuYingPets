@@ -21,6 +21,7 @@ export function Shell({ title, subtitle: _subtitle, user, onLogout, status, chil
     classes: 'school',
     students: 'student',
     evaluation: 'summary',
+    'class-evaluation': 'summary',
     teachers: 'student',
     rules: 'summary',
     honors: 'award',

@@ -37,7 +37,7 @@ YuYingPets/
 - `admin-web` 已完成工程骨架初始化
 - `display-app` 已完成目录骨架与双形态拆分
 
-## 默认数据部署（后端）
+## 数据初始化（后端）
 
 在部署环境完成数据库连接配置后，可在 `backend` 目录执行：
 
@@ -47,6 +47,11 @@ npm run deploy:seed-default-data
 
 该命令会依次执行：
 
-- 规则默认数据导入（`score-rules:import-xls`）
-- 萌宠图鉴默认数据导入（`pet-catalog:import`）
+- 默认基础数据初始化（`seed:default`）
 - 萌宠图片 URL 后缀迁移为 `.png`（`prisma:db:execute:pet-assets-png`）
+
+如需本地联调或演示测试数据，可额外执行：
+
+```bash
+npm run seed:mock
+```
