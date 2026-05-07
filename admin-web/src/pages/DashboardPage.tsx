@@ -409,6 +409,10 @@ export function DashboardPage({
     }
   }
 
+  function handleEnterLiveInsight() {
+    navigate('/live-insight');
+  }
+
   function navigateWithQuery(path: string, query: Record<string, string | number | null | undefined>) {
     const params = new URLSearchParams();
     Object.entries(query).forEach(([key, value]) => {
@@ -1582,10 +1586,16 @@ export function DashboardPage({
           <div className="dashboard-page-title">校级数据驾驶舱</div>
           <div className="dashboard-page-sub">SCHOOL DATA COCKPIT</div>
         </div>
-        <button className="present-trigger" type="button" onClick={() => void handleEnterPresentMode()} disabled={presentSubmitting}>
-          <PresentationGlyph name="display" className="present-trigger-icon" />
-          {presentSubmitting ? '切换中...' : '汇报展示模式'}
-        </button>
+        <div className="page-actions">
+          <button className="present-trigger live-insight-trigger" type="button" onClick={handleEnterLiveInsight}>
+            <PresentationGlyph name="chart" className="present-trigger-icon" />
+            实时数据透视
+          </button>
+          <button className="present-trigger" type="button" onClick={() => void handleEnterPresentMode()} disabled={presentSubmitting}>
+            <PresentationGlyph name="display" className="present-trigger-icon" />
+            {presentSubmitting ? '切换中...' : '汇报展示模式'}
+          </button>
+        </div>
       </div>
       <div className="metric-row">
         {metrics.map((item, index) => (

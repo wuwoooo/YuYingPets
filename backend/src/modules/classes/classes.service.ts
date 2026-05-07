@@ -1,4 +1,5 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '@/prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { toNumber } from '@/common/utils/bigint.util';
@@ -78,23 +79,28 @@ export class ClassesService {
     const user = await this.authService.getAuthUserFromAuthorization(authorization);
     this.ensureCanManageClass(user.roleCode);
 
-    const created = await this.prisma.classroom.create({
-      data: {
-        schoolId: user.schoolId,
-        semesterId: BigInt(Number(body.semesterId)),
-        code: String(body.code),
-        gradeCode: String(body.gradeCode),
-        gradeName: String(body.gradeName),
-        name: String(body.name),
-        homeroomTeacherId: body.homeroomTeacherId
-          ? BigInt(Number(body.homeroomTeacherId))
-          : null,
-        slogan: body.slogan ? String(body.slogan) : null,
-        targetScore: body.targetScore === undefined ? null : Number(body.targetScore),
-        displayStatus: body.displayStatus ? String(body.displayStatus) : 'enabled',
-        sortOrder: body.sortOrder === undefined ? null : Number(body.sortOrder),
-        status: 'enabled',
-      },
+    const created = await this.prisma.$transaction(async (tx) => {
+      const classroom = await tx.classroom.create({
+        data: {
+          schoolId: user.schoolId,
+          semesterId: BigInt(Number(body.semesterId)),
+          code: String(body.code),
+          gradeCode: String(body.gradeCode),
+          gradeName: String(body.gradeName),
+          name: String(body.name),
+          homeroomTeacherId: body.homeroomTeacherId
+            ? BigInt(Number(body.homeroomTeacherId))
+            : null,
+          slogan: body.slogan ? String(body.slogan) : null,
+          targetScore: body.targetScore === undefined ? null : Number(body.targetScore),
+          displayStatus: body.displayStatus ? String(body.displayStatus) : 'enabled',
+          sortOrder: body.sortOrder === undefined ? null : Number(body.sortOrder),
+          status: 'enabled',
+        },
+      });
+
+      await this.ensureHomeroomTeacherClassScope(tx, user.schoolId, classroom.id, classroom.homeroomTeacherId);
+      return classroom;
     });
 
     await this.operationLogService.create({
@@ -194,43 +200,51 @@ export class ClassesService {
       throw new NotFoundException('班级不存在');
     }
 
-    const updated = await this.prisma.classroom.update({
-      where: { id: BigInt(id) },
-      data: {
-        semesterId:
-          user.roleCode === 'homeroom_teacher'
-            ? undefined
-            : body.semesterId
-              ? BigInt(Number(body.semesterId))
-              : undefined,
-        code: user.roleCode === 'homeroom_teacher' ? undefined : body.code ? String(body.code) : undefined,
-        gradeCode:
-          user.roleCode === 'homeroom_teacher' ? undefined : body.gradeCode ? String(body.gradeCode) : undefined,
-        gradeName:
-          user.roleCode === 'homeroom_teacher' ? undefined : body.gradeName ? String(body.gradeName) : undefined,
-        name: user.roleCode === 'homeroom_teacher' ? undefined : body.name ? String(body.name) : undefined,
-        homeroomTeacherId:
-          user.roleCode === 'homeroom_teacher'
-            ? undefined
-            : body.homeroomTeacherId === undefined
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const classroom = await tx.classroom.update({
+        where: { id: BigInt(id) },
+        data: {
+          semesterId:
+            user.roleCode === 'homeroom_teacher'
               ? undefined
-              : body.homeroomTeacherId
-                ? BigInt(Number(body.homeroomTeacherId))
-                : null,
-        slogan: body.slogan === undefined ? undefined : body.slogan ? String(body.slogan) : null,
-        targetScore:
-          body.targetScore === undefined ? undefined : body.targetScore === null ? null : Number(body.targetScore),
-        displayStatus:
-          body.displayStatus === undefined ? undefined : String(body.displayStatus),
-        sortOrder:
-          user.roleCode === 'homeroom_teacher'
-            ? undefined
-            : body.sortOrder === undefined
+              : body.semesterId
+                ? BigInt(Number(body.semesterId))
+                : undefined,
+          code: user.roleCode === 'homeroom_teacher' ? undefined : body.code ? String(body.code) : undefined,
+          gradeCode:
+            user.roleCode === 'homeroom_teacher' ? undefined : body.gradeCode ? String(body.gradeCode) : undefined,
+          gradeName:
+            user.roleCode === 'homeroom_teacher' ? undefined : body.gradeName ? String(body.gradeName) : undefined,
+          name: user.roleCode === 'homeroom_teacher' ? undefined : body.name ? String(body.name) : undefined,
+          homeroomTeacherId:
+            user.roleCode === 'homeroom_teacher'
               ? undefined
-              : body.sortOrder === null
-                ? null
-                : Number(body.sortOrder),
-      },
+              : body.homeroomTeacherId === undefined
+                ? undefined
+                : body.homeroomTeacherId
+                  ? BigInt(Number(body.homeroomTeacherId))
+                  : null,
+          slogan: body.slogan === undefined ? undefined : body.slogan ? String(body.slogan) : null,
+          targetScore:
+            body.targetScore === undefined ? undefined : body.targetScore === null ? null : Number(body.targetScore),
+          displayStatus:
+            body.displayStatus === undefined ? undefined : String(body.displayStatus),
+          sortOrder:
+            user.roleCode === 'homeroom_teacher'
+              ? undefined
+              : body.sortOrder === undefined
+                ? undefined
+                : body.sortOrder === null
+                  ? null
+                  : Number(body.sortOrder),
+        },
+      });
+
+      if (user.roleCode !== 'homeroom_teacher' && body.homeroomTeacherId !== undefined) {
+        await this.ensureHomeroomTeacherClassScope(tx, user.schoolId, classroom.id, classroom.homeroomTeacherId);
+      }
+
+      return classroom;
     });
 
     await this.operationLogService.create({
@@ -401,5 +415,53 @@ export class ClassesService {
     if (!['super_admin', 'school_admin', 'moral_admin', 'homeroom_teacher'].includes(roleCode)) {
       throw new ForbiddenException('当前角色无权维护班级');
     }
+  }
+
+  private async ensureHomeroomTeacherClassScope(
+    tx: Prisma.TransactionClient,
+    schoolId: bigint,
+    classId: bigint,
+    homeroomTeacherId: bigint | null,
+  ) {
+    if (!homeroomTeacherId) return;
+
+    const teacher = await tx.user.findFirst({
+      where: {
+        id: homeroomTeacherId,
+        schoolId,
+        deletedAt: null,
+        status: 'enabled',
+      },
+      include: {
+        role: true,
+      },
+    });
+
+    if (!teacher) {
+      throw new BadRequestException('班主任账号不存在或已禁用');
+    }
+
+    if (teacher.role.code !== 'homeroom_teacher') {
+      throw new BadRequestException('只能指派班主任角色账号为班主任');
+    }
+
+    const existingScope = await tx.userScope.findFirst({
+      where: {
+        userId: homeroomTeacherId,
+        scopeType: 'class_scope',
+        classId,
+      },
+      select: { id: true },
+    });
+
+    if (existingScope) return;
+
+    await tx.userScope.create({
+      data: {
+        userId: homeroomTeacherId,
+        scopeType: 'class_scope',
+        classId,
+      },
+    });
   }
 }

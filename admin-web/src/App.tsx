@@ -12,6 +12,9 @@ const TeachersPage = lazy(() => import('./pages/TeachersPage').then((module) => 
 const PresentationModePage = lazy(() =>
   import('./pages/PresentationModePage').then((module) => ({ default: module.PresentationModePage })),
 );
+const LiveInsightPage = lazy(() =>
+  import('./pages/LiveInsightPage').then((module) => ({ default: module.LiveInsightPage })),
+);
 const StudentsPage = lazy(() => import('./pages/StudentsPage').then((module) => ({ default: module.StudentsPage })));
 const RulesPage = lazy(() => import('./pages/RulesPage').then((module) => ({ default: module.RulesPage })));
 const HonorsPage = lazy(() => import('./pages/HonorsPage').then((module) => ({ default: module.HonorsPage })));
@@ -73,6 +76,14 @@ export function App() {
                 honors={adminData.honors}
                 rewards={adminData.rewards}
               />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/live-insight"
+          element={
+            <ProtectedRoute token={adminData.token}>
+              <LiveInsightPage token={adminData.token ?? ''} user={adminData.user} />
             </ProtectedRoute>
           }
         />

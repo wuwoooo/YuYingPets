@@ -17,15 +17,35 @@ type PresentationModePageProps = Pick<AdminState, 'user' | 'classes' | 'students
 
 export function PresentationModePage({
   token,
-  user,
-  classes,
-  students,
-  rules,
-  honors,
-  rewards,
+  user: liveUser,
+  classes: liveClasses,
+  students: liveStudents,
+  rules: liveRules,
+  honors: liveHonors,
+  rewards: liveRewards,
 }: PresentationModePageProps) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const [snapshotData] = useState(() => ({
+    user: liveUser,
+    classes: liveClasses,
+    students: liveStudents,
+    rules: liveRules,
+    honors: liveHonors,
+    rewards: liveRewards,
+    clockText: new Intl.DateTimeFormat('zh-CN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    }).format(new Date()),
+  }));
+  const user = snapshotData.user;
+  const classes = snapshotData.classes;
+  const students = snapshotData.students;
+  const rules = snapshotData.rules;
+  const honors = snapshotData.honors;
+  const rewards = snapshotData.rewards;
   const [isActive, setIsActive] = useState(false);
   const [curtainOpen, setCurtainOpen] = useState(false);
   const [barsExpanded, setBarsExpanded] = useState(false);
@@ -33,14 +53,7 @@ export function PresentationModePage({
   const [lineAnimated, setLineAnimated] = useState(false);
   const [tickerVisible, setTickerVisible] = useState(false);
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
-  const [clockText, setClockText] = useState(() =>
-    new Intl.DateTimeFormat('zh-CN', {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false,
-    }).format(new Date()),
-  );
+  const clockText = snapshotData.clockText;
   const gradeFilter = searchParams.get('gradeName') || 'all';
   const classFilter = searchParams.get('classId') || 'all';
   const returnTo = searchParams.get('returnTo');
@@ -57,17 +70,6 @@ export function PresentationModePage({
   const [metricDisplayValues, setMetricDisplayValues] = useState<string[]>(() => ['0', '0', '0', '0', '0', 'Lv.0.0']);
 
   useEffect(() => {
-    const clockTimer = window.setInterval(() => {
-      setClockText(
-        new Intl.DateTimeFormat('zh-CN', {
-          hour: '2-digit',
-          minute: '2-digit',
-          second: '2-digit',
-          hour12: false,
-        }).format(new Date()),
-      );
-    }, 1000);
-
     const timers = [
       window.setTimeout(() => setIsActive(true), 60),
       window.setTimeout(() => setCurtainOpen(true), 200),
@@ -103,7 +105,6 @@ export function PresentationModePage({
     window.addEventListener('keydown', onKeyDown);
 
     return () => {
-      window.clearInterval(clockTimer);
       window.clearTimeout(countKickOff);
       timers.forEach((item) => window.clearTimeout(item));
       if (frame) window.cancelAnimationFrame(frame);
@@ -140,20 +141,52 @@ export function PresentationModePage({
     { label: '平均成长等级', value: metricDisplayValues[5], sub: '较上月 +0.3', theme: 'teal', glow: 'teal-glow', icon: 'paw' as const },
   ] as const;
 
-  const gradeStats = useMemo(() => {
-    const grouped = new Map<string, number>();
-    for (const item of classes) grouped.set(item.gradeName, (grouped.get(item.gradeName) ?? 0) + item.classScore);
-    const rows = Array.from(grouped.entries()).map(([name, score]) => ({ name, score }));
-    const max = Math.max(...rows.map((item) => item.score), 1);
-    return rows.map((item, index) => ({
-      ...item,
-      displayPercent: classes.length ? Math.min(99, 70 + index * 5 + Math.round((item.score / max) * 20)) : 0,
-      theme: index % 3 === 0 ? 'blue' : index % 3 === 1 ? 'green' : 'red',
-    }));
+  const topClasses = useMemo(() => [...classes].sort((left, right) => right.classScore - left.classScore).slice(0, 6), [classes]);
+  const topStudents = useMemo(() => [...students].sort((left, right) => right.currentScore - left.currentScore).slice(0, 8), [students]);
+  const classMatrixNodes = useMemo(() => {
+    const candidates = [...classes].sort((left, right) => right.classScore - left.classScore).slice(0, 8);
+    const maxScore = Math.max(...candidates.map((item) => item.classScore), 1);
+    const maxStudents = Math.max(...candidates.map((item) => item.studentCount), 1);
+    return candidates.map((item, index) => {
+      const x = 12 + (index % 4) * 24 + (index % 2 === 0 ? 3 : -2);
+      const y = 18 + Math.floor(index / 4) * 40 - Math.round((item.classScore / maxScore) * 10);
+      const size = 56 + Math.round((item.classScore / maxScore) * 42 + (item.studentCount / maxStudents) * 18);
+      return {
+        id: item.id,
+        name: item.name,
+        score: item.classScore,
+        gradeName: item.gradeName,
+        studentCount: item.studentCount,
+        size,
+        left: `${Math.min(88, Math.max(8, x))}%`,
+        top: `${Math.min(78, Math.max(12, y))}%`,
+        hue: 196 + index * 14,
+        floatDuration: `${11 + (index % 4) * 1.8}s`,
+        pulseDuration: `${4.8 + (index % 5) * 0.7}s`,
+        floatDelay: `${(index % 6) * 0.45}s`,
+      };
+    });
   }, [classes]);
-
-  const topClasses = useMemo(() => [...classes].sort((left, right) => right.classScore - left.classScore).slice(0, 3), [classes]);
-  const topStudents = useMemo(() => [...students].sort((left, right) => right.currentScore - left.currentScore).slice(0, 3), [students]);
+  const classSprintRows = useMemo(() => {
+    const max = Math.max(...topClasses.map((item) => item.classScore), 1);
+    return topClasses.slice(0, 5).map((item, index) => ({
+      ...item,
+      width: Math.max(28, Math.round((item.classScore / max) * 100)),
+      delta: `+${Math.max(2, 12 - index * 2)}%`,
+    }));
+  }, [topClasses]);
+  const studentStars = useMemo(
+    () =>
+      topStudents.map((item, index) => ({
+        ...item,
+        scale: (0.62 + ((item.currentScore % 37) / 100)).toFixed(2),
+        glow: 48 + (index % 4) * 10,
+        floatDuration: `${9.5 + (index % 4) * 1.5}s`,
+        pulseDuration: `${4.2 + (index % 3) * 0.8}s`,
+        floatDelay: `${(index % 5) * 0.4}s`,
+      })),
+    [topStudents],
+  );
   const topHonors = useMemo(() => [...honors].sort((left, right) => right.grantedCount - left.grantedCount).slice(0, 4), [honors]);
   const alerts = useMemo(() => {
     const lowClasses = [...classes]
@@ -244,10 +277,84 @@ export function PresentationModePage({
   const weekLabels = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
   const heatRows = ['早读', '上午', '下午', '课后'];
   const heatCols = ['一', '二', '三', '四', '五'];
+  const operationBars = useMemo(() => {
+    const base = weekLabels.map((label, index) => {
+      const scoreSeed = trendPoints[index]?.value ?? Math.round((trendPoints[trendPoints.length - 1]?.value ?? 200) * (0.82 + index * 0.03));
+      const eventCount = Math.max(26, Math.round(scoreSeed / 6 + (index + 1) * 2));
+      const disposeMinutes = Math.max(12, Math.round(58 - index * 5 + (index % 2 === 0 ? 2 : -1)));
+      return { label, eventCount, disposeMinutes };
+    });
+    const maxEvent = Math.max(...base.map((item) => item.eventCount), 1);
+    const maxMinute = Math.max(...base.map((item) => item.disposeMinutes), 1);
+    return base.map((item) => ({
+      ...item,
+      barHeight: Math.max(20, Math.round((item.eventCount / maxEvent) * 100)),
+      lineY: 112 - Math.round((item.disposeMinutes / maxMinute) * 94),
+    }));
+  }, [trendPoints, weekLabels]);
+  const radarAxes = useMemo(() => {
+    const studentActiveRate = students.length ? Math.round((students.filter((item) => item.currentScore > 0).length / students.length) * 100) : 0;
+    const classCoverageRate = classes.length ? Math.round((activeClasses / classes.length) * 100) : 0;
+    const honorGrowthRate = Math.min(100, Math.round(totalHonorsGranted / Math.max(students.length, 1) * 120));
+    const riskControlRate = analytics?.riskStudents
+      ? Math.max(45, Math.min(96, 100 - analytics.riskStudents.length * 6))
+      : Math.max(55, 92 - Math.max(0, alerts.length - 1) * 8);
+    const petCompletionRate = students.length ? Math.round((petStats.hatchedCount / students.length) * 100) : 0;
+    const targetReachRate = classes.length ? Math.round((classes.filter((item) => item.classScore >= (item.targetScore ?? 0) && (item.targetScore ?? 0) > 0).length / classes.length) * 100) : 0;
+    return [
+      { name: '学生活跃', value: studentActiveRate },
+      { name: '班级覆盖', value: classCoverageRate },
+      { name: '荣誉增长', value: honorGrowthRate },
+      { name: '风险控制', value: riskControlRate },
+      { name: '萌宠档案', value: petCompletionRate },
+      { name: '目标达成', value: targetReachRate },
+    ];
+  }, [activeClasses, alerts.length, analytics?.riskStudents, classes, petStats.hatchedCount, students, totalHonorsGranted]);
+  const radarPoints = useMemo(() => {
+    const centerX = 110;
+    const centerY = 110;
+    const radius = 82;
+    return radarAxes.map((axis, index) => {
+      const angle = (-90 + (index * 360) / radarAxes.length) * (Math.PI / 180);
+      const outerX = centerX + Math.cos(angle) * radius;
+      const outerY = centerY + Math.sin(angle) * radius;
+      const innerRadius = (radius * axis.value) / 100;
+      const valueX = centerX + Math.cos(angle) * innerRadius;
+      const valueY = centerY + Math.sin(angle) * innerRadius;
+      return { ...axis, outerX, outerY, valueX, valueY };
+    });
+  }, [radarAxes]);
+  const radarPolygon = radarPoints.map((item) => `${item.valueX},${item.valueY}`).join(' ');
+  const radarScore = Math.round(radarAxes.reduce((sum, item) => sum + item.value, 0) / Math.max(radarAxes.length, 1));
+  const flowStages = useMemo(() => {
+    const eventTotal = Math.max(24, Math.round(classes.length * 4.6 + students.length * 0.4));
+    const reportTotal = Math.max(18, Math.round(eventTotal * 0.86));
+    const disposeTotal = Math.max(14, Math.round(reportTotal * 0.91));
+    const closedTotal = Math.max(10, Math.round(disposeTotal * 0.88));
+    const source = [
+      { label: '事件发现', value: eventTotal, theme: 'blue' },
+      { label: '上报研判', value: reportTotal, theme: 'purple' },
+      { label: '处置跟进', value: disposeTotal, theme: 'gold' },
+      { label: '闭环归档', value: closedTotal, theme: 'green' },
+    ] as const;
+    const maxValue = Math.max(...source.map((item) => item.value), 1);
+    return source.map((item) => ({
+      ...item,
+      width: Math.max(38, Math.round((item.value / maxValue) * 100)),
+    }));
+  }, [classes.length, students.length]);
+  const predictionSeries = useMemo(() => {
+    const base = trendPoints.map((item) => item.value);
+    const last = base[base.length - 1] ?? 220;
+    const prev = base[base.length - 2] ?? Math.round(last * 0.95);
+    const slope = last - prev;
+    const forecast = Array.from({ length: 3 }, (_, index) => Math.max(120, Math.round(last + slope * (index + 1) * 0.9)));
+    return [...base.slice(-4), ...forecast];
+  }, [trendPoints]);
+  const predictionMax = Math.max(...predictionSeries, 1);
   const clockSegments = clockText.split(':');
   const clockMain = clockSegments.length === 3 ? `${clockSegments[0]}:${clockSegments[1]}` : clockText;
   const clockSecond = clockSegments.length === 3 ? clockSegments[2] : '00';
-
   return (
     <div className={`presentation-page${isActive ? ' is-active' : ''}`}>
       <div className={`presentation-curtain${curtainOpen ? ' open' : ''}`} />
@@ -333,39 +440,74 @@ export function PresentationModePage({
 
         <section className="presentation-row presentation-row-main">
           <div className="presentation-panel first-row-panel">
-            <div className="presentation-panel-title"><PresentationGlyph name="chart" className="presentation-title-icon" />年级参与度对比</div>
-            <div className="presentation-bar-list">
-              {gradeStats.map((item) => (
-                <div key={item.name} className="presentation-bar-row">
-                  <span className="presentation-bar-label">{item.name}</span>
-                  <div className="presentation-bar-track">
-                    <div className={`presentation-bar-fill theme-${item.theme}`} style={{ width: barsExpanded ? `${item.displayPercent}%` : '0%' }}>
-                      {`${item.displayPercent}%`}
-                    </div>
+            <div className="presentation-panel-title"><PresentationGlyph name="chart" className="presentation-title-icon" />班级势能矩阵（TOP 8）</div>
+            <div className="presentation-matrix">
+              <div className="presentation-matrix-grid" />
+              {classMatrixNodes.map((item) => (
+                <div
+                  key={item.id}
+                  className="presentation-matrix-node"
+                  style={{
+                    left: item.left,
+                    top: item.top,
+                    width: `${item.size}px`,
+                    height: `${item.size}px`,
+                    opacity: barsExpanded ? 1 : 0,
+                    ['--node-scale' as string]: barsExpanded ? 1 : 0.55,
+                    ['--float-duration' as string]: item.floatDuration,
+                    ['--pulse-duration' as string]: item.pulseDuration,
+                    ['--float-delay' as string]: item.floatDelay,
+                    background: `radial-gradient(circle at 32% 28%, hsla(${item.hue}, 98%, 76%, .95), hsla(${item.hue}, 90%, 47%, .58) 52%, rgba(8, 21, 36, .62) 100%)`,
+                    boxShadow: `0 0 ${16 + item.size / 8}px hsla(${item.hue}, 100%, 60%, .36)`,
+                  }}
+                >
+                  <div className="presentation-node-core">
+                    <span className="presentation-matrix-node-name">{item.name}</span>
+                    <strong>{item.score}</strong>
+                    <small>{item.gradeName} · {item.studentCount}人</small>
                   </div>
-                  <span className="presentation-bar-value">{`${item.displayPercent}%`}</span>
                 </div>
               ))}
+              <div className="presentation-matrix-axis x">班级综合评分</div>
+              <div className="presentation-matrix-axis y">成长势能</div>
             </div>
           </div>
           <div className="presentation-panel first-row-panel second">
-            <div className="presentation-panel-title"><PresentationGlyph name="award" className="presentation-title-icon" />高光榜单 · 明星班级</div>
-            <div className="presentation-rank-group">
-              {topClasses.map((item, index) => (
-                <div key={item.id} className="presentation-rank-item" style={{ ['--rank-glow' as string]: index === 0 ? 'rgba(240,180,41,.3)' : index === 1 ? 'rgba(136,153,170,.2)' : 'rgba(230,126,34,.2)' }}>
-                  <span className={`presentation-rank-num top-${index + 1}`}>{index + 1}</span>
-                  <span className="presentation-rank-name">{item.name}</span>
-                  <span className="presentation-rank-score">{item.classScore} 分</span>
+            <div className="presentation-panel-title"><PresentationGlyph name="award" className="presentation-title-icon" />冠军冲刺赛道（班级）</div>
+            <div className="presentation-sprint-list">
+              {classSprintRows.map((item, index) => (
+                <div key={item.id} className="presentation-sprint-row">
+                  <span className={`presentation-rank-num top-${Math.min(index + 1, 3)}`}>{index + 1}</span>
+                  <div className="presentation-sprint-track">
+                    <div className="presentation-sprint-fill" style={{ width: barsExpanded ? `${item.width}%` : '0%' }}>
+                      <span>{item.name}</span>
+                      <strong>{item.classScore}</strong>
+                    </div>
+                  </div>
+                  <span className="presentation-sprint-delta">{item.delta}</span>
                 </div>
               ))}
             </div>
-            <div className="presentation-panel-title compact"><PresentationGlyph name="star" className="presentation-title-icon" />高光榜单 · 明星学生</div>
-            <div className="presentation-rank-group">
-              {topStudents.map((item, index) => (
-                <div key={item.id} className="presentation-rank-item" style={{ ['--rank-glow' as string]: index === 0 ? 'rgba(240,180,41,.3)' : index === 1 ? 'rgba(136,153,170,.2)' : 'rgba(230,126,34,.2)' }}>
-                  <span className={`presentation-rank-num top-${index + 1}`}>{index + 1}</span>
-                  <span className="presentation-rank-name">{item.name} · {item.className}</span>
-                  <span className="presentation-rank-score">{item.currentScore} 分</span>
+            <div className="presentation-panel-title compact"><PresentationGlyph name="star" className="presentation-title-icon" />学生成长星云（TOP 8）</div>
+            <div className="presentation-stellar-wrap">
+              {studentStars.map((item, index) => (
+                <div
+                  key={item.id}
+                  className="presentation-stellar-node"
+                  style={{
+                    left: `${10 + (index % 4) * 24}%`,
+                    top: `${18 + Math.floor(index / 4) * 44}%`,
+                    ['--star-scale' as string]: item.scale,
+                    ['--float-duration' as string]: item.floatDuration,
+                    ['--pulse-duration' as string]: item.pulseDuration,
+                    ['--float-delay' as string]: item.floatDelay,
+                    boxShadow: `0 0 ${item.glow}px rgba(116, 215, 255, .38)`,
+                  }}
+                >
+                  <div className="presentation-stellar-core">
+                    <span>{item.name}</span>
+                    <strong>{item.currentScore}</strong>
+                  </div>
                 </div>
               ))}
             </div>
@@ -434,7 +576,97 @@ export function PresentationModePage({
           </div>
         </section>
 
-        <div className="presentation-divider section-2">荣誉 · 预警 · 萌宠生态</div>
+        <div className="presentation-divider section-2">运营态势建模</div>
+
+        <section className="presentation-row presentation-row-3">
+          <div className="presentation-panel fade-up-panel bottom-panel">
+            <div className="presentation-panel-title"><PresentationGlyph name="trend" className="presentation-title-icon" />事件量 & 处置时效（双轴）</div>
+            <div className="presentation-dual-axis">
+              <div className="presentation-dual-axis-bars">
+                {operationBars.map((item) => (
+                  <div key={item.label} className="presentation-dual-bar-col">
+                    <div className="presentation-dual-bar-track">
+                      <div className="presentation-dual-bar-fill" style={{ height: barsExpanded ? `${item.barHeight}%` : '0%' }} />
+                    </div>
+                    <div className="presentation-dual-bar-label">{item.label}</div>
+                  </div>
+                ))}
+              </div>
+              <svg className="presentation-dual-line" viewBox="0 0 312 124" aria-hidden="true">
+                <polyline
+                  className="presentation-dual-line-path"
+                  points={operationBars.map((item, index) => `${24 + index * 44},${item.lineY}`).join(' ')}
+                />
+                {operationBars.map((item, index) => (
+                  <g key={`${item.label}-${item.disposeMinutes}`}>
+                    <circle cx={24 + index * 44} cy={item.lineY} r="4" className="presentation-dual-line-dot" />
+                  </g>
+                ))}
+              </svg>
+            </div>
+            <div className="presentation-panel-footnote">事件总量 <strong>{operationBars.reduce((sum, item) => sum + item.eventCount, 0)}</strong> 件 · 平均处置 <span>{Math.round(operationBars.reduce((sum, item) => sum + item.disposeMinutes, 0) / operationBars.length)} 分钟</span></div>
+          </div>
+
+          <div className="presentation-panel fade-up-panel bottom-panel">
+            <div className="presentation-panel-title"><PresentationGlyph name="shield" className="presentation-title-icon" />治理能力雷达图</div>
+            <div className="presentation-radar-wrap">
+              <svg viewBox="0 0 220 220" className="presentation-radar-chart" aria-hidden="true">
+                <circle cx="110" cy="110" r="82" className="presentation-radar-ring" />
+                <circle cx="110" cy="110" r="58" className="presentation-radar-ring" />
+                <circle cx="110" cy="110" r="34" className="presentation-radar-ring" />
+                {radarPoints.map((item) => (
+                  <line key={`${item.name}-line`} x1="110" y1="110" x2={item.outerX} y2={item.outerY} className="presentation-radar-axis" />
+                ))}
+                <polygon points={radarPolygon} className="presentation-radar-polygon" />
+                {radarPoints.map((item) => (
+                  <circle key={`${item.name}-dot`} cx={item.valueX} cy={item.valueY} r="4.2" className="presentation-radar-dot" />
+                ))}
+              </svg>
+              <div className="presentation-radar-score">
+                <span>综合治理指数</span>
+                <strong>{radarScore}</strong>
+              </div>
+            </div>
+            <div className="presentation-radar-legend">
+              {radarAxes.map((item) => (
+                <div key={item.name} className="presentation-radar-legend-item">
+                  <span>{item.name}</span>
+                  <strong>{item.value}</strong>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="presentation-panel fade-up-panel bottom-panel">
+            <div className="presentation-panel-title"><PresentationGlyph name="summary" className="presentation-title-icon" />闭环流转与预测</div>
+            <div className="presentation-flow-list">
+              {flowStages.map((item, index) => (
+                <div key={item.label} className="presentation-flow-item">
+                  <div className={`presentation-flow-bar theme-${item.theme}`} style={{ width: extendedBarsExpanded ? `${item.width}%` : '0%' }}>
+                    <span>{item.label}</span>
+                    <strong>{item.value}</strong>
+                  </div>
+                  {index < flowStages.length - 1 ? <span className="presentation-flow-arrow">→</span> : null}
+                </div>
+              ))}
+            </div>
+            <div className="presentation-forecast-row">
+              {predictionSeries.map((value, index) => (
+                <div key={`${value}-${index}`} className="presentation-forecast-col">
+                  <div className="presentation-forecast-track">
+                    <div
+                      className={`presentation-forecast-fill${index >= predictionSeries.length - 3 ? ' forecast' : ''}`}
+                      style={{ height: lineAnimated ? `${Math.max(14, Math.round((value / predictionMax) * 100))}%` : '0%' }}
+                    />
+                  </div>
+                  <span>{index >= predictionSeries.length - 3 ? `T+${index - (predictionSeries.length - 4)}` : `D${index + 1}`}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <div className="presentation-divider section-3">荣誉 · 预警 · 萌宠生态</div>
 
         <section className="presentation-row presentation-row-3">
           <div className="presentation-panel fade-up-panel bottom-panel">
