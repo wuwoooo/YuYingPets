@@ -1,8 +1,11 @@
-import { useState, type FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
-import presentationLogo from '../assets/presentation-logo.svg';
-import { adminApi } from '../lib/api';
-import { getAdminLoginCredentials, setAdminLoginCredentials } from '../lib/session';
+import { useState, type FormEvent } from "react";
+import { useNavigate } from "react-router-dom";
+import presentationLogo from "../assets/presentation-logo.svg";
+import { adminApi } from "../lib/api";
+import {
+  getAdminLoginCredentials,
+  setAdminLoginCredentials,
+} from "../lib/session";
 
 type LoginPageProps = {
   onLoggedIn: (token: string) => void;
@@ -11,8 +14,12 @@ type LoginPageProps = {
 export function LoginPage({ onLoggedIn }: LoginPageProps) {
   const navigate = useNavigate();
   const storedCredentials = getAdminLoginCredentials();
-  const [username, setUsername] = useState(storedCredentials?.username ?? 'admin');
-  const [password, setPassword] = useState(storedCredentials?.password ?? '123456');
+  const [username, setUsername] = useState(
+    storedCredentials?.username ?? "admin",
+  );
+  const [password, setPassword] = useState(
+    storedCredentials?.password ?? "123456",
+  );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -25,9 +32,9 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
       const response = await adminApi.login(username, password);
       setAdminLoginCredentials(username, password);
       onLoggedIn(response.data.token);
-      navigate('/dashboard', { replace: true });
+      navigate("/dashboard", { replace: true });
     } catch (err) {
-      setError(err instanceof Error ? err.message : '登录失败');
+      setError(err instanceof Error ? err.message : "登录失败");
     } finally {
       setSubmitting(false);
     }
@@ -66,7 +73,7 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
             <img src={presentationLogo} alt="育英星宠 Logo" />
           </div>
           <h1>育英星宠</h1>
-          <p>校园荣誉体系下的萌宠成长激励平台</p>
+          <p>校园荣誉体系下的学生成长激励平台</p>
           <div className="deco-line" />
         </div>
       </section>
@@ -82,9 +89,13 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
           <p className="sub">大理海东育英实验学校</p>
           <form onSubmit={handleLogin}>
             <div className="login-field">
-              <span className="login-field-label">账号 / ACCOUNT</span>
+              <span className="login-field-label">账号或手机号 / ACCOUNT</span>
               <span className="icon">◉</span>
-              <input value={username} onChange={(event) => setUsername(event.target.value)} placeholder="请输入用户名" />
+              <input
+                value={username}
+                onChange={(event) => setUsername(event.target.value)}
+                placeholder="请输入账号或手机号"
+              />
             </div>
             <div className="login-field">
               <span className="login-field-label">密钥 / PASSWORD</span>
@@ -97,7 +108,7 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
               />
             </div>
             <button className="login-btn" type="submit" disabled={submitting}>
-              {submitting ? '登录中...' : '登 录'}
+              {submitting ? "登录中..." : "登 录"}
             </button>
           </form>
           {error ? <div className="status-card error">{error}</div> : null}

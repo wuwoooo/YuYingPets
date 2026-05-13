@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import presentationLogo from '../assets/presentation-logo.svg';
 import { PresentationGlyph } from '../components/PresentationGlyph';
 import type { 
   AnalyticsData,
+  DisplayWeatherPayload,
+  DisplayTerminal,
   StudentImportPayload
 } from '../lib/api';
 import { adminApi } from '../lib/api';
@@ -24,6 +26,8 @@ export function PresentationModePage({
   honors: liveHonors,
   rewards: liveRewards,
 }: PresentationModePageProps) {
+  const mapContainerRef = useRef<HTMLDivElement | null>(null);
+  const mapInstanceRef = useRef<any>(null);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [snapshotData] = useState(() => ({
@@ -53,6 +57,9 @@ export function PresentationModePage({
   const [lineAnimated, setLineAnimated] = useState(false);
   const [tickerVisible, setTickerVisible] = useState(false);
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
+  const [mapCenter, setMapCenter] = useState({ city: '未设置城市', lat: 25.651, lng: 100.173, source: '默认坐标' });
+  const [displayTerminals, setDisplayTerminals] = useState<DisplayTerminal[]>([]);
+  const [weatherInfo, setWeatherInfo] = useState<DisplayWeatherPayload | null>(null);
   const clockText = snapshotData.clockText;
   const gradeFilter = searchParams.get('gradeName') || 'all';
   const classFilter = searchParams.get('classId') || 'all';
@@ -132,6 +139,105 @@ export function PresentationModePage({
     };
   }, [classFilter, gradeFilter, token]);
 
+  useEffect(() => {
+    let active = true;
+    adminApi
+      .settings(token)
+      .then((response) => {
+        if (!active) return;
+        const lat = Number(response.data.display.weatherLatitude);
+        const lng = Number(response.data.display.weatherLongitude);
+        setMapCenter({
+          city: response.data.display.weatherLabel?.trim() || '未设置城市',
+          lat: Number.isFinite(lat) ? Number(lat.toFixed(4)) : 25.651,
+          lng: Number.isFinite(lng) ? Number(lng.toFixed(4)) : 100.173,
+          source: Number.isFinite(lat) && Number.isFinite(lng) ? '系统经纬度' : '默认坐标',
+        });
+      })
+      .catch(() => {
+        if (!active) return;
+      });
+    return () => {
+      active = false;
+    };
+  }, [token]);
+
+  useEffect(() => {
+    let active = true;
+    adminApi
+      .displayWeather(token, {
+        latitude: mapCenter.lat,
+        longitude: mapCenter.lng,
+        label: mapCenter.city,
+      })
+      .then((response) => {
+        if (!active) return;
+        setWeatherInfo(response.data);
+      })
+      .catch(() => {
+        if (!active) return;
+        setWeatherInfo(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [mapCenter.city, mapCenter.lat, mapCenter.lng, token]);
+
+  useEffect(() => {
+    const AMapLib = (window as unknown as { AMap?: any }).AMap;
+    if (!AMapLib || !mapContainerRef.current) return;
+    const center: [number, number] = [mapCenter.lng, mapCenter.lat];
+    if (!mapInstanceRef.current) {
+      const map = new AMapLib.Map(mapContainerRef.current, {
+        viewMode: '2D',
+        zoom: 11,
+        center,
+        mapStyle: 'amap://styles/dark',
+        dragEnable: false,
+        zoomEnable: false,
+        doubleClickZoom: false,
+        keyboardEnable: false,
+        scrollWheel: false,
+        touchZoom: false,
+        rotateEnable: false,
+        pitchEnable: false,
+      });
+      new AMapLib.Marker({
+        position: center,
+        map,
+      });
+      mapInstanceRef.current = map;
+      return;
+    }
+    mapInstanceRef.current.setCenter(center);
+  }, [mapCenter]);
+
+  useEffect(
+    () => () => {
+      if (!mapInstanceRef.current) return;
+      mapInstanceRef.current.destroy();
+      mapInstanceRef.current = null;
+    },
+    [],
+  );
+
+  useEffect(() => {
+    let active = true;
+    adminApi
+      .displayTerminals(token)
+      .then((response) => {
+        if (!active) return;
+        setDisplayTerminals(response.data);
+      })
+      .catch(() => {
+        if (!active) return;
+        setDisplayTerminals([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [token]);
+
   const heroMetrics = [
     { label: '全校总积分', value: metricDisplayValues[0], sub: '较上周 +12.5%', theme: 'blue', glow: 'blue-glow', icon: 'chart' as const },
     { label: '活跃班级', value: metricDisplayValues[1], sub: `共 ${classes.length} 班 · ${classes.length ? ((activeClasses / classes.length) * 100).toFixed(1) : '0.0'}% 参与`, theme: 'green', glow: 'green-glow', icon: 'school' as const },
@@ -188,6 +294,34 @@ export function PresentationModePage({
     [topStudents],
   );
   const topHonors = useMemo(() => [...honors].sort((left, right) => right.grantedCount - left.grantedCount).slice(0, 4), [honors]);
+  const terminalSummary = useMemo(() => {
+    const online = displayTerminals.filter((item) => item.onlineStatus === 'online').length;
+    const offline = displayTerminals.length - online;
+    return { online, offline, total: displayTerminals.length };
+  }, [displayTerminals]);
+  const radarBlips = useMemo(
+    () =>
+      displayTerminals.slice(0, 12).map((item, index) => {
+        const angle = ((index * 360) / Math.max(displayTerminals.length, 1) - 90) * (Math.PI / 180);
+        const radius = 24 + (index % 3) * 14;
+        return {
+          id: item.id,
+          signal: item.onlineStatus === 'online' ? 'ON' : 'OFF',
+          x: 50 + Math.cos(angle) * radius,
+          y: 50 + Math.sin(angle) * radius,
+          pulseDelay: `${index * 0.2}s`,
+          state: item.onlineStatus,
+        };
+      }),
+    [displayTerminals],
+  );
+  const radarSignals = useMemo(() => {
+    return [
+      { label: '在线大屏', value: `${terminalSummary.online}块`, state: 'ok' },
+      { label: '离线大屏', value: `${terminalSummary.offline}块`, state: terminalSummary.offline > 0 ? 'warn' : 'ok' },
+      { label: '终端总数', value: `${terminalSummary.total}块`, state: 'ok' },
+    ] as const;
+  }, [terminalSummary]);
   const alerts = useMemo(() => {
     const lowClasses = [...classes]
       .sort((left, right) => left.classScore - right.classScore)
@@ -436,6 +570,53 @@ export function PresentationModePage({
               <div className="presentation-metric-sub">{item.sub}</div>
             </div>
           ))}
+        </section>
+
+        <section className="presentation-row presentation-row-mid">
+          <div className="presentation-panel presentation-middle-panel">
+            <div className="presentation-panel-title"><PresentationGlyph name="school" className="presentation-title-icon" />校园中心地图展示</div>
+            <div className="presentation-campus-map">
+              <div ref={mapContainerRef} className="presentation-amap-container" />
+              <div className="presentation-campus-grid" />
+              <div className="presentation-map-center-dot" />
+            </div>
+            <div className="presentation-map-meta">
+              <span>{mapCenter.city}</span>
+              <strong>{mapCenter.lat.toFixed(4)}, {mapCenter.lng.toFixed(4)}</strong>
+            </div>
+            <div className="presentation-map-weather">
+              <span>天气信息</span>
+              <strong>{weatherInfo?.temperatureText ?? '--°C'} · {weatherInfo?.conditionText ?? '天气暂不可用'}</strong>
+            </div>
+            <div className="presentation-panel-footnote">定位来源 <strong>{mapCenter.source}</strong> · 天气维度经纬度</div>
+          </div>
+          <div className="presentation-panel presentation-middle-panel">
+            <div className="presentation-panel-title"><PresentationGlyph name="shield" className="presentation-title-icon" />雷达探测模块</div>
+            <div className="presentation-radar-detector">
+              <div className="presentation-detector-ring ring-1" />
+              <div className="presentation-detector-ring ring-2" />
+              <div className="presentation-detector-ring ring-3" />
+              <div className={`presentation-detector-sweep${lineAnimated ? ' active' : ''}`} />
+              <div className="presentation-detector-center-tag">RADAR</div>
+              {radarBlips.map((item) => (
+                <div
+                  key={item.id}
+                  className={`presentation-radar-blip ${item.state}`}
+                  style={{ left: `${item.x}%`, top: `${item.y}%`, animationDelay: item.pulseDelay }}
+                >
+                  <span>{item.signal}</span>
+                </div>
+              ))}
+            </div>
+            <div className="presentation-radar-signal-list">
+              {radarSignals.map((item) => (
+                <div key={item.label} className={`presentation-radar-signal-item ${item.state}`}>
+                  <span>{item.label}</span>
+                  <strong>{item.value}</strong>
+                </div>
+              ))}
+            </div>
+          </div>
         </section>
 
         <section className="presentation-row presentation-row-main">

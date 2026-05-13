@@ -99,6 +99,8 @@ model School {
   scoreRules          ScoreRule[]
   scoreRecords        ScoreRecord[]
   scoreRecordBatches  ScoreRecordBatch[]
+  academicExams       AcademicExam[]
+  academicScoreRecords AcademicScoreRecord[]
   classScoreProfiles  ClassScoreProfile[]
   classScoreRecords   ClassScoreRecord[]
   classScoreBatches   ClassScoreRecordBatch[]
@@ -134,6 +136,8 @@ model Semester {
   classrooms         Classroom[]
   scoreRules         ScoreRule[]
   scoreRecords       ScoreRecord[]
+  academicExams      AcademicExam[]
+  academicScoreRecords AcademicScoreRecord[]
   classScoreProfiles ClassScoreProfile[]
   classScoreRecords  ClassScoreRecord[]
   aiStudentSnapshots AiStudentSnapshot[]
@@ -197,6 +201,7 @@ model User {
   name         String    @db.VarChar(64)
   phone        String?   @db.VarChar(32)
   email        String?   @db.VarChar(128)
+  dutyTags     Json?     @map("duty_tags")
   status       Status    @default(enabled)
   lastLoginAt  DateTime? @map("last_login_at")
   createdAt    DateTime  @default(now()) @map("created_at")
@@ -269,6 +274,7 @@ model Classroom {
   studentProfiles       StudentProfile[]
   scoreRecords          ScoreRecord[]
   scoreRecordBatches    ScoreRecordBatch[]
+  academicScoreRecords  AcademicScoreRecord[]
   classScoreProfile     ClassScoreProfile?
   classScoreRecords     ClassScoreRecord[]
   honorRecords          HonorRecord[]
@@ -395,6 +401,7 @@ model Student {
   groupRel              StudentGroupRel?
   scoreRecords          ScoreRecord[]
   scoreRecordBatchItems ScoreRecordBatchItem[]
+  academicScoreRecords  AcademicScoreRecord[]
   studentPet            StudentPet?
   petLevelLogs          PetLevelLog[]
   honorRecords          HonorRecord[]
@@ -654,6 +661,62 @@ model ScoreRecordBatchItem {
   student     Student          @relation(fields: [studentId], references: [id])
 
   @@map("score_record_batch_item")
+}
+
+model AcademicExam {
+  id            BigInt   @id @default(autoincrement())
+  schoolId      BigInt   @map("school_id")
+  semesterId    BigInt   @map("semester_id")
+  gradeName     String?  @map("grade_name") @db.VarChar(32)
+  name          String   @db.VarChar(255)
+  sourceFile    String?  @map("source_file") @db.VarChar(255)
+  importedBy    BigInt?  @map("imported_by")
+  importedByName String? @map("imported_by_name") @db.VarChar(64)
+  importedAt    DateTime @default(now()) @map("imported_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  school    School                @relation(fields: [schoolId], references: [id])
+  semester  Semester              @relation(fields: [semesterId], references: [id])
+  records   AcademicScoreRecord[]
+
+  @@index([schoolId, semesterId])
+  @@index([gradeName])
+  @@map("academic_exam")
+}
+
+model AcademicScoreRecord {
+  id              BigInt   @id @default(autoincrement())
+  schoolId        BigInt   @map("school_id")
+  semesterId      BigInt   @map("semester_id")
+  examId          BigInt   @map("exam_id")
+  classId         BigInt   @map("class_id")
+  studentId       BigInt   @map("student_id")
+  studentNo       String   @map("student_no") @db.VarChar(64)
+  studentName     String   @map("student_name") @db.VarChar(64)
+  className       String   @map("class_name") @db.VarChar(64)
+  subjectCode     String   @map("subject_code") @db.VarChar(32)
+  subjectName     String   @map("subject_name") @db.VarChar(64)
+  score           Decimal? @db.Decimal(8, 2)
+  jointRank       Int?     @map("joint_rank")
+  schoolRank      Int?     @map("school_rank")
+  schoolRankDelta Int?     @map("school_rank_delta")
+  classRank       Int?     @map("class_rank")
+  classRankDelta  Int?     @map("class_rank_delta")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  school    School       @relation(fields: [schoolId], references: [id])
+  semester  Semester     @relation(fields: [semesterId], references: [id])
+  exam      AcademicExam @relation(fields: [examId], references: [id])
+  classroom Classroom    @relation(fields: [classId], references: [id])
+  student   Student      @relation(fields: [studentId], references: [id])
+
+  @@unique([examId, studentId, subjectCode])
+  @@index([studentId, subjectCode])
+  @@index([classId, subjectCode])
+  @@index([schoolId, semesterId])
+  @@map("academic_score_record")
 }
 
 model Pet {

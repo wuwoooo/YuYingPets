@@ -17,3 +17,11 @@ export function resolveAssetUrl(url: string | null | undefined) {
   const origin = getApiOrigin();
   return url.startsWith('/') ? `${origin}${url}` : `${origin}/${url}`;
 }
+
+export function resolvePetAssetVariantUrl(url: string | null | undefined, size: 400 | 1024) {
+  if (!url) return '';
+  if (size === 400 || /^(https?:)?\/\//i.test(url) || url.startsWith('data:') || url.startsWith('blob:')) {
+    return resolveAssetUrl(url);
+  }
+  return resolveAssetUrl(url.replace('/assets/pets/400/', '/assets/pets/1024/'));
+}

@@ -1,0 +1,1 @@
+ALTER TABLE `user` ADD COLUMN `duty_tags` JSON NULL;

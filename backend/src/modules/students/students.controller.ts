@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Post, Put, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { StudentsService } from './students.service';
 import { StudentAdoptPetDto } from './dto/student-adopt-pet.dto';
@@ -24,6 +24,15 @@ export class StudentsController {
     @Body() body: Record<string, unknown>,
   ) {
     return this.studentsService.import(authorization, body);
+  }
+
+  @Put(':id')
+  update(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+    @Body() body: Record<string, unknown>,
+  ) {
+    return this.studentsService.update(authorization, Number(id), body);
   }
 
   @Post(':id/adopt-pet')

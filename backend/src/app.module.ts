@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { AiModule } from './modules/ai/ai.module';
+import { AcademicRecordsModule } from './modules/academic-records/academic-records.module';
 import { AdminConfigModule } from './modules/admin-config/admin-config.module';
 import { AdminInsightsModule } from './modules/admin-insights/admin-insights.module';
 import { AuthModule } from './modules/auth/auth.module';
@@ -24,6 +25,7 @@ import { PrismaModule } from './prisma/prisma.module';
     PrismaModule,
     OperationLogModule,
     RealtimeModule,
+    AcademicRecordsModule,
     AdminConfigModule,
     AdminInsightsModule,
     AuthModule,

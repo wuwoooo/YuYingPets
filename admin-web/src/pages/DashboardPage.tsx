@@ -7,12 +7,15 @@ import { canManageAdminConfig } from '../utils/adminPermissions';
 import type { 
   AdminClass,
   AdminStudent,
+  AnalyticsData,
+  DisplayTerminal,
   HonorRecord,
   PermissionUser,
   RewardOrder,
   ScoreRecord,
   ScoreRule
 } from '../lib/api';
+import { ruleSubjectLabelMap } from '../constants/admin';
 import { adminApi } from '../lib/api';
 import type {
   AdminState
@@ -77,6 +80,11 @@ export function DashboardPage({
   const [teacherRewardOrders, setTeacherRewardOrders] = useState<RewardOrder[]>([]);
   const [activeTeacherSubject, setActiveTeacherSubject] = useState<string>('');
   const [activeTeacherClassId, setActiveTeacherClassId] = useState<number | null>(null);
+  const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null);
+  const [recentScoreRecords, setRecentScoreRecords] = useState<ScoreRecord[]>([]);
+  const [displayTerminals, setDisplayTerminals] = useState<DisplayTerminal[]>([]);
+  /** 驾驶舱「班级积分对比」：当前选中年级的展示范围 */
+  const [cockpitCompareGradeName, setCockpitCompareGradeName] = useState<string>('');
 
   useEffect(() => {
     if (!user || !canViewGovernance) {
@@ -117,6 +125,37 @@ export function DashboardPage({
         setHonorRecords([]);
       });
 
+    return () => {
+      active = false;
+    };
+  }, [isTeacherDashboard, token]);
+
+  useEffect(() => {
+    if (isTeacherDashboard) {
+      setAnalyticsData(null);
+      setRecentScoreRecords([]);
+      setDisplayTerminals([]);
+      return;
+    }
+    let active = true;
+    Promise.all([
+      adminApi.analytics(token),
+      adminApi.scoreRecords(token),
+      adminApi.displayTerminals(token),
+    ])
+      .then(([analyticsResp, recordsResp, terminalsResp]) => {
+        if (!active) return;
+        setAnalyticsData(analyticsResp.data);
+        setRecentScoreRecords(
+          recordsResp.data
+            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+            .slice(0, 20),
+        );
+        setDisplayTerminals(terminalsResp.data);
+      })
+      .catch(() => {
+        if (!active) return;
+      });
     return () => {
       active = false;
     };
@@ -180,29 +219,6 @@ export function DashboardPage({
     ];
   }, [classes, honors, rules, students]);
 
-  const gradeStats = useMemo(() => {
-    const grouped = new Map<string, { score: number; count: number }>();
-    for (const item of classes) {
-      const current = grouped.get(item.gradeName) ?? { score: 0, count: 0 };
-      current.score += item.classScore;
-      current.count += 1;
-      grouped.set(item.gradeName, current);
-    }
-
-    const rows = Array.from(grouped.entries()).map(([gradeName, value]) => ({
-      gradeName,
-      score: value.score,
-      width: 0,
-    }));
-    const maxScore = Math.max(...rows.map((item) => item.score), 1);
-
-    return rows.map((item, index) => ({
-      ...item,
-      width: `${Math.max(28, Math.round((item.score / maxScore) * 100))}%`,
-      theme: index % 3 === 0 ? 'bar-blue' : index % 3 === 1 ? 'bar-green' : 'bar-red',
-    }));
-  }, [classes]);
-
   const rankGradeOptions = useMemo(
     () => Array.from(new Set(classes.map((item) => item.gradeName))).sort(compareGradeName),
     [classes],
@@ -213,6 +229,12 @@ export function DashboardPage({
       setRankGradeName(rankGradeOptions[0] ?? '');
     }
   }, [rankGradeName, rankGradeOptions]);
+
+  useEffect(() => {
+    if (!rankGradeOptions.includes(cockpitCompareGradeName)) {
+      setCockpitCompareGradeName(rankGradeOptions[0] ?? '');
+    }
+  }, [cockpitCompareGradeName, rankGradeOptions]);
 
   const gradeTopClasses = useMemo(() => {
     const rows = classes
@@ -365,6 +387,141 @@ export function DashboardPage({
       riskyAccounts,
     };
   }, [classes, governanceMetrics.teacherUsers, permissionUsers]);
+
+  /*
+   * ===================== 校级驾驶舱聚合层 =====================
+   *
+   * 当前实现策略：前端聚合
+   * - 数据来源：adminApi.analytics / scoreRecords / displayTerminals / honorRecords
+   * - 聚合位置：以下一组 useMemo 在浏览器端完成指标计算
+   * - 刷新周期：页面加载时一次性拉取，无自动轮询
+   *
+   * 第三阶段演进方向（后端聚合）：
+   * - 新增 GET /admin/cockpit 聚合接口，一次返回全部指标
+   * - 后端按缓存策略（15min TTL）减少重复计算
+   * - 前端仅做展示，不再零散拼装多个 useMemo
+   * ============================================================
+   */
+
+  const cockpitKpi = useMemo(() => {
+    const totalScore = analyticsData?.totalScore ?? classes.reduce((s, c) => s + c.classScore, 0);
+    const displayReadyClasses = classes.filter((c) => c.displayStatus === 'enabled').length;
+    const activeStudents = students.filter((s) => s.currentScore > 0 || s.currentPetLevel > 0).length;
+    const positiveEvents = analyticsData?.positiveRuleCount ?? 0;
+    const negativeEvents = analyticsData?.negativeRuleCount ?? 0;
+    const honorsGranted = honors.reduce((s, h) => s + h.grantedCount, 0);
+    const riskCount = analyticsData?.riskStudents?.length ?? 0;
+    const avgScore = analyticsData?.averageScore ?? (students.length ? Math.round(students.reduce((s, st) => s + st.currentScore, 0) / students.length) : 0);
+    const activeDays = analyticsData?.activeDays ?? 0;
+    const onlineTerminals = displayTerminals.filter((t) => t.onlineStatus === 'online').length;
+    return {
+      totalScore,
+      displayReadyClasses,
+      classCount: classes.length,
+      activeStudents,
+      studentCount: students.length,
+      positiveEvents,
+      negativeEvents,
+      honorsGranted,
+      riskCount,
+      avgScore,
+      activeDays,
+      onlineTerminals,
+      terminalCount: displayTerminals.length,
+    };
+  }, [analyticsData, classes, displayTerminals, honors, students]);
+
+  const cockpitRuleDistribution = useMemo(
+    () => analyticsData?.ruleDistribution ?? [],
+    [analyticsData],
+  );
+
+  const cockpitSubjectDistribution = useMemo(
+    () => analyticsData?.subjectDistribution ?? [],
+    [analyticsData],
+  );
+
+  const cockpitTopClasses = useMemo(
+    () => analyticsData?.topClasses ?? [...classes].sort((a, b) => b.classScore - a.classScore).slice(0, 8).map((c) => ({ id: c.id, name: `${c.gradeName} ${c.name}`, currentScoreTotal: c.classScore })),
+    [analyticsData, classes],
+  );
+
+  const cockpitTopStudents = useMemo(
+    () => analyticsData?.topStudents ?? [...students].sort((a, b) => b.currentScore - a.currentScore).slice(0, 8).map((s) => ({ studentId: s.id, studentName: s.name, classId: s.classId, className: s.className, currentScore: s.currentScore })),
+    [analyticsData, students],
+  );
+
+  const cockpitRiskStudents = useMemo(
+    () => analyticsData?.riskStudents ?? [],
+    [analyticsData],
+  );
+
+  const cockpitAiInsight = useMemo(
+    () => analyticsData?.aiInsight ?? null,
+    [analyticsData],
+  );
+
+  const cockpitHeatMap = useMemo(
+    () => analyticsData?.heatMap ?? { rows: [], cols: [], data: [] },
+    [analyticsData],
+  );
+
+  const cockpitRecentHonors = useMemo(
+    () =>
+      [...honorRecords]
+        .sort((a, b) => new Date(b.grantedAt).getTime() - new Date(a.grantedAt).getTime())
+        .slice(0, 8),
+    [honorRecords],
+  );
+
+  const cockpitStudentLayers = useMemo(() => {
+    const highGrowth = students.filter((s) => s.currentPetLevel >= 5).length;
+    const stable = students.filter((s) => s.currentPetLevel >= 2 && s.currentPetLevel < 5).length;
+    const low = students.filter((s) => s.currentPetLevel < 2).length;
+    const withPet = students.filter((s) => s.pet).length;
+    const over100 = students.filter((s) => s.currentScore >= 100).length;
+    return { highGrowth, stable, low, withPet, noPet: students.length - withPet, over100 };
+  }, [students]);
+
+  /** 数据结构：当前年级内各班级积分，用于柱状对比 */
+  const cockpitClassCompareBars = useMemo(() => {
+    const inGrade = classes.filter((c) => c.gradeName === cockpitCompareGradeName);
+    // 同年级的班级仅展示积分前 6 名
+    const sorted = [...inGrade]
+      .sort((a, b) => b.classScore - a.classScore || a.name.localeCompare(b.name, 'zh-CN'))
+      .slice(0, 6);
+    const maxScore = Math.max(...sorted.map((c) => c.classScore), 1);
+    return sorted.map((c, index) => ({
+      id: c.id,
+      name: c.name,
+      value: c.classScore,
+      maxScore,
+      colorIndex: index,
+    }));
+  }, [classes, cockpitCompareGradeName]);
+
+  /** 主图：全校班级积分排名前 8，与面板标题「班级积分Top8」口径一致 */
+  const cockpitTrendSvg = useMemo(() => {
+    const source = [...classes]
+      .sort((a, b) => b.classScore - a.classScore)
+      .slice(0, 8)
+      .map((c) => ({
+        label: `${c.gradeName} ${c.name}`.trim(),
+        value: c.classScore,
+      }));
+    if (source.length === 0) return { points: [], line: '', area: '', labels: [] };
+    const max = Math.max(...source.map((s) => s.value), 1);
+    const min = Math.min(...source.map((s) => s.value), 0);
+    const range = Math.max(max - min, 1);
+    const points = source.map((s, i) => {
+      const x = 50 + i * (400 / Math.max(source.length - 1, 1));
+      const y = 140 - ((s.value - min) / range) * 110;
+      return { x, y, value: s.value, label: s.label };
+    });
+    const line = points.map((p) => `${p.x},${p.y}`).join(' ');
+    const area = `${line} ${points[points.length - 1]?.x ?? 450},150 50,150`;
+    return { points, line, area, labels: source.map((s) => s.label) };
+  }, [classes]);
 
   const trendPoints = useMemo(() => {
     const source = [...classes]
@@ -1568,6 +1725,34 @@ export function DashboardPage({
     );
   }
 
+  const cockpitAlerts = useMemo(() => {
+    const items: Array<{ level: 'ok' | 'warn' | 'critical'; text: string }> = [];
+    const lowClasses = [...classes].sort((a, b) => a.classScore - b.classScore).slice(0, 2);
+    lowClasses.forEach((c) => {
+      items.push({ level: 'warn', text: `${c.gradeName} ${c.name} 积分偏低（${c.classScore} 分），建议关注班级激励频率` });
+    });
+    const noPetStudents = students.filter((s) => !s.pet).length;
+    if (noPetStudents > 0) {
+      items.push({ level: 'warn', text: `仍有 ${noPetStudents} 名学生未绑定萌宠成长档案` });
+    }
+    const uncoveredClasses = classes.filter((c) => !c.homeroomTeacher?.id).length;
+    if (uncoveredClasses > 0) {
+      items.push({ level: 'warn', text: `${uncoveredClasses} 个班级尚未配置班主任` });
+    }
+    const offlineTerminals = displayTerminals.filter((t) => t.onlineStatus === 'offline').length;
+    if (offlineTerminals > 0) {
+      items.push({ level: 'warn', text: `${offlineTerminals} 台展示终端当前离线` });
+    }
+    if (items.length === 0) {
+      items.push({ level: 'ok', text: '系统运行稳定，各项指标正常' });
+    }
+    return items;
+  }, [classes, displayTerminals, students]);
+
+  const cockpitHeatRows = cockpitHeatMap.rows;
+  const cockpitHeatCols = cockpitHeatMap.cols;
+  const cockpitHeatData = cockpitHeatMap.data;
+
   return (
     <Shell
       title="校级驾驶舱"
@@ -1581,261 +1766,423 @@ export function DashboardPage({
         </>
       }
     >
-      <div className="dashboard-head">
-        <div className="dashboard-title-block">
-          <div className="dashboard-page-title">校级数据驾驶舱</div>
-          <div className="dashboard-page-sub">SCHOOL DATA COCKPIT</div>
+      {/* 顶部标题与操作 */}
+      <div className="ck-header">
+        <div className="ck-header-left">
+          <div className="ck-title">校级数据驾驶舱</div>
+          <div className="ck-subtitle">SCHOOL DATA COCKPIT</div>
         </div>
-        <div className="page-actions">
-          <button className="present-trigger live-insight-trigger" type="button" onClick={handleEnterLiveInsight}>
+        <div className="ck-header-actions">
+          <button className="ck-action-btn ck-action-secondary" type="button" onClick={handleEnterLiveInsight}>
             <PresentationGlyph name="chart" className="present-trigger-icon" />
             实时数据透视
           </button>
-          <button className="present-trigger" type="button" onClick={() => void handleEnterPresentMode()} disabled={presentSubmitting}>
+          <button className="ck-action-btn ck-action-primary" type="button" onClick={() => void handleEnterPresentMode()} disabled={presentSubmitting}>
             <PresentationGlyph name="display" className="present-trigger-icon" />
             {presentSubmitting ? '切换中...' : '汇报展示模式'}
           </button>
         </div>
       </div>
-      <div className="metric-row">
-        {metrics.map((item, index) => (
-          <div key={item.label} className={`metric-card ${metricThemes[index % metricThemes.length]}`}>
-            <div className="metric-card-head">
-              <div className="label">{item.label}</div>
-              <PresentationGlyph name={item.icon} className="metric-card-icon" />
-            </div>
-            <div className="metric-value-line">
-              <div className="value">{item.value}</div>
-              {item.valueSuffix ? <div className="metric-value-suffix">{item.valueSuffix}</div> : null}
-            </div>
-            <div className="metric-footer">
-              {item.note ? (
-                <div className="metric-note up">
-                  <span>{item.note}</span>
-                  {item.noteHint ? <span className="metric-note-hint">{item.noteHint}</span> : null}
+
+      {/* 第一层：核心 KPI */}
+      <div className="ck-kpi-row">
+        <div className="ck-kpi mc-blue">
+          <div className="ck-kpi-icon"><PresentationGlyph name="chart" /></div>
+          <div className="ck-kpi-body">
+            <div className="ck-kpi-label">全校总积分</div>
+            <div className="ck-kpi-value">{cockpitKpi.totalScore.toLocaleString('zh-CN')}</div>
+            <div className="ck-kpi-sub">人均 {cockpitKpi.avgScore} 分</div>
+          </div>
+        </div>
+        <div className="ck-kpi mc-green">
+          <div className="ck-kpi-icon"><PresentationGlyph name="school" /></div>
+          <div className="ck-kpi-body">
+            <div className="ck-kpi-label">活跃班级</div>
+            <div className="ck-kpi-value">{cockpitKpi.displayReadyClasses}<span className="ck-kpi-frac">/{cockpitKpi.classCount}</span></div>
+            <div className="ck-kpi-sub">{cockpitKpi.classCount > 0 ? `${((cockpitKpi.displayReadyClasses / cockpitKpi.classCount) * 100).toFixed(0)}% 覆盖率` : '暂无数据'}</div>
+          </div>
+        </div>
+        <div className="ck-kpi mc-purple">
+          <div className="ck-kpi-icon"><PresentationGlyph name="student" /></div>
+          <div className="ck-kpi-body">
+            <div className="ck-kpi-label">活跃学生</div>
+            <div className="ck-kpi-value">{cockpitKpi.activeStudents}<span className="ck-kpi-frac">/{cockpitKpi.studentCount}</span></div>
+            <div className="ck-kpi-sub">{cockpitKpi.studentCount > 0 ? `${((cockpitKpi.activeStudents / cockpitKpi.studentCount) * 100).toFixed(0)}% 参与率` : '暂无数据'}</div>
+          </div>
+        </div>
+        <div className="ck-kpi mc-teal">
+          <div className="ck-kpi-icon"><PresentationGlyph name="fire" /></div>
+          <div className="ck-kpi-body">
+            <div className="ck-kpi-label">正向行为</div>
+            <div className="ck-kpi-value">{cockpitKpi.positiveEvents.toLocaleString('zh-CN')}</div>
+            <div className="ck-kpi-sub">负向 {cockpitKpi.negativeEvents} 次</div>
+          </div>
+        </div>
+        <div className="ck-kpi mc-gold">
+          <div className="ck-kpi-icon"><PresentationGlyph name="medal" /></div>
+          <div className="ck-kpi-body">
+            <div className="ck-kpi-label">勋章发放</div>
+            <div className="ck-kpi-value">{cockpitKpi.honorsGranted}</div>
+            <div className="ck-kpi-sub">累计授予</div>
+          </div>
+        </div>
+        <div className="ck-kpi mc-red">
+          <div className="ck-kpi-icon"><PresentationGlyph name="paw" /></div>
+          <div className="ck-kpi-body">
+            <div className="ck-kpi-label">风险学生</div>
+            <div className="ck-kpi-value">{cockpitKpi.riskCount}</div>
+            <div className="ck-kpi-sub">需关注</div>
+          </div>
+        </div>
+      </div>
+
+      {/* 第二层：主视觉中心 —— 趋势图 + AI 洞察 */}
+      <div className="ck-hero-row">
+        <div className="ck-hero-chart panel">
+          <div className="panel-title">班级积分Top8</div>
+          <div className="line-chart-wrap">
+            <svg viewBox="0 0 500 180" className="dashboard-line-chart" aria-hidden="true">
+              <defs>
+                <linearGradient id="ckTrendArea" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#2980b9" stopOpacity="0.32" />
+                  <stop offset="100%" stopColor="#2980b9" stopOpacity="0" />
+                </linearGradient>
+              </defs>
+              <line x1="50" y1="10" x2="50" y2="150" className="chart-axis" />
+              <line x1="50" y1="150" x2="460" y2="150" className="chart-axis" />
+              {cockpitTrendSvg.points.length > 0 ? (
+                <>
+                  <polyline points={cockpitTrendSvg.area} className="chart-area" style={{ fill: 'url(#ckTrendArea)' }} />
+                  <polyline points={cockpitTrendSvg.line} className="chart-line" />
+                  {cockpitTrendSvg.points.map((p, i) => (
+                    <g key={`${p.x}-${p.y}-${i}`}>
+                      <circle cx={p.x} cy={p.y} r={i === cockpitTrendSvg.points.length - 1 ? 5 : 3.5} className="chart-dot" />
+                      <text x={p.x} y={p.y - 10} textAnchor="middle" className="chart-value">{p.value}</text>
+                      <text x={p.x} y="168" textAnchor="middle" className="chart-label">{p.label}</text>
+                    </g>
+                  ))}
+                </>
+              ) : (
+                <text x="250" y="85" textAnchor="middle" fill="#999" fontSize="13">暂无班级积分数据</text>
+              )}
+            </svg>
+          </div>
+        </div>
+        <div className="ck-hero-insight panel">
+          <div className="panel-title">AI 全局洞察</div>
+          {cockpitAiInsight ? (
+            <div className="ck-ai-content">
+              <div className="ck-ai-summary">{cockpitAiInsight.summary}</div>
+              <div className="ck-ai-divider" />
+              <div className="ck-ai-section">
+                <div className="ck-ai-section-label">建议动作</div>
+                <div className="ck-ai-text">{cockpitAiInsight.suggestion}</div>
+              </div>
+              {cockpitAiInsight.generatedAt ? (
+                <div className="ck-ai-meta">
+                  {cockpitAiInsight.source === 'ark' ? 'AI 生成' : '规则推导'} · {new Date(cockpitAiInsight.generatedAt).toLocaleDateString('zh-CN')}
                 </div>
               ) : null}
-              {item.sub ? <div className="metric-sub">{item.sub}</div> : null}
             </div>
-          </div>
-        ))}
+          ) : (
+            <div className="ck-ai-content">
+              <div className="ck-ai-summary">正在加载 AI 洞察数据...</div>
+            </div>
+          )}
+        </div>
       </div>
-      <div className="row-2 c64">
-        <div className="panel">
-          <div className="panel-title">年级参与度对比</div>
-          <div className="bar-chart">
-            {gradeStats.map((item) => (
-              <div className="bar-row" key={item.gradeName}>
-                <span className="bar-label">{item.gradeName}</span>
+
+      {/* 第三层：数据结构分析 */}
+      <div className="ck-section-label"><span>数据结构分析</span></div>
+      <div className="ck-grid-3">
+        <div className="panel ck-class-compare-panel">
+          <div className="panel-title">
+            <span>班级积分对比</span>
+            <select
+              className="filter-select ck-class-compare-grade"
+              value={cockpitCompareGradeName}
+              onChange={(e) => setCockpitCompareGradeName(e.target.value)}
+              aria-label="切换年级查看班级积分"
+            >
+              {rankGradeOptions.map((grade) => (
+                <option key={grade} value={grade}>
+                  {grade}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="bar-chart ck-class-compare-chart">
+            {cockpitClassCompareBars.map((item) => (
+              <button
+                type="button"
+                key={item.id}
+                className="bar-row ck-class-compare-row"
+                onClick={() => navigateWithQuery('/classes', { classId: item.id })}
+              >
+                <span className="bar-label">{item.name}</span>
                 <div className="bar-track">
-                  <div className={`bar-fill ${item.theme}`} style={{ width: item.width }}>
-                    {item.score}
+                  <div
+                    className={`bar-fill ${item.colorIndex % 3 === 0 ? 'bar-blue' : item.colorIndex % 3 === 1 ? 'bar-green' : 'bar-red'}`}
+                    style={{ width: `${Math.max(28, Math.round((item.value / item.maxScore) * 100))}%` }}
+                  >
+                    {item.value}
                   </div>
                 </div>
-                <span className="bar-val">{item.score}</span>
-              </div>
+                <span className="bar-val">{item.value}</span>
+              </button>
+            ))}
+            {cockpitClassCompareBars.length === 0 ? (
+              <div className="ck-empty">该年级暂无班级数据</div>
+            ) : null}
+          </div>
+        </div>
+        <div className="panel">
+          <div className="panel-title">行为维度分布</div>
+          <div className="bar-chart">
+            {(cockpitRuleDistribution.length > 0 ? cockpitRuleDistribution : Array.from(rules.reduce((m, r) => { const k = r.dimension || '未分类'; m.set(k, (m.get(k) ?? 0) + 1); return m; }, new Map<string, number>())).map(([name, value]) => ({ name, value }))).slice(0, 6).map((item, index) => {
+              const maxVal = Math.max(...(cockpitRuleDistribution.length > 0 ? cockpitRuleDistribution : [{ name: '', value: 1 }]).map((x) => x.value), 1);
+              return (
+                <div className="bar-row" key={item.name}>
+                  <span className="bar-label">{item.name}</span>
+                  <div className="bar-track">
+                    <div className={`bar-fill ${index % 3 === 0 ? 'bar-blue' : index % 3 === 1 ? 'bar-green' : 'bar-red'}`} style={{ width: `${Math.max(28, Math.round((item.value / maxVal) * 100))}%` }}>
+                      {item.value}
+                    </div>
+                  </div>
+                  <span className="bar-val">{item.value}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        <div className="panel">
+          <div className="panel-title">学科事件分布</div>
+          <div className="bar-chart">
+            {cockpitSubjectDistribution.slice(0, 6).map((item, index) => {
+              const maxVal = Math.max(...cockpitSubjectDistribution.map((x) => x.value), 1);
+              return (
+                <div className="bar-row" key={item.name}>
+                  <span className="bar-label">{ruleSubjectLabelMap[item.name] ?? item.name}</span>
+                  <div className="bar-track">
+                    <div className={`bar-fill ${index % 3 === 0 ? 'bar-blue' : index % 3 === 1 ? 'bar-green' : 'bar-red'}`} style={{ width: `${Math.max(28, Math.round((item.value / maxVal) * 100))}%` }}>
+                      {item.value}
+                    </div>
+                  </div>
+                  <span className="bar-val">{item.value}</span>
+                </div>
+              );
+            })}
+            {cockpitSubjectDistribution.length === 0 ? <div className="ck-empty">暂无学科事件数据</div> : null}
+          </div>
+        </div>
+      </div>
+
+      {/* 第四层：评价热力图 */}
+      {cockpitHeatRows.length > 0 ? (
+        <>
+          <div className="ck-section-label"><span>评价时段分布</span></div>
+          <div className="panel ck-heatmap-panel">
+            <div className="ck-heatmap-grid" style={{ gridTemplateColumns: `80px repeat(${cockpitHeatCols.length}, 1fr)` }}>
+              <div className="ck-heatmap-cell ck-heatmap-corner" />
+              {cockpitHeatCols.map((col) => (
+                <div key={col} className="ck-heatmap-cell ck-heatmap-col-header">{col}</div>
+              ))}
+              {cockpitHeatRows.map((row, ri) => (
+                <div className="ck-heatmap-row-group" key={row} style={{ display: 'contents' }}>
+                  <div className="ck-heatmap-cell ck-heatmap-row-header">{row}</div>
+                  {cockpitHeatCols.map((col, ci) => {
+                    const count = cockpitHeatData[ri]?.values[ci] ?? 0;
+                    const intensity = count >= 8 ? 4 : count >= 5 ? 3 : count >= 2 ? 2 : count >= 1 ? 1 : 0;
+                    return (
+                      <div key={`${row}-${col}`} className={`ck-heatmap-cell ck-heat-${intensity}`}>{count}</div>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      ) : null}
+
+      {/* 第五层：榜单与亮点 */}
+      <div className="ck-section-label"><span>榜单与亮点</span></div>
+      <div className="ck-grid-3">
+        <div className="panel">
+          <div className="panel-title">明星班级</div>
+          <div className="ck-rank-table">
+            {cockpitTopClasses.slice(0, 6).map((item, index) => (
+              <button
+                key={item.id}
+                type="button"
+                className="ck-rank-row"
+                onClick={() => navigateWithQuery('/classes', { classId: item.id })}
+              >
+                <span className={`rank-num r${Math.min(index + 1, 3)}`}>{index + 1}</span>
+                <span className="ck-rank-name">{item.name}</span>
+                <span className="ck-rank-score">{item.currentScoreTotal} 分</span>
+              </button>
             ))}
           </div>
         </div>
         <div className="panel">
-          <div className="panel-title">近 7 天成长趋势</div>
-          <div className="line-chart-wrap">
-            <svg viewBox="0 0 460 190" className="dashboard-line-chart" aria-hidden="true">
-              <defs>
-                <linearGradient id="trendArea" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#5dade2" stopOpacity="0.45" />
-                  <stop offset="100%" stopColor="#5dade2" stopOpacity="0" />
-                </linearGradient>
-              </defs>
-              <line x1="40" y1="20" x2="40" y2="150" className="chart-axis" />
-              <line x1="40" y1="150" x2="420" y2="150" className="chart-axis" />
-              <polyline points={trendArea} className="chart-area" />
-              <polyline points={trendLine} className="chart-line" />
-              {trendPoints.map((point, index) => (
-                <g key={`${point.x}-${point.y}`}>
-                  <circle cx={point.x} cy={point.y} r={index === trendPoints.length - 1 ? 5 : 4} className="chart-dot" />
-                  <text x={point.x} y={point.y - 10} textAnchor="middle" className="chart-value">
-                    {point.value}
-                  </text>
-                  <text x={point.x} y="172" textAnchor="middle" className="chart-label">
-                    {point.label}
-                  </text>
-                </g>
-              ))}
-            </svg>
-          </div>
-        </div>
-      </div>
-      <div className="row-2 c50">
-        <div className="panel">
-          <div className="panel-title">
-            <span>高光榜单</span>
-            <div className="tabs">
-              <button className={`tab${rankTab === 'class' ? ' active' : ''}`} type="button" onClick={() => setRankTab('class')}>
-                明星班级
+          <div className="panel-title">明星学生</div>
+          <div className="ck-rank-table">
+            {cockpitTopStudents.slice(0, 6).map((item, index) => (
+              <button
+                key={item.studentId}
+                type="button"
+                className="ck-rank-row"
+                onClick={() => navigateWithQuery('/students', { studentId: item.studentId, classId: item.classId, statsView: 'student' })}
+              >
+                <span className={`rank-num r${Math.min(index + 1, 3)}`}>{index + 1}</span>
+                <span className="ck-rank-name">{item.studentName}<span className="ck-rank-class">{item.className}</span></span>
+                <span className="ck-rank-score">{item.currentScore} 分</span>
               </button>
-              <button className={`tab${rankTab === 'student' ? ' active' : ''}`} type="button" onClick={() => setRankTab('student')}>
-                明星学生
-              </button>
-              <button className={`tab${rankTab === 'honor' ? ' active' : ''}`} type="button" onClick={() => setRankTab('honor')}>
-                荣誉榜
-              </button>
-            </div>
-          </div>
-          {rankTab === 'class' ? (
-            <div className="page-actions" style={{ marginBottom: 12 }}>
-              <select className="filter-select" value={rankGradeName} onChange={(event) => setRankGradeName(event.target.value)}>
-                {rankGradeOptions.map((item) => (
-                  <option key={item} value={item}>
-                    {item}
-                  </option>
-                ))}
-              </select>
-            </div>
-          ) : null}
-          <div className="rank-list">
-            {rankRows.map((item, index) => (
-              <div className="rank-item" key={item.id}>
-                <span className={`rank-num r${Math.min((item as { rank?: number }).rank ?? index + 1, 3)}`}>
-                  {(item as { rank?: number }).rank ?? index + 1}
-                </span>
-                <span className="name">{item.name}</span>
-                <span className="score">{item.score}</span>
-              </div>
             ))}
           </div>
         </div>
         <div className="panel">
           <div className="panel-title">最新荣誉</div>
-          <div className="msg-list">
-            {recentHighlights.map((item) => (
-              <div className="msg-item" key={`${item.time}-${item.text}`}>
-                <span className="time">{item.time}</span>
-                <span className="badge">✦</span>
+          <div className="ck-honor-flow">
+            {cockpitRecentHonors.map((item) => (
+              <div className="ck-honor-item" key={item.id}>
+                <div className="ck-honor-dot" />
+                <div className="ck-honor-body">
+                  <strong>{item.studentName ?? item.className} · {item.honorName}</strong>
+                  <span>{item.grantedByName ? `由 ${item.grantedByName} 授予` : '系统授予'} · {new Date(item.grantedAt).toLocaleDateString('zh-CN')}</span>
+                </div>
+              </div>
+            ))}
+            {cockpitRecentHonors.length === 0 ? <div className="ck-empty">暂无荣誉记录</div> : null}
+          </div>
+        </div>
+      </div>
+
+      {/* 第六层：学生成长分层 + 最新动态 */}
+      <div className="ck-section-label"><span>学生成长与最近动态</span></div>
+      <div className="row-2 c50">
+        <div className="panel">
+          <div className="panel-title">学生成长分层</div>
+          <div className="ck-layer-grid">
+            <div className="ck-layer-card ck-layer-high">
+              <strong>{cockpitStudentLayers.highGrowth}</strong>
+              <span>高成长 (Lv.5+)</span>
+            </div>
+            <div className="ck-layer-card ck-layer-mid">
+              <strong>{cockpitStudentLayers.stable}</strong>
+              <span>稳定层 (Lv.2-4)</span>
+            </div>
+            <div className="ck-layer-card ck-layer-low">
+              <strong>{cockpitStudentLayers.low}</strong>
+              <span>待提升 (Lv.0-1)</span>
+            </div>
+            <div className="ck-layer-card ck-layer-info">
+              <strong>{cockpitStudentLayers.withPet}</strong>
+              <span>已领养萌宠</span>
+            </div>
+            <div className="ck-layer-card ck-layer-info">
+              <strong>{cockpitStudentLayers.over100}</strong>
+              <span>积分过百</span>
+            </div>
+            <div className="ck-layer-card ck-layer-warn">
+              <strong>{cockpitStudentLayers.noPet}</strong>
+              <span>未绑定萌宠</span>
+            </div>
+          </div>
+        </div>
+        <div className="panel">
+          <div className="panel-title">最新评价动态</div>
+          <div className="ck-activity-list">
+            {recentScoreRecords.slice(0, 8).map((item) => (
+              <div className="ck-activity-item" key={`${item.id}-${item.createdAt}`}>
+                <span className={`ck-activity-delta ${item.scoreDelta >= 0 ? 'up' : 'down'}`}>{item.scoreDelta > 0 ? '+' : ''}{item.scoreDelta}</span>
+                <div className="ck-activity-body">
+                  <strong>{item.operatorName ?? item.sourceRole} → {item.ruleName || item.tag || item.dimension || '评价'}</strong>
+                  <span>{new Date(item.createdAt).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+                </div>
+              </div>
+            ))}
+            {recentScoreRecords.length === 0 ? <div className="ck-empty">暂无最近评价动态</div> : null}
+          </div>
+        </div>
+      </div>
+
+      {/* 第七层：风险预警 */}
+      <div className="ck-section-label"><span>风险预警</span></div>
+      <div className="row-2 c50">
+        <div className="panel">
+          <div className="panel-title">风险学生</div>
+          <div className="ck-risk-table">
+            {cockpitRiskStudents.slice(0, 6).map((item) => (
+              <button
+                key={item.studentId}
+                type="button"
+                className="ck-risk-row"
+                onClick={() => navigateWithQuery('/students', { studentId: item.studentId, statsView: 'student' })}
+              >
+                <span className={`ck-risk-badge ${item.riskLevel}`}>{item.riskLevel === 'high' ? '高' : item.riskLevel === 'medium' ? '中' : '低'}</span>
+                <div className="ck-risk-body">
+                  <strong>{item.studentName}</strong>
+                  <span>{item.className} · 负向 {item.negativeCount} 次 · 净变化 {item.scoreDelta}</span>
+                </div>
+                <span className="ck-risk-reason">{item.reason}</span>
+              </button>
+            ))}
+            {cockpitRiskStudents.length === 0 ? <div className="ck-empty">暂无明显风险学生</div> : null}
+          </div>
+        </div>
+        <div className="panel">
+          <div className="panel-title">系统预警</div>
+          <div className="alert-list">
+            {cockpitAlerts.map((item, index) => (
+              <div className={`alert-item ${item.level === 'ok' ? 'ok' : 'warn'}`} key={`${item.level}-${index}`}>
                 {item.text}
               </div>
             ))}
           </div>
-        </div>
-      </div>
-      <div className="row-2 c50">
-        <div className="panel">
-          <div className="panel-title">重点预警</div>
-          <div className="alert-list">
-            {alerts.map((item, index) => (
-              <div className={`alert-item ${index === alerts.length - 1 && item.includes('系统正常') ? 'ok' : 'warn'}`} key={item}>
-                {item}
-              </div>
-            ))}
-          </div>
-        </div>
-        <div className="panel">
-          <div className="panel-title">班级积分分布</div>
-          <div className="distribution-card">
-            <div className="distribution-ring" />
-            <div className="distribution-legend">
-              <div className="legend-item"><span className="legend-dot blue" />高活跃班级 {topClasses.length}</div>
-              <div className="legend-item"><span className="legend-dot gold" />已接入展示大屏 {classes.filter((item) => item.displayStatus === 'enabled').length}</div>
-              <div className="legend-item"><span className="legend-dot gray" />待提升班级 {Math.max(classes.length - topClasses.length, 0)}</div>
+          <div className="ck-terminal-strip">
+            <div className="ck-terminal-stat">
+              <span>展示终端</span>
+              <strong>{cockpitKpi.onlineTerminals}<span className="ck-kpi-frac">/{cockpitKpi.terminalCount}</span></strong>
+            </div>
+            <div className="ck-terminal-stat">
+              <span>活跃天数</span>
+              <strong>{cockpitKpi.activeDays}</strong>
             </div>
           </div>
         </div>
       </div>
-      <div className="section-divider">
-        <span>多维数据洞察</span>
-      </div>
-      <div className="row-2 c50">
-        <div className="panel">
-          <div className="panel-title">规则维度分布</div>
-          <div className="insight-grid">
-            {Array.from(
-              rules.reduce((map, rule) => {
-                const key = rule.dimension || '未分类';
-                map.set(key, (map.get(key) ?? 0) + 1);
-                return map;
-              }, new Map<string, number>()),
-            )
-              .slice(0, 4)
-              .map(([name, count]) => (
-                <div className="insight-chip" key={name}>
-                  <strong>{count}</strong>
-                  <span>{name}</span>
-                </div>
-              ))}
-          </div>
-        </div>
-        <div className="panel">
-          <div className="panel-title">学生成长概览</div>
-          <div className="insight-grid">
-            <div className="insight-chip">
-              <strong>{students.filter((item) => item.currentPetLevel >= 3).length}</strong>
-              <span>Lv.3+ 学生</span>
-            </div>
-            <div className="insight-chip">
-              <strong>{students.filter((item) => item.pet).length}</strong>
-              <span>已领养萌宠</span>
-            </div>
-            <div className="insight-chip">
-              <strong>{students.filter((item) => item.currentScore >= 100).length}</strong>
-              <span>积分过百</span>
-            </div>
-            <div className="insight-chip">
-              <strong>{classes.filter((item) => item.studentCount > 0).length}</strong>
-              <span>已开班级</span>
-            </div>
-          </div>
-        </div>
-      </div>
+
+      {/* 第八层：组织治理（仅管理员可见） */}
       {canViewGovernance ? (
         <>
-          <div className="section-divider">
-            <span>组织治理概览</span>
-          </div>
-          <div className="metric-strip">
-            <div className="metric-card">
+          <div className="ck-section-label"><span>组织治理概览</span></div>
+          <div className="ck-gov-strip">
+            <div className="ck-gov-card" role="button" tabIndex={0} onClick={() => navigateWithQuery('/teachers', { teacherView: 'all' })} onKeyDown={(e) => { if (e.key === 'Enter') navigateWithQuery('/teachers', { teacherView: 'all' }); }}>
               <span>教师账号</span>
               <strong>{governanceMetrics.teacherUsers.length}</strong>
-              <p>当前已纳入教学岗位体系的账号数量。</p>
-              <button className="ghost-button" type="button" onClick={() => navigateWithQuery('/teachers', { teacherView: 'all' })}>
-                查看教师管理
-              </button>
             </div>
-            <div className="metric-card">
+            <div className="ck-gov-card" role="button" tabIndex={0} onClick={() => navigateWithQuery('/classes', { teacherStatus: 'unassigned' })} onKeyDown={(e) => { if (e.key === 'Enter') navigateWithQuery('/classes', { teacherStatus: 'unassigned' }); }}>
               <span>待补班主任</span>
               <strong>{governanceMetrics.uncoveredClasses}</strong>
-              <p>仍未完成班主任绑定的班级数量。</p>
-              <button className="ghost-button" type="button" onClick={() => navigateWithQuery('/classes', { teacherStatus: 'unassigned' })}>
-                查看待补班级
-              </button>
             </div>
-            <div className="metric-card">
+            <div className="ck-gov-card" role="button" tabIndex={0} onClick={() => navigateWithQuery('/organization', { activeTab: 'accounts', quickFilter: 'disabled' })} onKeyDown={(e) => { if (e.key === 'Enter') navigateWithQuery('/organization', { activeTab: 'accounts', quickFilter: 'disabled' }); }}>
               <span>停用账号</span>
               <strong>{governanceMetrics.disabledUsers}</strong>
-              <p>建议校级定期巡检的停用账号数量。</p>
-              <button className="ghost-button" type="button" onClick={() => navigateWithQuery('/organization', { activeTab: 'accounts', quickFilter: 'disabled' })}>
-                查看停用账号
-              </button>
             </div>
-            <div className="metric-card">
+            <div className="ck-gov-card" role="button" tabIndex={0} onClick={() => navigateWithQuery('/organization', { activeTab: 'accounts', quickFilter: 'high_privilege' })} onKeyDown={(e) => { if (e.key === 'Enter') navigateWithQuery('/organization', { activeTab: 'accounts', quickFilter: 'high_privilege' }); }}>
               <span>高权限账号</span>
               <strong>{governanceMetrics.highPrivilegeUsers}</strong>
-              <p>超管与学校管理员等高权限身份数量。</p>
-              <button className="ghost-button" type="button" onClick={() => navigateWithQuery('/organization', { activeTab: 'accounts', quickFilter: 'high_privilege' })}>
-                查看高权限账号
-              </button>
+            </div>
+            <div className="ck-gov-card">
+              <span>跨班教师</span>
+              <strong>{governanceMetrics.multiClassTeachers}</strong>
             </div>
           </div>
           <div className="row-2 c50">
             <div className="panel">
               <div className="panel-title">教师覆盖观察</div>
               <div className="mini-list">
-                <div className="mini-list-item">
-                  <div>
-                    <strong>跨班教师</strong>
-                    <span>同时负责多个班级的教师账号，适合作为排课与负载观察重点。</span>
-                  </div>
-                  <b>{governanceMetrics.multiClassTeachers} 人</b>
-                </div>
                 {governanceHighlights.gradeCoverage.map((item) => (
                   <button
                     type="button"
@@ -1845,7 +2192,7 @@ export function DashboardPage({
                   >
                     <div>
                       <strong>{item.gradeName}</strong>
-                      <span>当前年级已建立教师覆盖关系。</span>
+                      <span>当前年级已建立教师覆盖关系</span>
                     </div>
                     <b>{item.teacherCount} 人</b>
                   </button>
@@ -1865,7 +2212,7 @@ export function DashboardPage({
                     <div>
                       <strong>{item.name}</strong>
                       <span>
-                        {item.roleName} · {item.lastLoginAt ? '已停用，建议确认是否仍需保留' : '从未登录，建议核查是否完成交付'}
+                        {item.roleName} · {item.lastLoginAt ? '已停用' : '从未登录'}
                       </span>
                     </div>
                     <b>{item.status === 'enabled' ? '未登录' : '已停用'}</b>
@@ -1875,7 +2222,7 @@ export function DashboardPage({
                   <div className="mini-list-item">
                     <div>
                       <strong>治理状态良好</strong>
-                      <span>当前没有明显的停用/未登录账号风险信号。</span>
+                      <span>当前无明显风险信号</span>
                     </div>
                     <b>正常</b>
                   </div>

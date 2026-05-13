@@ -85,6 +85,7 @@ CREATE TABLE `user` (
     `name` VARCHAR(64) NOT NULL,
     `phone` VARCHAR(32) NULL,
     `email` VARCHAR(128) NULL,
+    `duty_tags` JSON NULL,
     `status` ENUM('enabled', 'disabled') NOT NULL DEFAULT 'enabled',
     `last_login_at` DATETIME(3) NULL,
     `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),

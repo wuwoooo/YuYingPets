@@ -154,8 +154,10 @@ export type PetFormState = {
 };
 
 export const studentImportColumnAliases = {
-  studentNo: ['学号', '学生学号', 'studentno', 'student_no', 'student no', '学籍号', '编号'],
+  studentNo: ['准考证号', '考号', '学号', '学生学号', 'studentno', 'student_no', 'student no', '学籍号', '编号'],
   name: ['姓名', '学生姓名', 'name', 'studentname', 'student_name', 'student name'],
+  className: ['班级', '班级名称', 'class', 'classname', 'class_name', 'class name'],
+  gradeName: ['年级', '年级名称', 'grade', 'gradename', 'grade_name', 'grade name'],
   gender: ['性别', 'gender'],
   avatarUrl: ['头像', '头像地址', 'avatar', 'avatarurl', 'avatar_url', 'avatar url'],
 } as const;

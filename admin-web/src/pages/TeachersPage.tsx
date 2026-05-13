@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import * as XLSX from 'xlsx';
 import { Modal } from '../components/Modal';
 import { PickerInput } from '../components/PickerInput';
 import { Shell } from '../components/Shell';
@@ -8,6 +9,7 @@ import { usePagination } from '../hooks/usePagination';
 import type {
   AdminClass,
   PermissionUser,
+  PermissionUserImportResult,
   PermissionUserUpsertPayload,
   RoleTemplate,
   SessionUser,
@@ -19,6 +21,7 @@ import type { PermissionUserFormState } from '../types/admin';
 import { createPermissionUserForm, formatEnabledStatus, normalizeKeyword } from '../utils/adminForms';
 
 const teacherRoleCodes = ['homeroom_teacher', 'subject_teacher'];
+const staffRoleCodes = ['school_admin', 'moral_admin', 'homeroom_teacher', 'subject_teacher'];
 const teacherSubjectOptions = [
   { code: 'chinese', label: '语文' },
   { code: 'math', label: '数学' },
@@ -108,12 +111,13 @@ function formatLiveStatusRangeLabel(date: string, start: string, end: string) {
 export function TeachersPage({ token, user, classes, loading, error }: TeachersPageProps) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [teacherView, setTeacherView] = useState<'all' | 'homeroom_teacher' | 'subject_teacher'>('all');
+  const [teacherView, setTeacherView] = useState<'all' | 'manager' | 'homeroom_teacher' | 'subject_teacher'>('all');
   const [teacherPanelTab, setTeacherPanelTab] = useState<TeacherPanelTab>('teachers');
   const [statsView, setStatsView] = useState<'grade' | 'class' | 'teacher'>('grade');
   const [teachers, setTeachers] = useState<PermissionUser[]>([]);
   const [roleTemplates, setRoleTemplates] = useState<RoleTemplate[]>([]);
   const [showEditor, setShowEditor] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
   const [editingTeacher, setEditingTeacher] = useState<PermissionUser | null>(null);
   const [selectedTeacher, setSelectedTeacher] = useState<PermissionUser | null>(null);
   const [form, setForm] = useState<PermissionUserFormState>(() => createPermissionUserForm());
@@ -121,6 +125,12 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
   const [pageError, setPageError] = useState<string | null>(null);
   const [editorError, setEditorError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
+  const [importRows, setImportRows] = useState<Array<{ name: string; phone?: string; roles?: string; teachingClasses?: string }>>([]);
+  const [importResult, setImportResult] = useState<PermissionUserImportResult | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importFileName, setImportFileName] = useState('');
+  const importFileInputRef = useRef<HTMLInputElement | null>(null);
   const [searchKeyword, setSearchKeyword] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
   const [focusFilter, setFocusFilter] = useState<'all' | 'multi_class'>('all');
@@ -147,6 +157,10 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
     () => roleTemplates.filter((item) => teacherRoleCodes.includes(item.code)),
     [roleTemplates],
   );
+  const staffRoleTemplates = useMemo(
+    () => roleTemplates.filter((item) => staffRoleCodes.includes(item.code)),
+    [roleTemplates],
+  );
 
   function buildLiveStatusQuery() {
     if (!liveStatusRangeActive) return undefined;
@@ -168,7 +182,7 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
       adminApi.teacherLiveStatus(token, query),
       adminApi.teacherScheduleSlots(token),
     ]);
-    const teacherRows = usersResponse.data.filter((row) => teacherRoleCodes.includes(row.roleCode) && row.status === 'enabled');
+    const teacherRows = usersResponse.data.filter((row) => staffRoleCodes.includes(row.roleCode) && row.status === 'enabled');
     setTeachers(teacherRows);
     setRoleTemplates(rolesResponse.data);
     const liveMap = Object.fromEntries(liveResponse.data.rows.map((item) => [item.teacherId, item]));
@@ -189,7 +203,7 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
     ])
       .then(([usersResponse, rolesResponse, liveResponse, slotResponse]) => {
         if (!active) return;
-        const teacherRows = usersResponse.data.filter((row) => teacherRoleCodes.includes(row.roleCode) && row.status === 'enabled');
+        const teacherRows = usersResponse.data.filter((row) => staffRoleCodes.includes(row.roleCode) && row.status === 'enabled');
         setTeachers(teacherRows);
         setRoleTemplates(rolesResponse.data);
         const liveMap = Object.fromEntries(liveResponse.data.rows.map((item) => [item.teacherId, item]));
@@ -220,7 +234,7 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
     const nextSearch = searchParams.get('keyword');
     const targetUserId = searchParams.get('userId');
 
-    if (nextTeacherView === 'all' || nextTeacherView === 'homeroom_teacher' || nextTeacherView === 'subject_teacher') {
+    if (nextTeacherView === 'all' || nextTeacherView === 'manager' || nextTeacherView === 'homeroom_teacher' || nextTeacherView === 'subject_teacher') {
       setTeacherView(nextTeacherView);
     }
     if (nextStatsView === 'grade' || nextStatsView === 'class' || nextStatsView === 'teacher') {
@@ -273,6 +287,81 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
   function closeEditor() {
     setShowEditor(false);
     setEditorError(null);
+  }
+
+  function closeImportModal() {
+    setShowImportModal(false);
+    setImportError(null);
+  }
+
+  function getImportCell(row: Record<string, unknown>, keys: string[]) {
+    for (const key of keys) {
+      const value = row[key];
+      if (value !== undefined && value !== null && String(value).trim()) {
+        return String(value).trim().replace(/\.0$/, '');
+      }
+    }
+    return '';
+  }
+
+  async function handleImportFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    setImportError(null);
+    setImportResult(null);
+    setImportFileName(file.name);
+
+    try {
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+      const firstSheetName = workbook.SheetNames[0];
+      if (!firstSheetName) throw new Error('导入文件中没有工作表');
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets[firstSheetName], { defval: '' });
+      const parsedRows = rows
+        .map((row) => ({
+          name: getImportCell(row, ['姓名', '教师姓名', 'name']),
+          phone: getImportCell(row, ['手机', '手机号', '联系电话', 'phone']) || undefined,
+          roles: getImportCell(row, ['角色', '岗位', '职务', 'roles']) || undefined,
+          teachingClasses: getImportCell(row, ['任课班级', '授课班级', '负责班级', 'teachingClasses']) || undefined,
+        }))
+        .filter((row) => row.name);
+
+      if (parsedRows.length === 0) {
+        throw new Error('未识别到教师姓名，请确认表头为“姓名 / 手机 / 角色 / 任课班级”');
+      }
+
+      setImportRows(parsedRows);
+      setShowImportModal(true);
+    } catch (err) {
+      setImportRows([]);
+      setImportError(err instanceof Error ? err.message : '导入文件解析失败');
+      setShowImportModal(true);
+    }
+  }
+
+  async function handleImportSubmit() {
+    if (importResult) return;
+    if (importRows.length === 0) {
+      setImportError('没有可导入的数据');
+      return;
+    }
+    setImporting(true);
+    setImportError(null);
+    setSubmitSuccess(null);
+
+    try {
+      const response = await adminApi.importPermissionUsers(token, { rows: importRows });
+      setImportResult(response.data);
+      setSubmitSuccess(
+        `批量导入完成：新增 ${response.data.createdCount} 人，更新 ${response.data.updatedCount} 人，跳过 ${response.data.skippedCount} 人`,
+      );
+      await loadTeachers();
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : '教师批量导入失败');
+    } finally {
+      setImporting(false);
+    }
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -361,11 +450,15 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
   const filteredTeachers = useMemo(() => {
     const keyword = normalizeKeyword(searchKeyword);
     return teachers.filter((row) => {
-      const matchesView = teacherView === 'all' || row.roleCode === teacherView;
+      const matchesView =
+        teacherView === 'all' ||
+        row.roleCode === teacherView ||
+        (teacherView === 'manager' && ['school_admin', 'moral_admin'].includes(row.roleCode));
       const matchesKeyword =
         !keyword ||
         normalizeKeyword(row.name).includes(keyword) ||
         normalizeKeyword(row.username).includes(keyword) ||
+        normalizeKeyword(row.dutyTags.join(' ')).includes(keyword) ||
         normalizeKeyword(row.scopeDisplay).includes(keyword);
       const matchesRole = roleFilter === 'all' || row.roleCode === roleFilter;
       const matchesFocus = focusFilter === 'all' || row.classIds.length > 1;
@@ -554,7 +647,7 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
   }
 
   function syncTeacherFilterParams(nextState: {
-    teacherView?: 'all' | 'homeroom_teacher' | 'subject_teacher';
+    teacherView?: 'all' | 'manager' | 'homeroom_teacher' | 'subject_teacher';
     roleFilter?: string;
     focusFilter?: 'all' | 'multi_class';
     liveStatusFilter?: 'all' | 'busy' | 'free';
@@ -821,7 +914,7 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
       <div className="page-header">
         <div>
           <h2>教师管理</h2>
-          <p className="page-desc">聚合查看全校教师结构、班级覆盖和岗位分工。</p>
+          <p className="page-desc">聚合查看全校教职工结构、班级覆盖、系统角色和职务标签。</p>
         </div>
         <div className="page-actions">
           {returnTo ? (
@@ -839,7 +932,7 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
           </div>
           <select className="filter-select" value={roleFilter} onChange={(event) => setRoleFilter(event.target.value)}>
             <option value="all">全部教师岗位</option>
-            {teacherRoleTemplates.map((item) => (
+            {staffRoleTemplates.map((item) => (
               <option key={item.code} value={item.code}>
                 {item.name}
               </option>
@@ -897,6 +990,16 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
           <button className="btn btn-primary" type="button" onClick={openCreate}>
             新增教师
           </button>
+          <input
+            ref={importFileInputRef}
+            type="file"
+            accept=".xlsx,.xls"
+            hidden
+            onChange={handleImportFileChange}
+          />
+          <button className="ghost-button" type="button" onClick={() => importFileInputRef.current?.click()}>
+            批量导入
+          </button>
         </div>
       </div>
 
@@ -913,7 +1016,7 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
           >
             {teachers.length}
           </button>
-          <p>当前纳入系统、具备教学岗位身份的账号数量。</p>
+          <p>当前纳入系统、具备管理或教学身份的账号数量。</p>
         </div>
         <div className={`metric-card${liveStatusFilter === 'busy' ? ' active' : ''}`}>
           <span>当前有课</span>
@@ -1172,6 +1275,89 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
           </form>
         </Modal>
       ) : null}
+      {showImportModal ? (
+        <Modal
+          title="批量导入教师"
+          subtitle="支持“姓名 / 手机 / 角色 / 任课班级”格式，角色列会保存为职务标签"
+          onClose={closeImportModal}
+        >
+          <div className="settings-form">
+            {!importResult ? (
+              <div className="detail-card">
+                <h4>导入预览</h4>
+                <div className="detail-grid">
+                  <div><span>文件</span><strong>{importFileName || '未选择'}</strong></div>
+                  <div><span>识别人数</span><strong>{importRows.length} 人</strong></div>
+                  <div><span>默认密码</span><strong>123456</strong></div>
+                </div>
+                <p className="page-desc">同一手机号或同名账号会更新原账号；系统角色用于权限，Excel 角色列会拆成职务标签；新账号按姓名拼音生成。</p>
+              </div>
+            ) : null}
+            {importError ? <div className="status-card error">{importError}</div> : null}
+            {!importResult && importRows.length > 0 ? (
+              <div className="table-wrap compact-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>姓名</th>
+                      <th>手机</th>
+                      <th>角色</th>
+                      <th>任课班级</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {importRows.slice(0, 8).map((row, index) => (
+                      <tr key={`${row.name}-${index}`}>
+                        <td>{row.name}</td>
+                        <td>{row.phone || '-'}</td>
+                        <td>{row.roles || '-'}</td>
+                        <td>{row.teachingClasses || '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {importRows.length > 8 ? <div className="teacher-editor-empty inline">仅预览前 8 行，其余数据会一并导入。</div> : null}
+              </div>
+            ) : null}
+            {importResult ? (
+              <div className="detail-card">
+                <h4>导入结果</h4>
+                <div className="detail-grid">
+                  <div><span>新增账号</span><strong>{importResult.createdCount} 个</strong></div>
+                  <div><span>更新已有账号</span><strong>{importResult.updatedCount} 个</strong></div>
+                  <div><span>失败</span><strong>{importResult.skippedCount} 个</strong></div>
+                </div>
+                {importResult.skippedCount > 0 ? (
+                  <div className="teacher-editor-empty inline">
+                    {importResult.results
+                      .filter((item) => item.action === 'skipped')
+                      .map((item) => (
+                        <div key={`${item.row}-${item.name}`}>第 {item.row} 行 {item.name}：{item.message || '导入失败'}</div>
+                      ))}
+                  </div>
+                ) : null}
+                {importResult.warnings.length > 0 ? (
+                  <div className="teacher-editor-empty inline">
+                    {importResult.warnings.slice(0, 6).map((item) => (
+                      <div key={item}>{item}</div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+            <div className="modal-actions">
+              <button className="ghost-button" type="button" onClick={closeImportModal}>
+                关闭
+              </button>
+              {!importResult ? (
+                <button className="btn btn-primary" type="button" disabled={importing || importRows.length === 0} onClick={handleImportSubmit}>
+                  {importing ? '导入中...' : '确认导入'}
+                </button>
+              ) : null}
+            </div>
+          </div>
+        </Modal>
+      ) : null}
       {selectedTeacher ? (
         <Modal
           title={`${selectedTeacher.name} · 教师详情`}
@@ -1184,7 +1370,8 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
               <div className="detail-list">
                 <div><span>姓名</span><strong>{selectedTeacher.name}</strong></div>
                 <div><span>登录账号</span><strong>{selectedTeacher.username}</strong></div>
-                <div><span>岗位</span><strong>{selectedTeacher.roleName}</strong></div>
+                <div><span>系统角色</span><strong>{selectedTeacher.roleName}</strong></div>
+                <div><span>职务标签</span><strong>{selectedTeacher.dutyTags.length > 0 ? selectedTeacher.dutyTags.join('、') : '未设置'}</strong></div>
                 <div><span>账号状态</span><strong>{formatEnabledStatus(selectedTeacher.status)}</strong></div>
               </div>
             </div>
@@ -1194,7 +1381,7 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
                 <div><span>负责范围</span><strong>{selectedTeacher.scopeDisplay}</strong></div>
                 <div><span>负责班级数</span><strong>{selectedTeacher.classIds.length} 个</strong></div>
                 <div><span>联系电话</span><strong>{selectedTeacher.phone || '未填写'}</strong></div>
-                <div><span>岗位摘要</span><strong>{selectedTeacher.permissionSummary}</strong></div>
+                <div><span>权限摘要</span><strong>{selectedTeacher.permissionSummary}</strong></div>
               </div>
             </div>
             {selectedTeacher.subjectScopes.length > 0 ? (
@@ -1309,7 +1496,7 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
         <div className="page-header">
           <div>
             <div className="panel-title">教师列表</div>
-            <p className="page-desc">查看教师账号、岗位分工与课程表安排。</p>
+            <p className="page-desc">查看教职工账号、系统角色、职务标签与课程表安排。</p>
           </div>
         </div>
         <div className="tabs">
@@ -1335,6 +1522,7 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
             <div className="tabs">
           {[
             ['all', '全部教师'],
+            ['manager', '管理职务'],
             ['homeroom_teacher', '班主任'],
             ['subject_teacher', '任课教师'],
           ].map(([key, label]) => (
@@ -1354,7 +1542,8 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
               <tr>
                 <th>{renderSortHeader('姓名', 'name')}</th>
                 <th>{renderSortHeader('账号', 'username')}</th>
-                <th>{renderSortHeader('岗位', 'roleName')}</th>
+                <th>{renderSortHeader('系统角色', 'roleName')}</th>
+                <th>职务标签</th>
                 <th>{renderSortHeader('负责范围', 'scopeDisplay')}</th>
                 <th>{renderSortHeader('当前状态', 'currentStatus')}</th>
                 <th>操作</th>
@@ -1366,6 +1555,13 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
                   <td className="permission-name">{row.name}</td>
                   <td>{row.username}</td>
                   <td>{row.roleName}</td>
+                  <td>
+                    {row.dutyTags.length > 0 ? (
+                      <div className="settings-tag-row compact">
+                        {row.dutyTags.map((tag) => <span className="settings-tag" key={tag}>{tag}</span>)}
+                      </div>
+                    ) : '-'}
+                  </td>
                   <td>{formatTeacherScopeForTable(row)}</td>
                   <td>{renderLiveStatusCell(row)}</td>
                   <td>

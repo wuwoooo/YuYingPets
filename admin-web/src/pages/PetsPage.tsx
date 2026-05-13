@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties, type ChangeEvent, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties, type ChangeEvent, type FormEvent, type SyntheticEvent } from 'react';
 import { Modal } from '../components/Modal';
 import { Shell } from '../components/Shell';
 import type { 
@@ -7,7 +7,7 @@ import type {
   SessionUser
 } from '../lib/api';
 import { adminApi } from '../lib/api';
-import { resolveAssetUrl } from '../lib/assets';
+import { resolveAssetUrl, resolvePetAssetVariantUrl } from '../lib/assets';
 import type {
   PetFormState
 } from '../types/admin';
@@ -109,6 +109,17 @@ export function PetsPage({
     () => Array.from(new Set(pets.map((item) => item.rarity).filter((item): item is string => Boolean(item)))),
     [pets],
   );
+  const visiblePetFamilyOptions = useMemo(() => {
+    const familiesWithPets = new Set(pets.map((item) => resolvePetFamily(item.category)));
+    return PET_FAMILY_OPTIONS.filter((option) => option.key === 'all' || familiesWithPets.has(option.key));
+  }, [pets]);
+
+  useEffect(() => {
+    if (!visiblePetFamilyOptions.some((option) => option.key === tab)) {
+      setTab('all');
+    }
+  }, [tab, visiblePetFamilyOptions]);
+
   const filteredPets = useMemo(() => {
     const keyword = normalizeKeyword(searchKeyword);
     return pets.filter((item) => {
@@ -352,6 +363,13 @@ export function PetsPage({
     return getStageByNo(selectedPet, selectedPreviewStage)?.imageUrl ?? selectedPet.coverUrl;
   }
 
+  function handlePetHighResFallback(event: SyntheticEvent<HTMLImageElement>, fallbackUrl: string | null | undefined) {
+    const resolvedFallback = resolvePetAssetVariantUrl(fallbackUrl, 400);
+    if (resolvedFallback && event.currentTarget.src !== resolvedFallback) {
+      event.currentTarget.src = resolvedFallback;
+    }
+  }
+
   return (
     <Shell
       title="萌宠图鉴"
@@ -403,7 +421,7 @@ export function PetsPage({
         </div>
       </div>
       <div className="pet-filters">
-        {PET_FAMILY_OPTIONS.map((option) => (
+        {visiblePetFamilyOptions.map((option) => (
           <button key={option.key} type="button" className={`pet-filter-tab${tab === option.key ? ' active' : ''}`} onClick={() => setTab(option.key)}>
             {option.label}
           </button>
@@ -480,7 +498,13 @@ export function PetsPage({
           <div className="pet-evolution-shell">
             <div className="pet-evolution-hero">
               <div className="pet-evolution-cover">
-                {getSelectedPreviewImage() ? <img src={resolveAssetUrl(getSelectedPreviewImage() ?? '')} alt={selectedPet.name} /> : selectedPet.name.slice(0, 1)}
+                {getSelectedPreviewImage() ? (
+                  <img
+                    src={resolvePetAssetVariantUrl(getSelectedPreviewImage(), 1024)}
+                    alt={selectedPet.name}
+                    onError={(event) => handlePetHighResFallback(event, getSelectedPreviewImage())}
+                  />
+                ) : selectedPet.name.slice(0, 1)}
               </div>
               <div className="pet-evolution-summary">
                 <div className="pet-catalog-tags">

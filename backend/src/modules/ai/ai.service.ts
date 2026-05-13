@@ -68,6 +68,20 @@ type EvidenceItem = {
   signal: string;
 };
 
+type AcademicSummaryItem = {
+  examName: string;
+  importedAt: string;
+  totalScore: number | null;
+  totalSchoolRank: number | null;
+  totalClassRank: number | null;
+  subjects: Array<{
+    subjectName: string;
+    score: number | null;
+    schoolRank: number | null;
+    classRank: number | null;
+  }>;
+};
+
 type StudentSnapshotResponse = {
   id: number;
   studentId: number;
@@ -161,6 +175,7 @@ export class AiService {
       orderBy: { createdAt: 'desc' },
       take: 5,
     });
+    const academicSummary = await this.loadAcademicSummary(studentId);
 
     const positiveSummary = this.buildSentimentSummary(scoreRecords, 'positive');
     const negativeSummary = this.buildSentimentSummary(scoreRecords, 'negative');
@@ -170,8 +185,8 @@ export class AiService {
     const trendSummary = this.buildTrendSummary(scoreRecords);
     const evidence = this.buildEvidence(scoreRecords);
 
-    const fallbackSummary = this.buildAiSummary(student.name, periodType, positiveSummary, negativeSummary, dimensionSummary, subjectSummary, trendSummary);
-    const fallbackSuggestion = this.buildAiSuggestion(positiveSummary, negativeSummary, dimensionSummary, subjectSummary, sceneSummary, trendSummary);
+    const fallbackSummary = this.buildAiSummary(student.name, periodType, positiveSummary, negativeSummary, dimensionSummary, subjectSummary, trendSummary, academicSummary);
+    const fallbackSuggestion = this.buildAiSuggestion(positiveSummary, negativeSummary, dimensionSummary, subjectSummary, sceneSummary, trendSummary, academicSummary);
 
     const llmResult = await this.generateWithArk({
       studentName: student.name,
@@ -184,6 +199,7 @@ export class AiService {
       sceneSummary,
       trendSummary,
       evidence,
+      academicSummary,
       teacherObservations: teacherObservations.map((item) => ({
         observationType: item.observationType,
         content: item.content,
@@ -211,6 +227,7 @@ export class AiService {
           subjectSummary,
           sceneSummary,
           evidence,
+          academicSummary,
         },
         aiSummary: llmResult.aiSummary,
         aiSuggestion: llmResult.aiSuggestion,
@@ -235,6 +252,7 @@ export class AiService {
           subjectSummary,
           sceneSummary,
           evidence,
+          academicSummary,
         },
         aiSummary: llmResult.aiSummary,
         aiSuggestion: llmResult.aiSuggestion,
@@ -420,6 +438,42 @@ export class AiService {
     }));
   }
 
+  private async loadAcademicSummary(studentId: number): Promise<AcademicSummaryItem[]> {
+    const records = await this.prisma.academicScoreRecord.findMany({
+      where: { studentId: BigInt(studentId) },
+      include: { exam: true },
+      orderBy: [{ exam: { importedAt: 'desc' } }, { subjectCode: 'asc' }],
+      take: 80,
+    });
+    const grouped = new Map<string, AcademicSummaryItem>();
+    records.forEach((record) => {
+      const key = record.examId.toString();
+      const current = grouped.get(key) ?? {
+        examName: record.exam.name,
+        importedAt: record.exam.importedAt.toISOString(),
+        totalScore: null,
+        totalSchoolRank: null,
+        totalClassRank: null,
+        subjects: [],
+      };
+      const item = {
+        subjectName: record.subjectName,
+        score: record.score === null ? null : Number(record.score),
+        schoolRank: record.schoolRank,
+        classRank: record.classRank,
+      };
+      if (record.subjectCode === 'total' || record.subjectName === '总分') {
+        current.totalScore = item.score;
+        current.totalSchoolRank = item.schoolRank;
+        current.totalClassRank = item.classRank;
+      } else {
+        current.subjects.push(item);
+      }
+      grouped.set(key, current);
+    });
+    return Array.from(grouped.values()).slice(0, 3);
+  }
+
   private buildAiSummary(
     studentName: string,
     periodType: 'weekly' | 'monthly',
@@ -428,6 +482,7 @@ export class AiService {
     dimensionSummary: DimensionSummaryItem[],
     subjectSummary: SubjectSummaryItem[],
     trendSummary: TrendSummary,
+    academicSummary: AcademicSummaryItem[],
   ) {
     const periodLabel = periodType === 'weekly' ? '本周' : '本月';
     const topDimension = dimensionSummary.length > 0 ? dimensionSummary[0].dimension : '暂未形成明显行为集中项';
@@ -439,7 +494,12 @@ export class AiService {
           ? '最近状态有回落迹象'
           : '最近整体较为平稳';
 
-    return `${studentName}${periodLabel}累计正向表现${positiveSummary.count}次，负向表现${negativeSummary.count}次，积分净变化${trendSummary.totalScoreDelta}分。高频关注点集中在“${topDimension}”，主要发生在“${topSubject}”相关学习场景，${trendText}。`;
+    const latestAcademic = academicSummary[0];
+    const academicText = latestAcademic
+      ? `最近一次成绩为“${latestAcademic.examName}”，总分${latestAcademic.totalScore ?? '暂无'}，班次${latestAcademic.totalClassRank ?? '暂无'}。`
+      : '';
+
+    return `${studentName}${periodLabel}累计正向表现${positiveSummary.count}次，负向表现${negativeSummary.count}次，积分净变化${trendSummary.totalScoreDelta}分。高频关注点集中在“${topDimension}”，主要发生在“${topSubject}”相关学习场景，${trendText}。${academicText}`;
   }
 
   private buildAiSuggestion(
@@ -449,7 +509,13 @@ export class AiService {
     subjectSummary: SubjectSummaryItem[],
     sceneSummary: SceneSummaryItem[],
     trendSummary: TrendSummary,
+    academicSummary: AcademicSummaryItem[],
   ) {
+    const latestAcademic = academicSummary[0];
+    if (latestAcademic?.totalClassRank && latestAcademic.totalClassRank <= 5) {
+      return '建议结合最近成绩优势，继续强化优势科目表达与错题复盘，把学业表现转化为稳定学习习惯。';
+    }
+
     if (negativeSummary.count > positiveSummary.count) {
       const topRiskDimension = dimensionSummary.find((item) => item.negativeCount > 0)?.dimension ?? '课堂学习';
       return `建议班主任优先围绕“${topRiskDimension}”制定一周内可执行的小目标，并结合课堂提醒与作业跟进做短周期复盘。`;
@@ -478,6 +544,7 @@ export class AiService {
     sceneSummary: SceneSummaryItem[];
     trendSummary: TrendSummary;
     evidence: EvidenceItem[];
+    academicSummary: AcademicSummaryItem[];
     teacherObservations: Array<{
       observationType: string | null;
       content: string;
@@ -547,6 +614,7 @@ export class AiService {
                       subjectSummary: input.subjectSummary,
                       sceneSummary: input.sceneSummary,
                       evidence: input.evidence,
+                      academicSummary: input.academicSummary,
                       teacherObservations: input.teacherObservations,
                     },
                     null,

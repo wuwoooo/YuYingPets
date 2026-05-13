@@ -300,7 +300,7 @@
           </div>
         </div>
         <div class="login-field">
-          <label>用户名</label>
+          <label>账号或手机号</label>
           <input
             id="loginUsername"
             type="text"
@@ -988,7 +988,8 @@
           </div>
         </div>
         <div class="bottom-right">
-          <button class="bottom-tab active" data-target="classroom">
+          <span class="bottom-user-name" id="bottomUserName"></span>
+          <button class="bottom-tab active" data-target="classroom" onclick="navigateTo('classroom')">
             主页
           </button>
         </div>
@@ -1405,6 +1406,7 @@
         <!-- 能量聚合线条 -->
         <div class="pet-upgrade-energy-lines" id="petUpgradeEnergyLines"></div>
         <div class="pet-upgrade-avatar-shell">
+          <img id="petUpgradeSeed" class="pet-upgrade-seed" src="images/logo.svg" alt="待孕育星种" />
           <img id="petUpgradeAvatar" class="pet-upgrade-avatar" src="images/logo.svg" alt="萌宠升级形态" />
         </div>
         <div class="pet-upgrade-student" id="petUpgradeStudent"></div>

@@ -8,6 +8,7 @@ import { GradeSettingsUpdateDto } from './dto/grade-settings-update.dto';
 import { PetGrowthSettingsUpdateDto } from './dto/pet-growth-settings-update.dto';
 import { PermissionUserUpsertDto } from './dto/permission-user-upsert.dto';
 import { PermissionUserStatusUpdateDto } from './dto/permission-user-status-update.dto';
+import { PermissionUserImportDto } from './dto/permission-user-import.dto';
 
 @ApiTags('AdminConfig')
 @Controller('admin')
@@ -57,6 +58,11 @@ export class AdminConfigController {
   @Post('permissions/users')
   createUser(@Headers('authorization') authorization: string | undefined, @Body() body: PermissionUserUpsertDto) {
     return this.adminConfigService.createPermissionUser(authorization, body);
+  }
+
+  @Post('permissions/users/import-teachers')
+  importUsers(@Headers('authorization') authorization: string | undefined, @Body() body: PermissionUserImportDto) {
+    return this.adminConfigService.importPermissionUsers(authorization, body);
   }
 
   @Put('permissions/users/:id')

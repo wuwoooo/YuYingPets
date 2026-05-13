@@ -153,6 +153,16 @@ export type AdminStudent = {
   currentScore: number;
   totalScore: number;
   currentPetLevel: number;
+  latestAcademic: {
+    examId: number;
+    examName: string;
+    importedAt: string;
+    totalScore: number | null;
+    schoolRank: number | null;
+    schoolRankDelta: number | null;
+    classRank: number | null;
+    classRankDelta: number | null;
+  } | null;
   pet?: {
     id: number;
     name: string;
@@ -276,6 +286,88 @@ export type TeacherObservationAiPolishPayload = {
   className?: string;
   observationType?: string;
   content: string;
+};
+
+export type AcademicScoreImportPayload = {
+  examName: string;
+  gradeName?: string;
+  sourceFile?: string;
+  students: Array<{
+    studentNo: string;
+    name: string;
+    className: string;
+    subjects: Array<{
+      subjectName: string;
+      score: number | null;
+      jointRank: number | null;
+      schoolRank: number | null;
+      schoolRankDelta: number | null;
+      classRank: number | null;
+      classRankDelta: number | null;
+    }>;
+  }>;
+};
+
+export type AcademicScoreImportResult = {
+  examId: number;
+  importedStudentCount: number;
+  importedRecordCount: number;
+  createdClassCount: number;
+  createdStudentCount: number;
+  unmatchedCount: number;
+  unmatched: Array<{
+    row: number;
+    studentNo: string;
+    name: string;
+    className: string;
+    reason: string;
+  }>;
+};
+
+export type AcademicExamListItem = {
+  id: number;
+  name: string;
+  gradeName: string | null;
+  sourceFile: string | null;
+  importedAt: string;
+  recordCount: number;
+};
+
+export type AcademicScoreListRow = {
+  id: number;
+  examId: number;
+  examName: string;
+  examGradeName: string | null;
+  sourceFile: string | null;
+  importedAt: string;
+  classId: number;
+  className: string;
+  studentId: number;
+  studentNo: string;
+  studentName: string;
+  totalScore: number | null;
+  schoolRank: number | null;
+  schoolRankDelta: number | null;
+  classRank: number | null;
+  classRankDelta: number | null;
+};
+
+export type StudentAcademicExam = {
+  examId: number;
+  examName: string;
+  gradeName: string | null;
+  sourceFile: string | null;
+  importedAt: string;
+  subjects: Array<{
+    subjectCode: string;
+    subjectName: string;
+    score: number | null;
+    jointRank: number | null;
+    schoolRank: number | null;
+    schoolRankDelta: number | null;
+    classRank: number | null;
+    classRankDelta: number | null;
+  }>;
 };
 
 export type ClassGroupSummary = {
@@ -484,11 +576,24 @@ export type SystemSettings = {
   roleTemplates: RoleTemplate[];
 };
 
+export type DisplayWeatherPayload = {
+  label: string;
+  title: string;
+  icon: string;
+  temperatureC: number | null;
+  temperatureText: string;
+  conditionText: string;
+  provider: string;
+  observedAt: string | null;
+  isStale: boolean;
+};
+
 export type PermissionUser = {
   id: number;
   name: string;
   username: string;
   phone: string | null;
+  dutyTags: string[];
   roleCode: string;
   roleName: string;
   status: string;
@@ -703,9 +808,19 @@ export type StudentImportPayload = {
   students: Array<{
     studentNo: string;
     name: string;
+    className?: string;
+    gradeName?: string;
     gender?: string;
     avatarUrl?: string;
   }>;
+};
+
+export type StudentUpdatePayload = {
+  classId: number;
+  studentNo: string;
+  name: string;
+  gender?: string | null;
+  avatarUrl?: string | null;
 };
 
 export type ScoreRecordCreatePayload = {
@@ -850,12 +965,40 @@ export type PermissionUserUpsertPayload = {
   username: string;
   roleCode: string;
   phone?: string;
+  dutyTags?: string[];
   classIds?: number[];
   subjectScopes?: Array<{
     classId: number;
     subjectCode: string;
   }>;
   resetPassword?: boolean;
+};
+
+export type PermissionUserImportPayload = {
+  rows: Array<{
+    name: string;
+    phone?: string;
+    roles?: string;
+    teachingClasses?: string;
+  }>;
+};
+
+export type PermissionUserImportResult = {
+  total: number;
+  createdCount: number;
+  updatedCount: number;
+  skippedCount: number;
+  defaultPassword: string;
+  results: Array<{
+    row: number;
+    name: string;
+    username: string;
+    roleCode: string;
+    roleName: string;
+    action: 'created' | 'updated' | 'skipped';
+    message?: string;
+  }>;
+  warnings: string[];
 };
 
 export type PermissionUserStatusUpdatePayload = {
@@ -907,11 +1050,52 @@ export const adminApi = {
   displayTerminals(token: string) {
     return request<ApiListResponse<DisplayTerminal>>('/display/terminals', { token });
   },
-  students(token: string) {
-    return request<ApiListResponse<AdminStudent>>('/students', { token });
+  displayWeather(
+    token: string,
+    query?: { latitude?: number; longitude?: number; label?: string },
+  ) {
+    const params = new URLSearchParams();
+    if (query?.latitude !== undefined) params.set('latitude', String(query.latitude));
+    if (query?.longitude !== undefined) params.set('longitude', String(query.longitude));
+    if (query?.label) params.set('label', query.label);
+    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    return request<ApiObjectResponse<DisplayWeatherPayload>>(`/display/weather${suffix}`, { token });
+  },
+  students(token: string, query?: { classId?: number; page?: number; pageSize?: number }) {
+    const params = new URLSearchParams();
+    if (query?.classId) params.set('classId', String(query.classId));
+    if (query?.page) params.set('page', String(query.page));
+    if (query?.pageSize) params.set('pageSize', String(query.pageSize));
+    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    return request<ApiListResponse<AdminStudent>>(`/students${suffix}`, { token });
   },
   studentDetail(token: string, id: number) {
     return request<ApiObjectResponse<StudentDetail>>(`/students/${id}`, { token });
+  },
+  studentAcademicRecords(token: string, studentId: number) {
+    return request<ApiListResponse<StudentAcademicExam>>(`/academic-records/students/${studentId}`, { token });
+  },
+  importAcademicScores(token: string, body: AcademicScoreImportPayload) {
+    return request<ApiObjectResponse<AcademicScoreImportResult>>('/academic-records/import', {
+      method: 'POST',
+      token,
+      body,
+    });
+  },
+  academicExams(token: string) {
+    return request<ApiListResponse<AcademicExamListItem>>('/academic-records/exams', { token });
+  },
+  academicScores(
+    token: string,
+    query?: { examId?: number; classId?: number; gradeName?: string; keyword?: string },
+  ) {
+    const params = new URLSearchParams();
+    if (query?.examId) params.set('examId', String(query.examId));
+    if (query?.classId) params.set('classId', String(query.classId));
+    if (query?.gradeName) params.set('gradeName', query.gradeName);
+    if (query?.keyword) params.set('keyword', query.keyword);
+    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    return request<ApiListResponse<AcademicScoreListRow>>(`/academic-records${suffix}`, { token });
   },
   studentAiSummary(token: string, studentId: number, periodType: 'weekly' | 'monthly' = 'weekly') {
     return request<ApiObjectResponse<AiStudentSummary | null>>(`/ai/students/${studentId}/summary?periodType=${periodType}`, { token });
@@ -1238,6 +1422,13 @@ export const adminApi = {
       body,
     });
   },
+  importPermissionUsers(token: string, body: PermissionUserImportPayload) {
+    return request<ApiObjectResponse<PermissionUserImportResult>>('/admin/permissions/users/import-teachers', {
+      method: 'POST',
+      token,
+      body,
+    });
+  },
   updatePermissionUser(token: string, id: number, body: PermissionUserUpsertPayload) {
     return request<ApiObjectResponse<{ id: number }>>(`/admin/permissions/users/${id}`, {
       method: 'PUT',
@@ -1332,8 +1523,15 @@ export const adminApi = {
     });
   },
   importStudents(token: string, body: StudentImportPayload) {
-    return request<ApiObjectResponse<{ createdCount: number; studentIds: number[] }>>('/students/import', {
+    return request<ApiObjectResponse<{ createdCount: number; createdClassCount?: number; studentIds: number[] }>>('/students/import', {
       method: 'POST',
+      token,
+      body,
+    });
+  },
+  updateStudent(token: string, id: number, body: StudentUpdatePayload) {
+    return request<ApiObjectResponse<{ id: number }>>(`/students/${id}`, {
+      method: 'PUT',
       token,
       body,
     });

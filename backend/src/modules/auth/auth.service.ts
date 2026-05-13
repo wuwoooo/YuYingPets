@@ -21,9 +21,10 @@ export class AuthService {
   ) {}
 
   async login(dto: LoginDto) {
-    const user = await this.prisma.user.findFirst({
+    const loginAccount = dto.username.trim();
+    const candidateUsers = await this.prisma.user.findMany({
       where: {
-        username: dto.username,
+        OR: [{ username: loginAccount }, { phone: loginAccount }],
         deletedAt: null,
         status: 'enabled',
       },
@@ -31,17 +32,25 @@ export class AuthService {
         role: true,
         scopes: true,
       },
+      orderBy: [{ username: 'asc' }, { id: 'asc' }],
     });
 
-    if (!user) {
+    if (candidateUsers.length === 0) {
       throw new UnauthorizedException('账号或密码错误');
     }
 
-    const passwordMatched =
-      user.passwordHash === dto.password ||
-      (await compare(dto.password, user.passwordHash).catch(() => false));
+    const user = (
+      await Promise.all(
+        candidateUsers.map(async (candidate) => {
+          const passwordMatched =
+            candidate.passwordHash === dto.password ||
+            (await compare(dto.password, candidate.passwordHash).catch(() => false));
+          return passwordMatched ? candidate : null;
+        }),
+      )
+    ).find((candidate) => candidate !== null);
 
-    if (!passwordMatched) {
+    if (!user) {
       throw new UnauthorizedException('账号或密码错误');
     }
 

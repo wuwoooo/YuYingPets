@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { hashSync } from 'bcryptjs';
 import { Prisma, Status } from '@prisma/client';
+import { pinyin } from 'pinyin-pro';
 import { PrismaService } from '@/prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { OperationLogService } from '../operation-log/operation-log.service';
@@ -10,6 +11,7 @@ import { DisplaySettingsUpdateDto } from './dto/display-settings-update.dto';
 import { GradeSettingsUpdateDto } from './dto/grade-settings-update.dto';
 import { PetGrowthSettingsUpdateDto } from './dto/pet-growth-settings-update.dto';
 import { PermissionUserUpsertDto } from './dto/permission-user-upsert.dto';
+import { PermissionUserImportDto, PermissionUserImportRowDto } from './dto/permission-user-import.dto';
 import { toNumber } from '@/common/utils/bigint.util';
 import { normalizePetGrowthThresholds } from '@/common/utils/pet-growth.util';
 
@@ -51,6 +53,24 @@ const SUBJECT_LABELS: Record<string, string> = {
   art: '美术',
   music: '音乐',
   pe: '体育',
+};
+
+const SUBJECT_CODE_BY_LABEL: Record<string, string> = {
+  语文: 'chinese',
+  数学: 'math',
+  英语: 'english',
+  物理: 'physics',
+  化学: 'chemistry',
+  地理: 'geography',
+  生物: 'biology',
+  历史: 'history',
+  政治: 'politics',
+  道德与法治: 'politics',
+  信息技术: 'computer',
+  计算机: 'computer',
+  美术: 'art',
+  音乐: 'music',
+  体育: 'pe',
 };
 
 function buildGradeCode(name: string, fallbackIndex: number) {
@@ -432,6 +452,7 @@ export class AdminConfigService {
           name: row.name,
           username: row.username,
           phone: row.phone,
+          dutyTags: this.normalizeDutyTags(row.dutyTags),
           roleCode: row.role.code,
           roleName: row.role.name,
           status: row.status,
@@ -453,6 +474,7 @@ export class AdminConfigService {
     this.ensureCanManageAdminConfig(user.roleCode);
 
     const role = await this.findRole(user.schoolId, body.roleCode);
+    await this.ensureUsernameAvailable(user.schoolId, body.username);
 
     const created = await this.prisma.$transaction(async (tx) => {
       const createdUser = await tx.user.create({
@@ -463,6 +485,7 @@ export class AdminConfigService {
           passwordHash: hashSync('123456', 10),
           name: body.name,
           phone: body.phone ?? null,
+          dutyTags: body.dutyTags === undefined ? [] : this.normalizeDutyTags(body.dutyTags),
           status: 'enabled',
         },
       });
@@ -493,6 +516,7 @@ export class AdminConfigService {
     }
 
     const role = await this.findRole(user.schoolId, body.roleCode);
+    await this.ensureUsernameAvailable(user.schoolId, body.username, BigInt(id));
 
     await this.prisma.$transaction(async (tx) => {
       await tx.user.update({
@@ -502,6 +526,7 @@ export class AdminConfigService {
           username: body.username,
           name: body.name,
           phone: body.phone ?? null,
+          ...(body.dutyTags === undefined ? {} : { dutyTags: this.normalizeDutyTags(body.dutyTags) }),
           ...(body.resetPassword ? { passwordHash: hashSync('123456', 10) } : {}),
         },
       });
@@ -511,6 +536,203 @@ export class AdminConfigService {
 
     await this.logAction(user, 'permission_user', 'update', BigInt(id), body);
     return { code: 0, message: 'ok', data: { id } };
+  }
+
+  async importPermissionUsers(authorization: string | undefined, body: PermissionUserImportDto) {
+    const user = await this.authService.getAuthUserFromAuthorization(authorization);
+    this.ensureCanManageAdminConfig(user.roleCode);
+
+    const rows = (body.rows ?? [])
+      .map((row, index) => ({
+        sourceIndex: index + 2,
+        name: row.name?.trim() ?? '',
+        phone: this.normalizePhone(row.phone),
+        roles: row.roles?.trim() ?? '',
+        teachingClasses: row.teachingClasses?.trim() ?? '',
+      }))
+      .filter((row) => row.name);
+
+    if (rows.length === 0) {
+      throw new BadRequestException('导入文件中没有可识别的教师数据');
+    }
+
+    const [roles, classrooms, existingUsers] = await Promise.all([
+      this.prisma.role.findMany({ where: { schoolId: user.schoolId } }),
+      this.prisma.classroom.findMany({
+        where: { schoolId: user.schoolId, deletedAt: null },
+        orderBy: [{ gradeCode: 'asc' }, { sortOrder: 'asc' }, { id: 'asc' }],
+      }),
+      this.prisma.user.findMany({
+        where: { schoolId: user.schoolId, deletedAt: null },
+        select: { id: true, username: true, phone: true, name: true },
+      }),
+    ]);
+    const roleMap = new Map(roles.map((role) => [role.code, role]));
+    const usernameSet = new Set(existingUsers.map((item) => item.username.toLowerCase()));
+    const seenImportPhones = new Map<string, number>();
+    const seenImportNames = new Map<string, number>();
+    const results: Array<{
+      row: number;
+      name: string;
+      username: string;
+      roleCode: string;
+      roleName: string;
+      action: 'created' | 'updated' | 'skipped';
+      message?: string;
+    }> = [];
+    const warnings: string[] = [];
+
+    let createdCount = 0;
+    let updatedCount = 0;
+    let skippedCount = 0;
+
+    for (const row of rows) {
+      const seenPhoneRow = row.phone ? seenImportPhones.get(row.phone) : undefined;
+      if (seenPhoneRow !== undefined) {
+        skippedCount += 1;
+        results.push({
+          row: row.sourceIndex,
+          name: row.name,
+          username: '',
+          roleCode: '',
+          roleName: '',
+          action: 'skipped',
+          message: `手机号与第 ${seenPhoneRow} 行重复`,
+        });
+        continue;
+      }
+
+      const seenNameRow = seenImportNames.get(row.name);
+      if (seenNameRow !== undefined) {
+        skippedCount += 1;
+        results.push({
+          row: row.sourceIndex,
+          name: row.name,
+          username: '',
+          roleCode: '',
+          roleName: '',
+          action: 'skipped',
+          message: `姓名与第 ${seenNameRow} 行重复`,
+        });
+        continue;
+      }
+      if (row.phone) seenImportPhones.set(row.phone, row.sourceIndex);
+      seenImportNames.set(row.name, row.sourceIndex);
+
+      const parsedScopes = this.parseTeachingScopes(row.teachingClasses, classrooms, row.sourceIndex, warnings);
+      const roleCode = this.resolveImportRoleCode(row, parsedScopes.subjectScopes.length);
+      const role = roleMap.get(roleCode);
+      if (!role) {
+        skippedCount += 1;
+        results.push({
+          row: row.sourceIndex,
+          name: row.name,
+          username: '',
+          roleCode,
+          roleName: roleCode,
+          action: 'skipped',
+          message: `系统缺少角色 ${roleCode}`,
+        });
+        continue;
+      }
+
+      if (roleCode !== 'homeroom_teacher' && roleCode !== 'subject_teacher' && row.roles) {
+        warnings.push(`第 ${row.sourceIndex} 行「${row.name}」包含职务「${row.roles}」，已按账号角色「${role.name}」导入；细分职务建议后续作为岗位标签呈现。`);
+      }
+
+      const matchedUser = this.findImportExistingUser(row, existingUsers);
+      const username = matchedUser
+        ? matchedUser.username
+        : this.buildUniqueUsername(row.name, usernameSet);
+      usernameSet.add(username.toLowerCase());
+
+      const upsertBody: PermissionUserUpsertDto = {
+        name: row.name,
+        username,
+        roleCode,
+        phone: row.phone || undefined,
+        dutyTags: this.normalizeDutyTags(row.roles),
+        classIds: parsedScopes.classIds,
+        subjectScopes: parsedScopes.subjectScopes,
+      };
+
+      await this.prisma.$transaction(async (tx) => {
+        if (matchedUser) {
+          await tx.user.update({
+            where: { id: matchedUser.id },
+            data: {
+              roleId: role.id,
+              name: row.name,
+              phone: row.phone || null,
+              dutyTags: upsertBody.dutyTags ?? [],
+            },
+          });
+          await this.replaceUserScopes(tx, matchedUser.id, role.code, upsertBody);
+          matchedUser.name = row.name;
+          matchedUser.phone = row.phone || null;
+          updatedCount += 1;
+          results.push({
+            row: row.sourceIndex,
+            name: row.name,
+            username,
+            roleCode,
+            roleName: role.name,
+            action: 'updated',
+          });
+          return;
+        }
+
+        const created = await tx.user.create({
+          data: {
+            schoolId: user.schoolId,
+            roleId: role.id,
+            username,
+            passwordHash: hashSync('123456', 10),
+            name: row.name,
+            phone: row.phone || null,
+            dutyTags: upsertBody.dutyTags ?? [],
+            status: 'enabled',
+          },
+        });
+        await this.replaceUserScopes(tx, created.id, role.code, upsertBody);
+        existingUsers.push({
+          id: created.id,
+          username: created.username,
+          phone: created.phone,
+          name: created.name,
+        });
+        createdCount += 1;
+        results.push({
+          row: row.sourceIndex,
+          name: row.name,
+          username,
+          roleCode,
+          roleName: role.name,
+          action: 'created',
+        });
+      });
+    }
+
+    await this.logAction(user, 'permission_user', 'import_teachers', user.id, {
+      total: rows.length,
+      createdCount,
+      updatedCount,
+      skippedCount,
+    });
+
+    return {
+      code: 0,
+      message: 'ok',
+      data: {
+        total: rows.length,
+        createdCount,
+        updatedCount,
+        skippedCount,
+        defaultPassword: '123456',
+        results,
+        warnings,
+      },
+    };
   }
 
   async resetPassword(authorization: string | undefined, id: number) {
@@ -614,6 +836,169 @@ export class AdminConfigService {
       throw new NotFoundException('角色不存在');
     }
     return role;
+  }
+
+  private async ensureUsernameAvailable(schoolId: bigint, username: string, excludeUserId?: bigint) {
+    const exists = await this.prisma.user.findFirst({
+      where: {
+        schoolId,
+        username,
+        deletedAt: null,
+        ...(excludeUserId ? { id: { not: excludeUserId } } : {}),
+      },
+      select: { id: true },
+    });
+
+    if (exists) {
+      throw new BadRequestException(`登录账号重复：${username} 已被占用`);
+    }
+  }
+
+  private normalizePhone(value: unknown) {
+    return String(value ?? '')
+      .trim()
+      .replace(/\.0$/, '')
+      .replace(/[^\d+]/g, '');
+  }
+
+  private normalizeDutyTags(value: unknown) {
+    const rawItems = Array.isArray(value)
+      ? value
+      : String(value ?? '').split(/[,，;；、/／|]+/);
+    return Array.from(
+      new Set(
+        rawItems
+          .map((item) => String(item).trim())
+          .filter(Boolean),
+      ),
+    );
+  }
+
+  private normalizeImportText(value: string) {
+    return value
+      .trim()
+      .replace(/[（]/g, '(')
+      .replace(/[）]/g, ')')
+      .replace(/\s+/g, '')
+      .replace(/班级/g, '班');
+  }
+
+  private buildUniqueUsername(name: string, usernameSet: Set<string>) {
+    const base =
+      pinyin(name, { toneType: 'none', type: 'array' })
+        .join('')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '') || `teacher${Date.now()}`;
+    let username = base;
+    let suffix = 2;
+    while (usernameSet.has(username.toLowerCase())) {
+      username = `${base}${suffix}`;
+      suffix += 1;
+    }
+    return username;
+  }
+
+  private resolveImportRoleCode(row: Pick<PermissionUserImportRowDto, 'roles' | 'teachingClasses'>, subjectScopeCount: number) {
+    const roles = row.roles ?? '';
+    if (roles.includes('班主任')) return 'homeroom_teacher';
+    if (subjectScopeCount > 0 || row.teachingClasses?.trim()) return 'subject_teacher';
+    if (roles.includes('德育')) return 'moral_admin';
+    if (roles.includes('考试管理员')) return 'moral_admin';
+    return 'school_admin';
+  }
+
+  private findImportExistingUser(
+    row: { name: string; phone: string },
+    existingUsers: Array<{ id: bigint; username: string; phone: string | null; name: string }>,
+  ) {
+    if (row.phone) {
+      const byPhone = existingUsers.find((item) => this.normalizePhone(item.phone) === row.phone);
+      if (byPhone) return byPhone;
+    }
+    return existingUsers.find((item) => item.name === row.name) ?? null;
+  }
+
+  private parseTeachingScopes(
+    value: string,
+    classrooms: Array<{ id: bigint; gradeName: string; name: string; code: string }>,
+    rowIndex: number,
+    warnings: string[],
+  ) {
+    const classIds = new Set<number>();
+    const subjectScopeMap = new Map<string, { classId: number; subjectCode: string }>();
+    const classMap = new Map<string, { id: bigint; gradeName: string; name: string; code: string }>();
+
+    for (const classroom of classrooms) {
+      const keys = [
+        `${classroom.gradeName}${classroom.name}`,
+        `${classroom.gradeName}${classroom.code}`,
+        classroom.name,
+        classroom.code,
+      ].map((item) => this.normalizeImportText(item));
+      keys.forEach((key) => classMap.set(key, classroom));
+    }
+
+    const parts = this.splitImportList(value);
+
+    for (const part of parts) {
+      const normalizedPart = this.normalizeImportText(part);
+      const matched = normalizedPart.match(/^(.+?班)(?:\((.+)\))?$/);
+      const classLabel = matched?.[1] ?? normalizedPart;
+      const subjectText = matched?.[2] ?? '';
+      const classroom = classMap.get(classLabel);
+      if (!classroom) {
+        warnings.push(`第 ${rowIndex} 行未匹配到班级「${part}」`);
+        continue;
+      }
+
+      const classId = Number(classroom.id);
+      classIds.add(classId);
+      const subjectLabels = subjectText
+        .split(/[,，、/／|]+/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+      for (const subjectLabel of subjectLabels) {
+        const subjectCode = SUBJECT_CODE_BY_LABEL[subjectLabel];
+        if (!subjectCode) {
+          warnings.push(`第 ${rowIndex} 行未识别学科「${subjectLabel}」`);
+          continue;
+        }
+        subjectScopeMap.set(`${classId}:${subjectCode}`, { classId, subjectCode });
+      }
+    }
+
+    return {
+      classIds: Array.from(classIds),
+      subjectScopes: Array.from(subjectScopeMap.values()),
+    };
+  }
+
+  private splitImportList(value: string) {
+    const parts: string[] = [];
+    let current = '';
+    let depth = 0;
+
+    for (const char of value) {
+      if (char === '（' || char === '(') {
+        depth += 1;
+        current += char;
+        continue;
+      }
+      if (char === '）' || char === ')') {
+        depth = Math.max(0, depth - 1);
+        current += char;
+        continue;
+      }
+      if (depth === 0 && /[,，;；\n]/.test(char)) {
+        if (current.trim()) parts.push(current.trim());
+        current = '';
+        continue;
+      }
+      current += char;
+    }
+
+    if (current.trim()) parts.push(current.trim());
+    return parts;
   }
 
   private normalizeSubjectScopes(body: PermissionUserUpsertDto) {

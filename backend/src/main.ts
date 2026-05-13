@@ -1,7 +1,7 @@
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import { static as serveStatic } from 'express';
+import { json, static as serveStatic, urlencoded } from 'express';
 import { resolve } from 'node:path';
 import { AppModule } from './app.module';
 
@@ -13,6 +13,9 @@ async function bootstrap() {
     origin: true,
     credentials: true,
   });
+
+  app.use(json({ limit: '10mb' }));
+  app.use(urlencoded({ extended: true, limit: '10mb' }));
 
   app.use('/assets', serveStatic(resolve(publicDir, 'assets')));
   app.use('/uploads', serveStatic(resolve(publicDir, 'uploads')));

@@ -31,6 +31,12 @@ export class PermissionUserUpsertDto {
   @IsString()
   phone?: string;
 
+  @ApiProperty({ type: [String], required: false })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  dutyTags?: string[];
+
   @ApiProperty({ type: [Number], required: false })
   @IsOptional()
   @IsArray()

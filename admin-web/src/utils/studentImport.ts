@@ -41,16 +41,20 @@ export function parseStudentImportRows(rows: unknown[][]): StudentImportStudents
   return dataRows.map((row, index) => {
     const studentNo = hasHeader ? row[headerMap.studentNo ?? -1] ?? '' : row[0] ?? '';
     const name = hasHeader ? row[headerMap.name ?? -1] ?? '' : row[1] ?? '';
+    const className = hasHeader && headerMap.className !== undefined ? row[headerMap.className] ?? '' : '';
+    const gradeName = hasHeader && headerMap.gradeName !== undefined ? row[headerMap.gradeName] ?? '' : '';
     const gender = hasHeader && headerMap.gender !== undefined ? row[headerMap.gender] ?? '' : row[2] ?? '';
     const avatarUrl = hasHeader && headerMap.avatarUrl !== undefined ? row[headerMap.avatarUrl] ?? '' : row[3] ?? '';
 
     if (!studentNo || !name) {
-      throw new Error(`第 ${index + 1} 行缺少学号或姓名`);
+      throw new Error(`第 ${index + 1} 行缺少准考证号或姓名`);
     }
 
     return {
       studentNo,
       name,
+      ...(className ? { className } : {}),
+      ...(gradeName ? { gradeName } : {}),
       ...(gender ? { gender } : {}),
       ...(avatarUrl ? { avatarUrl } : {}),
     };
@@ -65,7 +69,7 @@ export function parseStudentImportText(input: string): StudentImportStudents {
     .map((line) => {
       const [studentNo, name, gender] = line.split(/[,\s，]+/).filter(Boolean);
       if (!studentNo || !name) {
-        throw new Error('每行至少需要“学号 姓名”，可选第三列性别');
+        throw new Error('每行至少需要“准考证号 姓名”，可选第三列性别');
       }
       return {
         studentNo,

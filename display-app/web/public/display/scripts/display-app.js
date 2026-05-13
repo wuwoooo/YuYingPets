@@ -245,18 +245,46 @@ students.forEach((s, i) => {
   if (s.hasPet == null) s.hasPet = true;
 });
 
-/* 可选领养萌宠（与图鉴文件名一致） */
+/* 可选领养萌宠离线兜底（正式图鉴以接口返回为准） */
 const adoptPetCatalog = [
-  { code: "002", name: "侏儒兔", category: "rabbit", coverUrl: "/assets/pets/002_侏儒兔_1.jpg" },
-  { code: "005", name: "柯基", category: "dog", coverUrl: "/assets/pets/005_柯基_1.jpg" },
-  { code: "007", name: "萨摩耶", category: "dog", coverUrl: "/assets/pets/007_萨摩耶_1.jpg" },
-  { code: "008", name: "金渐层", category: "cat", coverUrl: "/assets/pets/008_金渐层_1.jpg" },
-  { code: "010", name: "橘猫", category: "cat", coverUrl: "/assets/pets/010_橘猫_1.jpg" },
-  { code: "004", name: "布丁仓鼠", category: "hamster", coverUrl: "/assets/pets/004_布丁仓鼠_1.jpg" },
-  { code: "023", name: "哈士奇", category: "dog", coverUrl: "/assets/pets/023_哈士奇_1.jpg" },
-  { code: "018", name: "金毛", category: "dog", coverUrl: "/assets/pets/018_金毛_1.jpg" },
+  { code: "051", name: "星尘鸮", category: "star", coverUrl: "/assets/pets/400/051_星尘鸮_1.png" },
+  { code: "052", name: "星糖喵", category: "star", coverUrl: "/assets/pets/400/052_星糖喵_1.png" },
+  { code: "053", name: "晨露鹿", category: "star", coverUrl: "/assets/pets/400/053_晨露鹿_1.png" },
+  { code: "054", name: "曜虎机", category: "star", coverUrl: "/assets/pets/400/054_曜虎机_1.png" },
+  { code: "055", name: "月纱兔", category: "star", coverUrl: "/assets/pets/400/055_月纱兔_1.png" },
+  { code: "056", name: "森歌獭", category: "star", coverUrl: "/assets/pets/400/056_森歌獭_1.png" },
+  { code: "057", name: "樱铃猫", category: "star", coverUrl: "/assets/pets/400/057_樱铃猫_1.png" },
+  { code: "058", name: "泡泡狐", category: "star", coverUrl: "/assets/pets/400/058_泡泡狐_1.png" },
+  { code: "059", name: "潮汐獭", category: "star", coverUrl: "/assets/pets/400/059_潮汐獭_1.png" },
+  { code: "060", name: "烈焰牛", category: "star", coverUrl: "/assets/pets/400/060_烈焰牛_1.png" },
+  { code: "061", name: "玉麒团", category: "star", coverUrl: "/assets/pets/400/061_玉麒团_1.png" },
+  { code: "062", name: "电波狸", category: "star", coverUrl: "/assets/pets/400/062_电波狸_1.png" },
+  { code: "063", name: "竹团貘", category: "star", coverUrl: "/assets/pets/400/063_竹团貘_1.png" },
+  { code: "064", name: "糖霜鹿", category: "star", coverUrl: "/assets/pets/400/064_糖霜鹿_1.png" },
+  { code: "065", name: "绒雪喵", category: "star", coverUrl: "/assets/pets/400/065_绒雪喵_1.png" },
+  { code: "066", name: "蜜桃狐", category: "star", coverUrl: "/assets/pets/400/066_蜜桃狐_1.png" },
+  { code: "067", name: "钢牙鲨", category: "star", coverUrl: "/assets/pets/400/067_钢牙鲨_1.png" },
+  { code: "068", name: "雷翼狼", category: "star", coverUrl: "/assets/pets/400/068_雷翼狼_1.png" },
+  { code: "069", name: "霓虹豚", category: "star", coverUrl: "/assets/pets/400/069_霓虹豚_1.png" },
+  { code: "070", name: "风暴柴", category: "star", coverUrl: "/assets/pets/400/070_风暴柴_1.png" },
+  { code: "071", name: "岩角龙", category: "star", coverUrl: "/assets/pets/400/071_岩角龙_1.png" },
+  { code: "072", name: "布丁兔", category: "star", coverUrl: "/assets/pets/400/072_布丁兔_1.png" },
+  { code: "073", name: "云团熊", category: "star", coverUrl: "/assets/pets/400/073_云团熊_1.png" },
+  { code: "074", name: "子鼠宝", category: "zodiac", coverUrl: "/assets/pets/400/074_子鼠宝_1.png" },
+  { code: "075", name: "丑牛宝", category: "zodiac", coverUrl: "/assets/pets/400/075_丑牛宝_1.png" },
+  { code: "076", name: "寅虎宝", category: "zodiac", coverUrl: "/assets/pets/400/076_寅虎宝_1.png" },
+  { code: "077", name: "卯兔宝", category: "zodiac", coverUrl: "/assets/pets/400/077_卯兔宝_1.png" },
+  { code: "078", name: "辰龙宝", category: "zodiac", coverUrl: "/assets/pets/400/078_辰龙宝_1.png" },
+  { code: "079", name: "巳蛇宝", category: "zodiac", coverUrl: "/assets/pets/400/079_巳蛇宝_1.png" },
+  { code: "080", name: "午马宝", category: "zodiac", coverUrl: "/assets/pets/400/080_午马宝_1.png" },
+  { code: "081", name: "未羊宝", category: "zodiac", coverUrl: "/assets/pets/400/081_未羊宝_1.png" },
+  { code: "082", name: "申猴宝", category: "zodiac", coverUrl: "/assets/pets/400/082_申猴宝_1.png" },
+  { code: "083", name: "酉鸡宝", category: "zodiac", coverUrl: "/assets/pets/400/083_酉鸡宝_1.png" },
+  { code: "084", name: "戌狗宝", category: "zodiac", coverUrl: "/assets/pets/400/084_戌狗宝_1.png" },
+  { code: "085", name: "亥猪宝", category: "zodiac", coverUrl: "/assets/pets/400/085_亥猪宝_1.png" },
 ];
 const PET_STAGE_COUNT = 10;
+const STAR_SEED_IMAGE_URL = "/assets/pets/400/star-seed.png";
 
 const PET_FAMILY_OPTIONS = [
   { key: "all", label: "全部" },
@@ -437,12 +465,26 @@ function getFilteredAdoptCatalog() {
   );
 }
 
+function getVisibleAdoptFamilyOptions() {
+  const familiesWithPets = new Set(getAdoptCatalog().map((pet) => resolvePetFamily(pet.category)));
+  return PET_FAMILY_OPTIONS.filter((option) => option.key === "all" || familiesWithPets.has(option.key));
+}
+
+function normalizeAdoptFamilySelection() {
+  const options = getVisibleAdoptFamilyOptions();
+  if (!options.some((option) => option.key === adoptModalState.family)) {
+    adoptModalState.family = "all";
+  }
+  return options;
+}
+
 function getSelectedAdoptPet() {
   return getAdoptCatalog().find((pet) => pet.code === adoptModalState.selectedPetCode) || null;
 }
 
 function setAdoptPetFamily(family) {
-  adoptModalState.family = family;
+  const options = getVisibleAdoptFamilyOptions();
+  adoptModalState.family = options.some((option) => option.key === family) ? family : "all";
   const filtered = getFilteredAdoptCatalog();
   if (!filtered.some((pet) => pet.code === adoptModalState.selectedPetCode)) {
     adoptModalState.selectedPetCode = filtered[0]?.code || null;
@@ -485,7 +527,8 @@ function getPetPreviewImage(pet, stageNo) {
 function renderAdoptFamilyTabs() {
   const tabs = document.getElementById("adoptPetFamilyTabs");
   if (!tabs) return;
-  tabs.innerHTML = PET_FAMILY_OPTIONS.map(
+  const options = normalizeAdoptFamilySelection();
+  tabs.innerHTML = options.map(
     (option) => `
       <button
         type="button"
@@ -642,6 +685,9 @@ function renderAdoptPetDetail() {
         </button>`,
     )
     .join("");
+  const previewImageUrl = getPetPreviewImage(pet, previewStageNo);
+  const highResPreviewUrl = resolvePetAssetVariantUrl(previewImageUrl, 1024);
+  const fallbackPreviewUrl = resolvePetAssetVariantUrl(previewImageUrl, 400) || "images/logo.svg";
   detail.innerHTML = `
     <div class="adopt-stage-showcase" style="--pet-accent:${theme.accent}; --pet-accent-soft:${theme.accentSoft}; --pet-glow:${theme.glow}; --pet-gradient:${theme.gradient};">
       <div class="adopt-stage-arena">
@@ -660,7 +706,7 @@ function renderAdoptPetDetail() {
           </div>
           <div class="adopt-stage-core-badge">Lv.${selectedStage?.stageNo || previewStageNo}</div>
           <div class="adopt-detail-preview" data-transition-seed="${adoptModalState.transitionSeed}">
-            <img class="${adoptModalState.transitionSeed > 0 ? "evo-pet-shine" : ""}" src="${resolveAssetUrl(getPetPreviewImage(pet, previewStageNo))}" alt="${escapeHtml(pet.name)}" loading="lazy" onerror="this.src='images/logo.svg'">
+            <img class="${adoptModalState.transitionSeed > 0 ? "evo-pet-shine" : ""}" src="${highResPreviewUrl}" alt="${escapeHtml(pet.name)}" loading="lazy" onerror="this.onerror=null;this.src='${escapeHtml(fallbackPreviewUrl)}'">
             ${
               adoptModalState.transitionSeed > 0
                 ? `<div class="evo-container">
@@ -740,13 +786,7 @@ function renderAdoptPetModal() {
 }
 
 function petImg(s) {
-  if (s.hasPet === false) {
-    return "images/logo.svg";
-  }
-  if (s.petImageUrl) {
-    return resolveAssetUrl(s.petImageUrl);
-  }
-  return `images/pets/${s.petId}_${s.petName}_5.${s.ext}`;
+  return petImgVariant(s, 400);
 }
 
 function reorderStudents() {
@@ -880,6 +920,8 @@ async function confirmAdopt(petCode) {
     confirmText: "确认领养",
   });
   if (!confirmed) return;
+  const selectedPet = getAdoptCatalog().find((pet) => pet.code === petCode) || null;
+  const fallbackPetImageUrl = selectedPet ? getPetPreviewImage(selectedPet, 1) : null;
   try {
     await apiFetch(`/students/${s.id}/adopt-pet`, {
       method: "POST",
@@ -891,6 +933,16 @@ async function confirmAdopt(petCode) {
     });
     closeAdoptModal();
     await bootstrapDisplayData({ authenticated: true, silent: true });
+    const adoptedStudent =
+      students.find((student) => Number(student.id) === Number(s.id)) ||
+      {
+        ...s,
+        hasPet: true,
+        petName: selectedPet?.name || "星宠",
+        petImageUrl: fallbackPetImageUrl,
+        lv: 1,
+      };
+    showGlobalPetAdoptAnimation(adoptedStudent);
   } catch (error) {
     alert(error.message || "领养失败");
   }
@@ -1005,7 +1057,7 @@ function renderStudentGrid() {
       const modeCls = batchOn ? " batch-mode" : "";
       const qn = s.name.replace(/'/g, "\\'");
       const avatarBlock = noPet
-        ? `<div class="card-nameplate card-nameplate--empty" role="button" tabindex="0" title="点击领养萌宠" onclick="event.stopPropagation();openAdoptModal('${qn}')"><span class="card-nameplate-placeholder">待领养</span></div>`
+        ? `<button type="button" class="card-pet-trigger card-pet-trigger--seed" title="孕育星宠" onclick="event.stopPropagation();openAdoptModal('${qn}')"><img class="card-pet-img card-pet-img--seed" src="${petImg(s)}" alt="待孕育星种" loading="lazy" draggable="false" onerror="this.src='images/logo.svg'"><span class="card-nameplate-placeholder">待孕育</span></button>`
         : `<button type="button" class="card-pet-trigger" title="查看萌宠档案" data-student-name="${escName(s.name)}"><img class="card-pet-img" src="${petImg(s)}" alt="${escapeHtml(s.petName || `${s.name}的萌宠`)}" loading="lazy" draggable="false" onerror="this.src='images/logo.svg'"></button>`;
       return `
       <div class="student-card ${rankClass}${noPetClass}${batchCls}${modeCls}" data-student-id="${s.id ?? ""}" data-student-name="${escName(s.name)}">
@@ -1557,6 +1609,7 @@ function playPendingPetUpgradeAnimations() {
 function showGlobalPetUpgradeAnimation(student, afterLevel, onComplete) {
   const overlay = document.getElementById("petUpgradeOverlay");
   const avatar = document.getElementById("petUpgradeAvatar");
+  const seed = document.getElementById("petUpgradeSeed");
   const text = document.getElementById("petUpgradeText");
   const studentName = document.getElementById("petUpgradeStudent");
   const canvas = document.getElementById("petUpgradeParticles");
@@ -1568,11 +1621,19 @@ function showGlobalPetUpgradeAnimation(student, afterLevel, onComplete) {
 
   /* 重置动画状态 */
   overlay.classList.remove("active");
+  overlay.classList.remove("adopt-mode");
   if (energyContainer) energyContainer.innerHTML = "";
   void overlay.offsetWidth;
 
   /* 设置内容 */
-  avatar.src = petImg(student);
+  if (seed) {
+    seed.src = resolvePetAssetVariantUrl(STAR_SEED_IMAGE_URL, 1024);
+  }
+  avatar.src = petImgVariant(student, 1024);
+  avatar.onerror = () => {
+    avatar.onerror = null;
+    avatar.src = petImgVariant(student, 400);
+  };
   avatar.alt = `${student.petName || student.name || "萌宠"} 升级形态`;
   text.textContent = `Lv.${afterLevel || student.lv || 1} 发育进化`;
   studentName.textContent = `${student.name || "该学生"} 的 ${student.petName || "萌宠"} 升级了`;
@@ -1693,6 +1754,7 @@ function showGlobalPetUpgradeAnimation(student, afterLevel, onComplete) {
   /* 动画结束后清理 */
   setTimeout(() => {
     overlay.classList.remove("active");
+    overlay.classList.remove("adopt-mode");
     if (particleRAF) cancelAnimationFrame(particleRAF);
     if (canvas) {
       const ctx = canvas.getContext("2d");
@@ -1703,6 +1765,20 @@ function showGlobalPetUpgradeAnimation(student, afterLevel, onComplete) {
   }, 5600);
 }
 
+function showGlobalPetAdoptAnimation(student) {
+  if (!student) return;
+  const overlay = document.getElementById("petUpgradeOverlay");
+  if (!overlay) return;
+  showGlobalPetUpgradeAnimation(student, 1, null);
+  overlay.classList.add("adopt-mode");
+  const text = document.getElementById("petUpgradeText");
+  const studentName = document.getElementById("petUpgradeStudent");
+  if (text) text.textContent = "星种化形";
+  if (studentName) {
+    studentName.textContent = `${student.name || "该学生"} 孕育出了 ${student.petName || "星宠"}`;
+  }
+}
+
 /* ========== 渲染今日排行 ========== */
 function renderTodayRank() {
   const wrap = document.getElementById("todayRank");
@@ -1710,7 +1786,7 @@ function renderTodayRank() {
     .slice(0, 5)
     .map((s, i) => {
       const cls = i === 0 ? "r1" : i === 1 ? "r2" : i === 2 ? "r3" : "rn";
-      const sub = s.hasPet === false ? "待领养" : `${s.petName} · Lv.${s.lv}`;
+      const sub = s.hasPet === false ? "待孕育星种" : `${s.petName} · Lv.${s.lv}`;
       return `
       <div class="rank-item">
         <span class="rank-num ${cls}">${i + 1}</span>
@@ -1734,10 +1810,10 @@ function renderLeaderboardList() {
       (s, i) => `
     <div class="lb-row">
       <span class="lb-row-num">${i + 4}</span>
-      <img class="lb-row-pet" src="${petImg(s)}" alt="${s.hasPet === false ? "待领养" : s.petName}">
+      <img class="lb-row-pet" src="${petImg(s)}" alt="${s.hasPet === false ? "待孕育星种" : s.petName}">
       <div class="lb-row-info">
         <div class="lb-row-name">${s.name}</div>
-        <div class="lb-row-petname">${s.hasPet === false ? "待领养" : s.petName}</div>
+        <div class="lb-row-petname">${s.hasPet === false ? "待孕育星种" : s.petName}</div>
       </div>
       <div class="lb-row-right">
         <span class="lb-row-lv">Lv.${s.lv}</span>
@@ -1793,6 +1869,12 @@ function navigateTo(key) {
   if (typeof applyLockOverlay === "function") {
     applyLockOverlay();
   }
+}
+
+function syncBottomUserName() {
+  const el = document.getElementById("bottomUserName");
+  if (!el) return;
+  el.textContent = runtimeState.user?.name || "";
 }
 
 let currentExchangeItem = null;
@@ -2632,7 +2714,11 @@ function renderPetProfile(student, records = []) {
   }
 
   const petName = student.petName || "未命名萌宠";
-  avatar.src = petImg(student);
+  avatar.src = petImgVariant(student, 1024);
+  avatar.onerror = () => {
+    avatar.onerror = null;
+    avatar.src = petImgVariant(student, 400);
+  };
   avatar.alt = `${student.name}的萌宠`;
   title.textContent = `${student.name} · ${petName}`;
   subtitle.textContent = `Lv.${student.lv || 1} · ${student.petStageName || "当前形态"}`;
@@ -2907,6 +2993,26 @@ function resolveAssetUrl(url) {
   return url.startsWith("/") ? `${getAssetBase()}${url}` : `${getAssetBase()}/${url}`;
 }
 
+function resolvePetAssetVariantUrl(url, size = 400) {
+  if (!url) return "";
+  if (size === 400 || /^(https?:)?\/\//i.test(url) || url.startsWith("data:") || url.startsWith("blob:")) {
+    return resolveAssetUrl(url);
+  }
+  return resolveAssetUrl(url.replace("/assets/pets/400/", "/assets/pets/1024/"));
+}
+
+function petImgVariant(s, size = 400) {
+  if (s.hasPet === false) {
+    return resolvePetAssetVariantUrl(STAR_SEED_IMAGE_URL, size);
+  }
+  if (s.petImageUrl) return resolvePetAssetVariantUrl(s.petImageUrl, size);
+  if (s.avatarUrl) return resolveAssetUrl(s.avatarUrl);
+  if (s.petId && s.petName && s.ext) {
+    return `images/pets/${s.petId}_${s.petName}_5.${s.ext}`;
+  }
+  return "images/logo.svg";
+}
+
 function getSocketBase() {
   const host = window.location.hostname || "127.0.0.1";
   return `${window.location.protocol}//${host}:3000`;
@@ -3011,6 +3117,7 @@ function clearAuthState(options = {}) {
     runtimeState.classId = null;
     localStorage.removeItem("yuyingpets_display_class_id");
   }
+  syncBottomUserName();
   subscribeRealtimeRooms();
 }
 
@@ -3582,6 +3689,7 @@ function applyLockOverlay() {
   if (!overlay || !badge || !title || !desc || !primaryBtn || !secondaryBtn) {
     return;
   }
+  syncBottomUserName();
 
   const activePageId = document.querySelector(".page.active")?.id;
   const shouldHandlePage = [
@@ -3700,15 +3808,7 @@ function escapeHtml(value) {
 }
 
 function petImg(s) {
-  if (s.hasPet === false) {
-    return "images/logo.svg";
-  }
-  if (s.petImageUrl) return resolveAssetUrl(s.petImageUrl);
-  if (s.avatarUrl) return resolveAssetUrl(s.avatarUrl);
-  if (s.petId && s.petName && s.ext) {
-    return `images/pets/${s.petId}_${s.petName}_5.${s.ext}`;
-  }
-  return "images/logo.svg";
+  return petImgVariant(s, 400);
 }
 
 function getRankedStudentsByScore() {
@@ -3871,7 +3971,7 @@ function syncTodayStar() {
   if (label) {
     const petText =
       topStudent.hasPet === false
-        ? "待领养萌宠"
+        ? "待孕育星种"
         : `${topStudent.petName || "萌宠"} · Lv.${topStudent.lv}`;
     label.innerHTML =
       `<i class="fa-solid fa-star" aria-hidden="true"></i> 今日领先 · ${escapeHtml(petText)} ` +
@@ -3919,7 +4019,7 @@ function renderTodayRank() {
     .map((s, i) => {
       const cls = i === 0 ? "r1" : i === 1 ? "r2" : i === 2 ? "r3" : "rn";
       const sub =
-        s.hasPet === false ? "待领养" : `${s.petName || "萌宠"} · Lv.${s.lv}`;
+        s.hasPet === false ? "待孕育星种" : `${s.petName || "萌宠"} · Lv.${s.lv}`;
       const safeName = s.name.replace(/'/g, "\\'");
       return `
       <button type="button" class="rank-item" title="查看 ${escapeHtml(s.name)} 的萌宠档案" onclick="openPetProfileByName('${safeName}')">
@@ -3959,7 +4059,7 @@ function renderLeaderboardTop3() {
       };
     }
     if (name) name.textContent = row.name;
-    if (petName) petName.textContent = row.petName || "待领养";
+    if (petName) petName.textContent = row.petName || "待孕育星种";
     if (lv) lv.textContent = `Lv.${row.currentPetLevel || 1}`;
     if (xp) {
       const value =
@@ -3998,7 +4098,7 @@ function renderLeaderboardList() {
       <img class="lb-row-pet" src="${displayImage}" alt="${escapeHtml(s.petName || s.name)}" onerror="this.src='images/logo.svg'">
       <div class="lb-row-info">
         <div class="lb-row-name">${escapeHtml(s.name)}</div>
-        <div class="lb-row-petname">${escapeHtml(s.petName || "待领养")}</div>
+        <div class="lb-row-petname">${escapeHtml(s.petName || "待孕育星种")}</div>
       </div>
       <div class="lb-row-right">
         <span class="lb-row-lv">Lv.${s.currentPetLevel || 1}</span>
@@ -4867,6 +4967,7 @@ async function handleLogin() {
     setPersistentToken(result.token);
     runtimeState.user = result.user;
     runtimeState.scopes = result.scopes || [];
+    syncBottomUserName();
     const shouldStoreLoginCredentials = result.user?.roleCode !== "super_admin";
 
     if (runtimeState.classId) {

@@ -5,7 +5,10 @@ const { PrismaClient } = require('@prisma/client');
 
 const prisma = new PrismaClient();
 const backendRoot = path.resolve(__dirname, '..');
-const sourceDir = path.resolve(backendRoot, 'public/assets/pets');
+const sourceDir = path.resolve(backendRoot, 'public/assets/pets/400');
+const highResDir = path.resolve(backendRoot, 'public/assets/pets/1024');
+const PET_CODE_MIN = 51;
+const PET_CODE_MAX = 85;
 
 const STAGE_EXP_TOTALS = [0, 140, 240, 360, 500, 660, 840, 1040, 1260, 1500];
 const STAR_PET_NAMES = [
@@ -79,7 +82,10 @@ function parsePetAssets() {
     const matched = filename.match(/^(\d{3})_(.+)_(\d+)\.([^.]+)$/);
     if (!matched) continue;
     const [, code, name, stageNoText] = matched;
+    const codeNumber = Number(code);
+    if (codeNumber < PET_CODE_MIN || codeNumber > PET_CODE_MAX) continue;
     const stageNo = Number(stageNoText);
+    if (stageNo < 1 || stageNo > 10) continue;
     const current = pets.get(code) || { code, name, files: new Map() };
     current.files.set(stageNo, filename);
     pets.set(code, current);
@@ -87,24 +93,26 @@ function parsePetAssets() {
   return Array.from(pets.values()).sort((a, b) => a.code.localeCompare(b.code, 'en'));
 }
 
-function chooseStageFilename(files, stageNo) {
-  if (files.has(stageNo)) return files.get(stageNo);
-  const available = Array.from(files.keys()).sort((a, b) => a - b);
-  const fallback = available.find((item) => item > stageNo) ?? available[available.length - 1];
-  return files.get(fallback);
-}
-
-function resolveAssetStageNo(files, stageNo) {
-  if (files.has(11)) {
-    return stageNo === 1 ? 1 : stageNo + 1;
+function validatePets(pets) {
+  const expectedCount = PET_CODE_MAX - PET_CODE_MIN + 1;
+  if (pets.length !== expectedCount) {
+    throw new Error(`萌宠数量不完整：期望 ${expectedCount} 只，实际 ${pets.length} 只`);
   }
-  return stageNo;
+  for (const pet of pets) {
+    for (let stageNo = 1; stageNo <= 10; stageNo += 1) {
+      if (!pet.files.has(stageNo)) {
+        throw new Error(`萌宠 ${pet.code}_${pet.name} 缺少 Lv.${stageNo} 的 400 图`);
+      }
+      const filename = pet.files.get(stageNo);
+      if (!fs.existsSync(path.resolve(highResDir, filename))) {
+        throw new Error(`萌宠 ${pet.code}_${pet.name} 缺少 Lv.${stageNo} 的 1024 图`);
+      }
+    }
+  }
 }
 
-function compressLevel(level) {
-  const normalized = Number(level || 1);
-  if (normalized <= 2) return 1;
-  return Math.max(1, normalized - 1);
+function chooseStageFilename(files, stageNo) {
+  return files.get(stageNo);
 }
 
 async function main() {
@@ -120,29 +128,45 @@ async function main() {
   }
 
   const pets = parsePetAssets();
+  validatePets(pets);
+
+  await prisma.petLevelLog.deleteMany({
+    where: {
+      studentPet: {
+        pet: {
+          schoolId: school.id,
+        },
+      },
+    },
+  });
+  await prisma.studentPet.deleteMany({
+    where: {
+      pet: {
+        schoolId: school.id,
+      },
+    },
+  });
+  await prisma.petStage.deleteMany({
+    where: {
+      pet: {
+        schoolId: school.id,
+      },
+    },
+  });
+  await prisma.pet.deleteMany({
+    where: {
+      schoolId: school.id,
+    },
+  });
+
   for (const pet of pets) {
     const category = inferByRules(pet.name, CATEGORY_RULES, 'other');
     const rarity = inferByRules(pet.name, RARITY_RULES, 'normal');
-    const coverUrl = `/assets/pets/${chooseStageFilename(pet.files, 1)}`;
+    const coverUrl = `/assets/pets/400/${chooseStageFilename(pet.files, 1)}`;
     const description = buildDescription(pet.name, category);
 
-    const saved = await prisma.pet.upsert({
-      where: {
-        schoolId_code: {
-          schoolId: school.id,
-          code: pet.code,
-        },
-      },
-      update: {
-        name: pet.name,
-        category,
-        rarity,
-        sourceType: 'system',
-        coverUrl,
-        description,
-        status: 'enabled',
-      },
-      create: {
+    const saved = await prisma.pet.create({
+      data: {
         schoolId: school.id,
         code: pet.code,
         name: pet.name,
@@ -155,39 +179,20 @@ async function main() {
       },
     });
 
-    await prisma.petStage.deleteMany({
-      where: { petId: saved.id },
-    });
-
     await prisma.petStage.createMany({
       data: Array.from({ length: 10 }, (_, index) => {
         const stageNo = index + 1;
-        const filename = chooseStageFilename(pet.files, resolveAssetStageNo(pet.files, stageNo));
+        const filename = chooseStageFilename(pet.files, stageNo);
         return {
           petId: saved.id,
           stageNo,
           levelNo: stageNo,
           name: `${pet.name}·Lv.${stageNo}`,
-          imageUrl: `/assets/pets/${filename}`,
+          imageUrl: `/assets/pets/400/${filename}`,
           needScoreTotal: STAGE_EXP_TOTALS[index],
           animationKey: 'pet-level-up',
         };
       }),
-    });
-  }
-
-  const studentPets = await prisma.studentPet.findMany({
-    select: { id: true, currentLevel: true, currentStageNo: true },
-  });
-  for (const studentPet of studentPets) {
-    const currentLevel = compressLevel(studentPet.currentLevel);
-    const currentStageNo = compressLevel(studentPet.currentStageNo);
-    await prisma.studentPet.update({
-      where: { id: studentPet.id },
-      data: {
-        currentLevel,
-        currentStageNo,
-      },
     });
   }
 
@@ -198,7 +203,7 @@ async function main() {
     await prisma.studentProfile.update({
       where: { studentId: profile.studentId },
       data: {
-        currentPetLevel: compressLevel(profile.currentPetLevel),
+        currentPetLevel: 1,
       },
     });
   }

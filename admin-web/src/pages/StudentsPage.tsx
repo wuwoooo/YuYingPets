@@ -7,17 +7,24 @@ import { usePagination } from '../hooks/usePagination';
 import type { 
   AdminClass,
   AdminStudent,
+  AcademicExamListItem,
+  AcademicScoreImportPayload,
+  AcademicScoreListRow,
   AiStudentSummary,
   ScoreRecord,
   SessionUser,
+  StudentAcademicExam,
   StudentDetail,
-  StudentImportPayload
+  StudentImportPayload,
+  StudentUpdatePayload,
 } from '../lib/api';
 import { adminApi } from '../lib/api';
+import { resolveAssetUrl } from '../lib/assets';
 import {
   normalizeKeyword
 } from '../utils/adminForms';
 import { canImportStudents } from '../utils/adminPermissions';
+import { parseAcademicScoreWorkbook } from '../utils/academicImport';
 import { parseStudentImportRows,parseStudentImportText } from '../utils/studentImport';
 
 type StudentsPageProps = {
@@ -30,9 +37,11 @@ type StudentsPageProps = {
   onSaved: () => Promise<void>;
 };
 
-type StudentSortKey = 'name' | 'className' | 'studentNo' | 'petName' | 'currentScore' | 'currentPetLevel';
+type StudentSortKey = 'name' | 'className' | 'studentNo' | 'petName' | 'currentScore' | 'currentPetLevel' | 'totalScore' | 'schoolRank' | 'classRank';
 type SortDirection = 'asc' | 'desc';
 type StudentEntryMode = 'single' | 'batch';
+type StudentDraft = { studentNo: string; name: string; gender: string };
+type StudentListTab = 'students' | 'scores';
 
 function trimText(text: string | null | undefined, maxLength: number) {
   const normalized = (text || '').trim();
@@ -71,7 +80,10 @@ export function StudentsPage({
   const [statsView, setStatsView] = useState<'grade' | 'class' | 'student'>('grade');
   const [showOverview, setShowOverview] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [showAcademicImport, setShowAcademicImport] = useState(false);
+  const [listTab, setListTab] = useState<StudentListTab>('students');
   const [entryMode, setEntryMode] = useState<StudentEntryMode>('batch');
+  const [editingStudent, setEditingStudent] = useState<AdminStudent | null>(null);
   const [selectedStudent, setSelectedStudent] = useState<AdminStudent | null>(null);
   const [selectedStudentDetail, setSelectedStudentDetail] = useState<StudentDetail | null>(null);
   const [selectedStudentAiSummary, setSelectedStudentAiSummary] = useState<AiStudentSummary | null>(null);
@@ -82,6 +94,9 @@ export function StudentsPage({
   const [studentAiGenerating, setStudentAiGenerating] = useState(false);
   const [studentAiError, setStudentAiError] = useState<string | null>(null);
   const [studentScoreRecords, setStudentScoreRecords] = useState<ScoreRecord[]>([]);
+  const [studentAcademicRecords, setStudentAcademicRecords] = useState<StudentAcademicExam[]>([]);
+  const [studentAcademicLoading, setStudentAcademicLoading] = useState(false);
+  const [studentAcademicError, setStudentAcademicError] = useState<string | null>(null);
   const [studentScoreRecordsLoading, setStudentScoreRecordsLoading] = useState(false);
   const [studentScoreRecordsError, setStudentScoreRecordsError] = useState<string | null>(null);
   const [showStudentScoreRecordsModal, setShowStudentScoreRecordsModal] = useState(false);
@@ -92,12 +107,21 @@ export function StudentsPage({
   const [classId, setClassId] = useState(classes[0]?.id ? String(classes[0].id) : '');
   const [textarea, setTextarea] = useState('');
   const [importStudentsData, setImportStudentsData] = useState<StudentImportPayload['students']>([]);
-  const [singleStudentDraft, setSingleStudentDraft] = useState<{ studentNo: string; name: string; gender: string }>({
+  const [singleStudentDraft, setSingleStudentDraft] = useState<StudentDraft>({
     studentNo: '',
     name: '',
     gender: '',
   });
   const [importFileName, setImportFileName] = useState('');
+  const [academicImportFileName, setAcademicImportFileName] = useState('');
+  const [academicImportData, setAcademicImportData] = useState<AcademicScoreImportPayload | null>(null);
+  const [academicImportSubmitting, setAcademicImportSubmitting] = useState(false);
+  const [academicExams, setAcademicExams] = useState<AcademicExamListItem[]>([]);
+  const [academicScores, setAcademicScores] = useState<AcademicScoreListRow[]>([]);
+  const [academicScoresLoading, setAcademicScoresLoading] = useState(false);
+  const [academicScoresError, setAcademicScoresError] = useState<string | null>(null);
+  const [examFilter, setExamFilter] = useState('all');
+  const [academicReloadKey, setAcademicReloadKey] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
@@ -154,6 +178,12 @@ export function StudentsPage({
           return compareNumber(left.currentScore, right.currentScore) || compareText(left.name, right.name);
         case 'currentPetLevel':
           return compareNumber(left.currentPetLevel, right.currentPetLevel) || compareText(left.name, right.name);
+        case 'totalScore':
+          return compareNumber(left.latestAcademic?.totalScore ?? -1, right.latestAcademic?.totalScore ?? -1) || compareText(left.name, right.name);
+        case 'schoolRank':
+          return compareNumber(left.latestAcademic?.schoolRank ?? Number.MAX_SAFE_INTEGER, right.latestAcademic?.schoolRank ?? Number.MAX_SAFE_INTEGER) || compareText(left.name, right.name);
+        case 'classRank':
+          return compareNumber(left.latestAcademic?.classRank ?? Number.MAX_SAFE_INTEGER, right.latestAcademic?.classRank ?? Number.MAX_SAFE_INTEGER) || compareText(left.name, right.name);
         default:
           return 0;
       }
@@ -163,12 +193,28 @@ export function StudentsPage({
     sortedStudents,
     `${searchKeyword}|${gradeFilter}|${classFilter}|${focusFilter}|${sortConfig?.key ?? 'default'}|${sortConfig?.direction ?? 'default'}|${students.length}`,
   );
+  const academicScorePagination = usePagination(
+    academicScores,
+    `${examFilter}|${searchKeyword}|${gradeFilter}|${classFilter}|${academicScores.length}`,
+  );
   const studentsWithPetCount = students.filter((row) => row.pet).length;
   const averageCurrentScore = students.length
     ? Math.round(students.reduce((sum, row) => sum + row.currentScore, 0) / students.length)
     : 0;
   const highLevelPetCount = students.filter((row) => row.currentPetLevel >= 5).length;
   const coveredClassCount = new Set(students.map((row) => row.classId)).size;
+  const studentsWithAcademicCount = students.filter((row) => row.latestAcademic).length;
+  const latestAcademicRows = students.filter((row) => row.latestAcademic);
+  const latestAcademicExamName = latestAcademicRows
+    .map((row) => row.latestAcademic)
+    .sort((left, right) => new Date(right?.importedAt ?? 0).getTime() - new Date(left?.importedAt ?? 0).getTime())[0]?.examName;
+  const academicAverageTotalScore = latestAcademicRows.length
+    ? Math.round(
+        latestAcademicRows.reduce((sum, row) => sum + (row.latestAcademic?.totalScore ?? 0), 0) /
+          latestAcademicRows.length,
+      )
+    : 0;
+  const academicCoveredClassCount = new Set(latestAcademicRows.map((row) => row.classId)).size;
   const gradeOverview = Array.from(
     students.reduce((map, row) => {
       const classInfo = classMap.get(row.classId);
@@ -191,9 +237,6 @@ export function StudentsPage({
       averageScore: item.studentCount ? Math.round(item.totalScore / item.studentCount) : 0,
     }))
     .sort((a, b) => b.studentCount - a.studentCount || a.gradeName.localeCompare(b.gradeName, 'zh-CN'));
-  const topStudents = [...students]
-    .sort((a, b) => b.currentScore - a.currentScore || b.currentPetLevel - a.currentPetLevel || a.name.localeCompare(b.name, 'zh-CN'))
-    .slice(0, 4);
   const studentsWithoutPet = students.filter((row) => !row.pet).length;
   const genderSummary = {
     male: students.filter((row) => row.gender === '男').length,
@@ -251,6 +294,25 @@ export function StudentsPage({
       averageScore: item.studentCount ? Math.round(item.totalScore / item.studentCount) : 0,
     }))
     .sort((a, b) => b.studentCount - a.studentCount || b.averageScore - a.averageScore);
+  const academicClassStats = Array.from(
+    latestAcademicRows.reduce((map, row) => {
+      const current = map.get(row.classId) ?? {
+        classId: row.classId,
+        className: row.className,
+        studentCount: 0,
+        totalScore: 0,
+      };
+      current.studentCount += 1;
+      current.totalScore += row.latestAcademic?.totalScore ?? 0;
+      map.set(row.classId, current);
+      return map;
+    }, new Map<number, { classId: number; className: string; studentCount: number; totalScore: number }>()),
+  )
+    .map(([, item]) => ({
+      ...item,
+      averageTotalScore: item.studentCount ? Math.round(item.totalScore / item.studentCount) : 0,
+    }))
+    .sort((a, b) => b.studentCount - a.studentCount || b.averageTotalScore - a.averageTotalScore);
   const scopedStudentStats = [...scopedStudents]
     .map((row) => ({
       id: row.id,
@@ -361,14 +423,67 @@ export function StudentsPage({
   }, [searchParams, students]);
 
   useEffect(() => {
+    let active = true;
+    adminApi
+      .academicExams(token)
+      .then((response) => {
+        if (!active) return;
+        setAcademicExams(response.data);
+      })
+      .catch(() => {
+        if (!active) return;
+        setAcademicExams([]);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [academicReloadKey, token]);
+
+  useEffect(() => {
+    if (listTab !== 'scores') return;
+
+    let active = true;
+    setAcademicScoresLoading(true);
+    setAcademicScoresError(null);
+
+    adminApi
+      .academicScores(token, {
+        examId: examFilter === 'all' ? undefined : Number(examFilter),
+        classId: classFilter === 'all' ? undefined : Number(classFilter),
+        gradeName: gradeFilter === 'all' ? undefined : gradeFilter,
+        keyword: searchKeyword.trim() || undefined,
+      })
+      .then((response) => {
+        if (!active) return;
+        setAcademicScores(response.data);
+      })
+      .catch((err) => {
+        if (!active) return;
+        setAcademicScores([]);
+        setAcademicScoresError(err instanceof Error ? err.message : '成绩列表加载失败');
+      })
+      .finally(() => {
+        if (active) setAcademicScoresLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [academicReloadKey, classFilter, examFilter, gradeFilter, listTab, searchKeyword, token]);
+
+  useEffect(() => {
     if (!selectedStudent) {
       setSelectedStudentDetail(null);
       setSelectedStudentAiSummary(null);
       setStudentDetailError(null);
       setStudentAiError(null);
       setStudentScoreRecords([]);
+      setStudentAcademicRecords([]);
       setStudentScoreRecordsLoading(false);
+      setStudentAcademicLoading(false);
       setStudentScoreRecordsError(null);
+      setStudentAcademicError(null);
       setShowStudentScoreRecordsModal(false);
       setAiPeriodType('weekly');
       setObservationType('课堂表现');
@@ -392,6 +507,32 @@ export function StudentsPage({
       })
       .finally(() => {
         if (active) setStudentDetailLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [selectedStudent, token]);
+
+  useEffect(() => {
+    if (!selectedStudent) return;
+
+    let active = true;
+    setStudentAcademicLoading(true);
+    setStudentAcademicError(null);
+
+    adminApi
+      .studentAcademicRecords(token, selectedStudent.id)
+      .then((response) => {
+        if (!active) return;
+        setStudentAcademicRecords(response.data);
+      })
+      .catch((err) => {
+        if (!active) return;
+        setStudentAcademicError(err instanceof Error ? err.message : '学业成长数据加载失败');
+      })
+      .finally(() => {
+        if (active) setStudentAcademicLoading(false);
       });
 
     return () => {
@@ -491,8 +632,11 @@ export function StudentsPage({
     setStudentDetailError(null);
     setStudentAiError(null);
     setStudentScoreRecords([]);
+    setStudentAcademicRecords([]);
     setStudentScoreRecordsLoading(false);
+    setStudentAcademicLoading(false);
     setStudentScoreRecordsError(null);
+    setStudentAcademicError(null);
     setShowStudentScoreRecordsModal(false);
     setAiPeriodType('weekly');
     setObservationType('课堂表现');
@@ -607,8 +751,34 @@ export function StudentsPage({
     );
   }
 
+  function formatRankDelta(value: number | null) {
+    if (value === null) return '较上次 -';
+    if (value === 0) return '较上次 0';
+    return `较上次 ${value > 0 ? '+' : ''}${value}`;
+  }
+
+  function formatDateTime(value: string) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '-';
+    return date.toLocaleString('zh-CN', {
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }
+
+  function getDefaultStudentEntryClassId() {
+    const validClassIds = new Set(classes.map((item) => String(item.id)));
+    if (classFilter !== 'all' && validClassIds.has(classFilter)) return classFilter;
+    if (classId && validClassIds.has(classId)) return classId;
+    return classes[0]?.id ? String(classes[0].id) : '';
+  }
+
   function openImportModal(mode: StudentEntryMode) {
     setEntryMode(mode);
+    setEditingStudent(null);
+    setClassId(getDefaultStudentEntryClassId());
     setShowImport(true);
     setTextarea('');
     setImportStudentsData([]);
@@ -617,14 +787,102 @@ export function StudentsPage({
     setSubmitError(null);
   }
 
+  function openEditStudentModal(student: AdminStudent) {
+    setEntryMode('single');
+    setEditingStudent(student);
+    setClassId(String(student.classId));
+    setShowImport(true);
+    setTextarea('');
+    setImportStudentsData([]);
+    setSingleStudentDraft({
+      studentNo: student.studentNo,
+      name: student.name,
+      gender: student.gender ?? '',
+    });
+    setImportFileName('');
+    setSubmitError(null);
+    setSubmitSuccess(null);
+  }
+
   function closeImportModal(force = false) {
     if (submitting && !force) return;
     setShowImport(false);
+    setEditingStudent(null);
     setTextarea('');
     setImportStudentsData([]);
     setSingleStudentDraft({ studentNo: '', name: '', gender: '' });
     setImportFileName('');
     setSubmitError(null);
+  }
+
+  function openAcademicImportModal() {
+    setShowAcademicImport(true);
+    setAcademicImportFileName('');
+    setAcademicImportData(null);
+    setSubmitError(null);
+    setSubmitSuccess(null);
+  }
+
+  function closeAcademicImportModal(force = false) {
+    if (academicImportSubmitting && !force) return;
+    setShowAcademicImport(false);
+    setAcademicImportFileName('');
+    setAcademicImportData(null);
+    setSubmitError(null);
+  }
+
+  async function handleAcademicExcelImport(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    setSubmitError(null);
+    setSubmitSuccess(null);
+
+    try {
+      const parsed = await parseAcademicScoreWorkbook(file);
+      if (!parsed.students.length) {
+        throw new Error('成绩表中没有有效的学生成绩数据');
+      }
+      setAcademicImportData(parsed);
+      setAcademicImportFileName(file.name);
+      setSubmitSuccess(`已读取 ${parsed.students.length} 名学生、${parsed.students.reduce((sum, item) => sum + item.subjects.length, 0)} 条科目成绩`);
+    } catch (err) {
+      setAcademicImportData(null);
+      setAcademicImportFileName('');
+      setSubmitError(err instanceof Error ? err.message : '成绩表解析失败');
+    }
+  }
+
+  async function handleAcademicImport(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (academicImportSubmitting) return;
+    setAcademicImportSubmitting(true);
+    setSubmitError(null);
+    setSubmitSuccess(null);
+
+    try {
+      if (!academicImportData) {
+        throw new Error('请先上传成绩汇总表');
+      }
+
+      const response = await adminApi.importAcademicScores(token, academicImportData);
+      await onSaved();
+      setAcademicReloadKey((prev) => prev + 1);
+      setListTab('scores');
+      setExamFilter(String(response.data.examId));
+      setSubmitSuccess(
+        `已导入 ${response.data.importedStudentCount} 名学生、${response.data.importedRecordCount} 条成绩记录` +
+          (response.data.createdClassCount ? `，新建 ${response.data.createdClassCount} 个班级` : '') +
+          (response.data.createdStudentCount ? `，新建 ${response.data.createdStudentCount} 名学生` : '') +
+          (response.data.unmatchedCount ? `，${response.data.unmatchedCount} 条未匹配` : ''),
+      );
+      closeAcademicImportModal(true);
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : '成绩导入失败');
+    } finally {
+      setAcademicImportSubmitting(false);
+    }
   }
 
   async function handleExcelImport(event: React.ChangeEvent<HTMLInputElement>) {
@@ -635,17 +893,18 @@ export function StudentsPage({
     setSubmitError(null);
     setSubmitSuccess(null);
 
-  try {
+    try {
       const { read, utils } = await import('xlsx');
       const workbook = read(await file.arrayBuffer(), { type: 'array' });
-      const firstSheetName = workbook.SheetNames[0];
-      if (!firstSheetName) {
+      if (!workbook.SheetNames.length) {
         throw new Error('Excel 文件中没有可读取的工作表');
       }
 
-      const sheet = workbook.Sheets[firstSheetName];
-      const rows = utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' }) as unknown[][];
-      const parsedStudents = parseStudentImportRows(rows);
+      const parsedStudents = workbook.SheetNames.flatMap((sheetName) => {
+        const sheet = workbook.Sheets[sheetName];
+        const rows = utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' }) as unknown[][];
+        return parseStudentImportRows(rows);
+      });
 
       if (!parsedStudents.length) {
         throw new Error('Excel 中没有有效的学生数据');
@@ -655,7 +914,7 @@ export function StudentsPage({
       setImportFileName(file.name);
       setTextarea(
         parsedStudents
-          .map((item) => [item.studentNo, item.name, item.gender].filter(Boolean).join(' '))
+          .map((item) => [item.studentNo, item.name, item.className, item.gender].filter(Boolean).join(' '))
           .join('\n'),
       );
       setSubmitSuccess(`已读取 ${parsedStudents.length} 条学生数据：${file.name}`);
@@ -675,12 +934,36 @@ export function StudentsPage({
     setSubmitSuccess(null);
 
     try {
-      if (!classId) {
-        throw new Error(entryMode === 'single' ? '请先选择学生所在班级' : '请先选择导入班级');
-      }
+      if (editingStudent) {
+        if (!classId || !/^\d+$/.test(classId)) {
+          throw new Error('请先选择学生所在班级');
+        }
+        if (!singleStudentDraft.studentNo.trim() || !singleStudentDraft.name.trim()) {
+          throw new Error('请填写完整的准考证号和姓名');
+        }
 
-      if (!/^\d+$/.test(classId)) {
-        throw new Error('导入班级无效，请重新选择');
+        const duplicatedExistingStudent = students.find(
+          (item) =>
+            item.id !== editingStudent.id &&
+            item.classId === Number(classId) &&
+            normalizeStudentNo(item.studentNo) === normalizeStudentNo(singleStudentDraft.studentNo),
+        );
+        if (duplicatedExistingStudent) {
+          throw new Error(`准考证号重复：${singleStudentDraft.studentNo.trim()} 已存在于目标班级`);
+        }
+
+        const payload: StudentUpdatePayload = {
+          classId: Number(classId),
+          studentNo: singleStudentDraft.studentNo.trim(),
+          name: singleStudentDraft.name.trim(),
+          gender: singleStudentDraft.gender.trim() || null,
+          avatarUrl: editingStudent.avatarUrl ?? null,
+        };
+        await adminApi.updateStudent(token, editingStudent.id, payload);
+        await onSaved();
+        setSubmitSuccess('学生信息已更新');
+        closeImportModal(true);
+        return;
       }
 
       const payloadStudents =
@@ -696,8 +979,17 @@ export function StudentsPage({
             ? importStudentsData
             : parseStudentImportText(textarea);
 
+      const allStudentsHaveClassName = payloadStudents.every((item) => item.className?.trim());
+      if (!classId && (entryMode === 'single' || !allStudentsHaveClassName)) {
+        throw new Error(entryMode === 'single' ? '请先选择学生所在班级' : '请先选择导入班级，或在表格中提供班级列');
+      }
+
+      if (classId && !/^\d+$/.test(classId)) {
+        throw new Error('导入班级无效，请重新选择');
+      }
+
       if (entryMode === 'single' && (!payloadStudents[0]?.studentNo || !payloadStudents[0]?.name)) {
-        throw new Error('请填写完整的学号和姓名');
+        throw new Error('请填写完整的准考证号和姓名');
       }
 
       const duplicatedStudentNoInPayload = Array.from(
@@ -708,7 +1000,7 @@ export function StudentsPage({
         }, new Map<string, number>()),
       ).find(([, count]) => count > 1)?.[0];
       if (duplicatedStudentNoInPayload) {
-        throw new Error(`学号重复：本次提交中存在重复学号 ${duplicatedStudentNoInPayload}`);
+        throw new Error(`准考证号重复：本次提交中存在重复准考证号 ${duplicatedStudentNoInPayload}`);
       }
 
       const existingStudentNos = new Set(students.map((item) => normalizeStudentNo(item.studentNo)));
@@ -716,11 +1008,11 @@ export function StudentsPage({
         existingStudentNos.has(normalizeStudentNo(item.studentNo)),
       );
       if (duplicatedExistingStudent) {
-        throw new Error(`学号重复：${duplicatedExistingStudent.studentNo} 已存在`);
+        throw new Error(`准考证号重复：${duplicatedExistingStudent.studentNo} 已存在`);
       }
 
       const payload: StudentImportPayload = {
-        classId: Number(classId),
+        classId: Number(classId || 0),
         students: payloadStudents,
       };
 
@@ -766,7 +1058,7 @@ export function StudentsPage({
           <div className="search-box">
             <span className="s-icon">⌕</span>
             <input
-              placeholder="搜索学生姓名/学号..."
+              placeholder="搜索学生姓名/准考证号..."
               value={searchKeyword}
               onChange={(event) => setSearchKeyword(event.target.value)}
             />
@@ -816,11 +1108,11 @@ export function StudentsPage({
           <p>已完成萌宠绑定的学生覆盖比例，便于观察成长体系接入情况。</p>
         </div>
         <div className="metric-card">
-          <span>高等级萌宠</span>
-          <button className="metric-value-button" type="button" onClick={() => setFocusFilter('high_level')}>
-            {highLevelPetCount}
+          <span>学业覆盖</span>
+          <button className="metric-value-button" type="button" onClick={() => setShowOverview(true)}>
+            {students.length ? `${Math.round((studentsWithAcademicCount / students.length) * 100)}%` : '0%'}
           </button>
-          <p>萌宠等级达到 5 级及以上的学生人数，适合作为阶段成果观察点。</p>
+          <p>{latestAcademicExamName ? `最近导入：${latestAcademicExamName}` : '导入成绩表后，这里展示学业数据覆盖情况。'}</p>
         </div>
         <button
           className={`metric-card metric-card-action${showOverview ? " active" : ""}`}
@@ -830,8 +1122,8 @@ export function StudentsPage({
           <span>{showOverview ? "收起更多分析" : "更多分析"}</span>
           <strong>{showOverview ? "收起剩余分析卡片" : "展开剩余分析卡片"}</strong>
           <p>
-            {studentsWithPetCount} 人已绑定萌宠，
-            {coveredClassCount} 个班已接入，展开后可查看年级、班级、学生等更多分析。
+            {studentsWithAcademicCount} 人已有成绩，
+            {academicCoveredClassCount || coveredClassCount} 个班已接入，展开后可查看年级、班级、学生等更多分析。
           </p>
         </button>
       </div>
@@ -859,9 +1151,18 @@ export function StudentsPage({
               <h4>成长覆盖</h4>
               <div className="detail-list">
                 <div><span>已绑定萌宠</span><strong>{studentsWithPetCount} 人</strong></div>
-                <div><span>待领养萌宠</span><strong>{studentsWithoutPet} 人</strong></div>
+                <div><span>待孕育星种</span><strong>{studentsWithoutPet} 人</strong></div>
                 <div><span>高等级萌宠</span><strong>{highLevelPetCount} 人</strong></div>
                 <div><span>数据覆盖班级</span><strong>{coveredClassCount} 个</strong></div>
+              </div>
+            </div>
+            <div className="detail-card">
+              <h4>学业概览</h4>
+              <div className="detail-list">
+                <div><span>最近考试</span><strong>{latestAcademicExamName ?? '暂无'}</strong></div>
+                <div><span>成绩覆盖</span><strong>{studentsWithAcademicCount} 人</strong></div>
+                <div><span>覆盖班级</span><strong>{academicCoveredClassCount} 个</strong></div>
+                <div><span>平均总分</span><strong>{academicAverageTotalScore || '-'} 分</strong></div>
               </div>
             </div>
             <div className="detail-card">
@@ -888,24 +1189,24 @@ export function StudentsPage({
               </div>
             </div>
             <div className="detail-card">
-              <h4>成长关注</h4>
+              <h4>班级学业覆盖</h4>
               <div className="mini-list">
-                {topStudents.map((item) => (
-                  <div className="mini-list-item" key={item.id}>
+                {academicClassStats.slice(0, 4).map((item) => (
+                  <div className="mini-list-item" key={item.classId}>
                     <div>
-                      <strong>{item.name}</strong>
-                      <span>{item.className} · {item.pet?.name ?? '未领养萌宠'}</span>
+                      <strong>{item.className}</strong>
+                      <span>{item.studentCount} 名学生已有成绩</span>
                     </div>
-                    <b>{item.currentScore} 分</b>
+                    <b>{item.averageTotalScore} 分</b>
                   </div>
                 ))}
-                {topStudents.length === 0 ? (
+                {academicClassStats.length === 0 ? (
                   <div className="mini-list-item">
                     <div>
-                      <strong>暂无成长重点对象</strong>
-                      <span>学生数据接入后，这里会显示当前积分领先的学生。</span>
+                      <strong>暂无成绩数据</strong>
+                      <span>导入成绩表后，这里会显示各班学业覆盖。</span>
                     </div>
-                    <b>待建立</b>
+                    <b>待导入</b>
                   </div>
                 ) : null}
               </div>
@@ -917,70 +1218,235 @@ export function StudentsPage({
       <div className="panel">
         <div className="page-header">
           <div>
-            <div className="panel-title">学生列表</div>
-            <p className="page-desc">查看学生档案、积分与萌宠绑定情况。</p>
+            <div className="tabs">
+              <button
+                className={`tab${listTab === 'students' ? ' active' : ''}`}
+                type="button"
+                onClick={() => setListTab('students')}
+              >
+                学生列表
+              </button>
+              <button
+                className={`tab${listTab === 'scores' ? ' active' : ''}`}
+                type="button"
+                onClick={() => setListTab('scores')}
+              >
+                成绩列表
+              </button>
+            </div>
+            <p className="page-desc">
+              {listTab === 'students' ? '查看学生档案、积分与萌宠绑定情况。' : '查询历史考试总分、校次与班次变化。'}
+            </p>
           </div>
+          {listTab === 'scores' ? (
+            <div className="page-actions">
+              <select className="filter-select" value={examFilter} onChange={(event) => setExamFilter(event.target.value)}>
+                <option value="all">全部考试</option>
+                {academicExams.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+              {allowImport ? (
+                <button className="btn btn-outline" type="button" onClick={openAcademicImportModal}>
+                  导入成绩表
+                </button>
+              ) : null}
+            </div>
+          ) : null}
         </div>
-        <div className="data-table-wrap">
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>{renderSortHeader('姓名', 'name')}</th>
-              <th>{renderSortHeader('班级', 'className')}</th>
-              <th>{renderSortHeader('学号', 'studentNo')}</th>
-              <th>{renderSortHeader('萌宠', 'petName')}</th>
-              <th>状态</th>
-              <th>{renderSortHeader('当前积分', 'currentScore')}</th>
-              <th>{renderSortHeader('萌宠等级', 'currentPetLevel')}</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {studentPagination.pagedItems.map((row) => (
-              <tr key={row.id}>
-                <td>{row.name}</td>
-                <td>{row.className}</td>
-                <td>{row.studentNo}</td>
-                <td>{row.pet?.name ?? '未领养'}</td>
-                <td><span className="status-on">正常</span></td>
-                <td>{row.currentScore}</td>
-                <td>{row.currentPetLevel}</td>
-                <td>
-                  <button className="op-btn" type="button" onClick={() => openStudentDetail(row.id)}>
-                    详情
-                  </button>
-                </td>
-              </tr>
-            ))}
-            {filteredStudents.length === 0 ? (
-              <tr>
-                <td colSpan={8} className="table-empty">
-                  当前筛选条件下没有学生数据
-                </td>
-              </tr>
-            ) : null}
-          </tbody>
-        </table>
-        </div>
-        <TablePagination
-          currentPage={studentPagination.currentPage}
-          pageSize={studentPagination.pageSize}
-          totalItems={studentPagination.totalItems}
-          totalPages={studentPagination.totalPages}
-          onPageChange={studentPagination.setCurrentPage}
-          onPageSizeChange={studentPagination.setPageSize}
-        />
+        {listTab === 'students' ? (
+          <>
+            <div className="data-table-wrap">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>{renderSortHeader('姓名', 'name')}</th>
+                    <th>{renderSortHeader('班级', 'className')}</th>
+                    <th>{renderSortHeader('准考证号', 'studentNo')}</th>
+                    <th>{renderSortHeader('最近总分', 'totalScore')}</th>
+                    <th>{renderSortHeader('校次', 'schoolRank')}</th>
+                    <th>{renderSortHeader('班次', 'classRank')}</th>
+                    <th>{renderSortHeader('萌宠/等级', 'petName')}</th>
+                    <th>状态</th>
+                    <th>{renderSortHeader('当前积分', 'currentScore')}</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {studentPagination.pagedItems.map((row) => (
+                    <tr key={row.id}>
+                      <td>{row.name}</td>
+                      <td>{row.className}</td>
+                      <td>{row.studentNo}</td>
+                      <td>
+                        {row.latestAcademic ? (
+                          <div className="table-main-sub">
+                            <strong>{row.latestAcademic.totalScore ?? '-'}</strong>
+                            <span>{row.latestAcademic.examName}</span>
+                          </div>
+                        ) : (
+                          '-'
+                        )}
+                      </td>
+                      <td>
+                        {row.latestAcademic ? (
+                          <div className="table-main-sub">
+                            <strong>{row.latestAcademic.schoolRank ?? '-'}</strong>
+                            <span>{formatRankDelta(row.latestAcademic.schoolRankDelta)}</span>
+                          </div>
+                        ) : (
+                          '-'
+                        )}
+                      </td>
+                      <td>
+                        {row.latestAcademic ? (
+                          <div className="table-main-sub">
+                            <strong>{row.latestAcademic.classRank ?? '-'}</strong>
+                            <span>{formatRankDelta(row.latestAcademic.classRankDelta)}</span>
+                          </div>
+                        ) : (
+                          '-'
+                        )}
+                      </td>
+                      <td>
+                        <div className="table-main-sub">
+                          <strong>{row.pet?.name ?? '未领养'}</strong>
+                          <span>Lv.{row.currentPetLevel}</span>
+                        </div>
+                      </td>
+                      <td><span className="status-on">正常</span></td>
+                      <td>{row.currentScore}</td>
+                      <td>
+                        <button className="op-btn" type="button" onClick={() => openStudentDetail(row.id)}>
+                          详情
+                        </button>
+                        {allowImport ? (
+                          <button className="op-btn" type="button" onClick={() => openEditStudentModal(row)}>
+                            编辑
+                          </button>
+                        ) : null}
+                      </td>
+                    </tr>
+                  ))}
+                  {filteredStudents.length === 0 ? (
+                    <tr>
+                      <td colSpan={10} className="table-empty">
+                        当前筛选条件下没有学生数据
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+            <TablePagination
+              currentPage={studentPagination.currentPage}
+              pageSize={studentPagination.pageSize}
+              totalItems={studentPagination.totalItems}
+              totalPages={studentPagination.totalPages}
+              onPageChange={studentPagination.setCurrentPage}
+              onPageSizeChange={studentPagination.setPageSize}
+            />
+          </>
+        ) : (
+          <>
+            {academicScoresError ? <div className="status-card error">{academicScoresError}</div> : null}
+            <div className="data-table-wrap">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>考试</th>
+                    <th>学生</th>
+                    <th>班级</th>
+                    <th>总分</th>
+                    <th>校次</th>
+                    <th>班次</th>
+                    <th>导入时间</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {academicScorePagination.pagedItems.map((row) => (
+                    <tr key={row.id}>
+                      <td>
+                        <div className="table-main-sub">
+                          <strong>{row.examName}</strong>
+                          <span>{row.sourceFile ?? row.examGradeName ?? '-'}</span>
+                        </div>
+                      </td>
+                      <td>
+                        <div className="table-main-sub">
+                          <strong>{row.studentName}</strong>
+                          <span>{row.studentNo}</span>
+                        </div>
+                      </td>
+                      <td>{row.className}</td>
+                      <td>{row.totalScore ?? '-'}</td>
+                      <td>
+                        <div className="table-main-sub">
+                          <strong>{row.schoolRank ?? '-'}</strong>
+                          <span>{formatRankDelta(row.schoolRankDelta)}</span>
+                        </div>
+                      </td>
+                      <td>
+                        <div className="table-main-sub">
+                          <strong>{row.classRank ?? '-'}</strong>
+                          <span>{formatRankDelta(row.classRankDelta)}</span>
+                        </div>
+                      </td>
+                      <td>{formatDateTime(row.importedAt)}</td>
+                      <td>
+                        <button className="op-btn" type="button" onClick={() => openStudentDetail(row.studentId)}>
+                          详情
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {!academicScoresLoading && academicScores.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="table-empty">
+                        当前筛选条件下没有成绩数据
+                      </td>
+                    </tr>
+                  ) : null}
+                  {academicScoresLoading ? (
+                    <tr>
+                      <td colSpan={8} className="table-empty">
+                        成绩列表加载中...
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+            <TablePagination
+              currentPage={academicScorePagination.currentPage}
+              pageSize={academicScorePagination.pageSize}
+              totalItems={academicScorePagination.totalItems}
+              totalPages={academicScorePagination.totalPages}
+              onPageChange={academicScorePagination.setCurrentPage}
+              onPageSizeChange={academicScorePagination.setPageSize}
+            />
+          </>
+        )}
       </div>
 
       {allowImport && showImport ? (
         <Modal
-          title={entryMode === 'single' ? '新增学生' : '导入学生'}
-          subtitle={entryMode === 'single' ? '支持逐个新增学生档案' : '支持逐行粘贴或上传 Excel 批量导入学生档案'}
+          title={editingStudent ? '编辑学生' : entryMode === 'single' ? '新增学生' : '导入学生'}
+          subtitle={
+            editingStudent
+              ? '修改学生基础信息与所在班级'
+              : entryMode === 'single'
+                ? '支持逐个新增学生档案'
+                : '支持逐行粘贴或上传 Excel 批量导入学生档案'
+          }
           onClose={closeImportModal}
         >
           <form className="form-grid" onSubmit={handleImport}>
             <label className="span-2">
-              <span>{entryMode === 'single' ? '所在班级' : '目标班级'}</span>
+              <span>{editingStudent || entryMode === 'single' ? '所在班级' : '目标班级'}</span>
               <select value={classId} onChange={(event) => setClassId(event.target.value)}>
                 <option value="">请选择班级</option>
                 {classes.map((item) => (
@@ -993,7 +1459,7 @@ export function StudentsPage({
             {entryMode === 'single' ? (
               <>
                 <label>
-                  <span>学号</span>
+                  <span>准考证号</span>
                   <input
                     type="text"
                     value={singleStudentDraft.studentNo}
@@ -1041,7 +1507,7 @@ export function StudentsPage({
                   <span>Excel 导入</span>
                   <input type="file" accept=".xlsx,.xls,.csv" onChange={(event) => void handleExcelImport(event)} />
                   <div className="settings-note">
-                    支持 `.xlsx/.xls/.csv`，可使用表头：学号、姓名、性别、头像地址。
+                    支持 `.xlsx/.xls/.csv`，可使用表头：准考证号、姓名、年级、班级、性别、头像地址。表格中有班级时按行内班级导入。
                     {importFileName ? ` 当前文件：${importFileName}` : ''}
                   </div>
                 </label>
@@ -1066,7 +1532,68 @@ export function StudentsPage({
                 取消
               </button>
               <button type="submit" className="toolbar-button" disabled={submitting}>
-                {submitting ? (entryMode === 'single' ? '提交中...' : '导入中...') : entryMode === 'single' ? '确认新增' : '开始导入'}
+                {submitting
+                  ? editingStudent || entryMode === 'single'
+                    ? '提交中...'
+                    : '导入中...'
+                  : editingStudent
+                    ? '保存修改'
+                    : entryMode === 'single'
+                      ? '确认新增'
+                      : '开始导入'}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      ) : null}
+
+      {allowImport && showAcademicImport ? (
+        <Modal
+          title="导入成绩表"
+          subtitle="按 doc/成绩汇总.xls 的格式导入学业成长数据，不影响学生积分和萌宠等级"
+          onClose={closeAcademicImportModal}
+        >
+          <form className="form-grid" onSubmit={handleAcademicImport}>
+            <label className="span-2">
+              <span>成绩汇总表</span>
+              <input type="file" accept=".xls,.xlsx" onChange={(event) => void handleAcademicExcelImport(event)} />
+              <div className="settings-note">
+                支持两层表头：准考证号、班级、姓名，以及语文/数学/英语等科目的得分、联考排名、校次、班次和进退步。
+                {academicImportFileName ? ` 当前文件：${academicImportFileName}` : ''}
+              </div>
+            </label>
+            {academicImportData ? (
+              <div className="detail-card span-2">
+                <h4>导入预览</h4>
+                <div className="detail-list">
+                  <div><span>考试名称</span><strong>{academicImportData.examName}</strong></div>
+                  <div><span>识别年级</span><strong>{academicImportData.gradeName ?? '-'}</strong></div>
+                  <div><span>学生数量</span><strong>{academicImportData.students.length} 人</strong></div>
+                  <div>
+                    <span>成绩记录</span>
+                    <strong>{academicImportData.students.reduce((sum, item) => sum + item.subjects.length, 0)} 条</strong>
+                  </div>
+                </div>
+                <div className="mini-list">
+                  {academicImportData.students.slice(0, 3).map((item) => (
+                    <div className="mini-list-item" key={`${item.studentNo}-${item.name}`}>
+                      <div>
+                        <strong>{item.name}</strong>
+                        <span>{item.className} · {item.studentNo}</span>
+                      </div>
+                      <b>{item.subjects.find((subject) => subject.subjectName === '总分')?.score ?? '-'} 分</b>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            {submitError ? <div className="status-card error span-2">{submitError}</div> : null}
+            <div className="form-actions span-2">
+              <button type="button" className="ghost-button" onClick={() => closeAcademicImportModal()} disabled={academicImportSubmitting}>
+                取消
+              </button>
+              <button type="submit" className="toolbar-button" disabled={academicImportSubmitting || !academicImportData}>
+                {academicImportSubmitting ? '导入中...' : '开始导入成绩'}
               </button>
             </div>
           </form>
@@ -1085,7 +1612,7 @@ export function StudentsPage({
               <div className="detail-list">
                 <div><span>姓名</span><strong>{selectedStudent.name}</strong></div>
                 <div><span>班级</span><strong>{selectedStudent.className}</strong></div>
-                <div><span>学号</span><strong>{selectedStudent.studentNo}</strong></div>
+                <div><span>准考证号</span><strong>{selectedStudent.studentNo}</strong></div>
                 <div><span>分组</span><strong>{selectedStudentDetail?.group?.name ?? '-'}</strong></div>
                 <div><span>状态</span><strong>正常</strong></div>
               </div>
@@ -1108,6 +1635,51 @@ export function StudentsPage({
                 <div><span>近 7 天正向</span><strong>{selectedStudentDetail?.profile?.positiveCount7d ?? 0} 次</strong></div>
                 <div><span>近 7 天负向</span><strong>{selectedStudentDetail?.profile?.negativeCount7d ?? 0} 次</strong></div>
               </div>
+            </div>
+            <div className="detail-card span-2">
+              <h4>学业成长</h4>
+              {studentAcademicLoading ? <div className="student-ai-placeholder">学业成长数据加载中...</div> : null}
+              {studentAcademicError ? <div className="status-card error">{studentAcademicError}</div> : null}
+              {!studentAcademicLoading && !studentAcademicError ? (
+                studentAcademicRecords.length > 0 ? (
+                  <>
+                    <div className="detail-list">
+                      <div><span>最近考试</span><strong>{studentAcademicRecords[0].examName}</strong></div>
+                      <div>
+                        <span>总分</span>
+                        <strong>{studentAcademicRecords[0].subjects.find((item) => item.subjectName === '总分')?.score ?? '-'} 分</strong>
+                      </div>
+                      <div>
+                        <span>校次</span>
+                        <strong>{studentAcademicRecords[0].subjects.find((item) => item.subjectName === '总分')?.schoolRank ?? '-'}</strong>
+                      </div>
+                      <div>
+                        <span>班次</span>
+                        <strong>{studentAcademicRecords[0].subjects.find((item) => item.subjectName === '总分')?.classRank ?? '-'}</strong>
+                      </div>
+                    </div>
+                    <div className="mini-list">
+                      {studentAcademicRecords[0].subjects.filter((item) => item.subjectName !== '总分').slice(0, 6).map((item) => (
+                        <div className="mini-list-item" key={`${studentAcademicRecords[0].examId}-${item.subjectCode}`}>
+                          <div>
+                            <strong>{item.subjectName}</strong>
+                            <span>校次 {item.schoolRank ?? '-'} · 班次 {item.classRank ?? '-'}</span>
+                          </div>
+                          <b>{item.score ?? '-'} 分</b>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <div className="mini-list-item">
+                    <div>
+                      <strong>暂无成绩记录</strong>
+                      <span>导入成绩表后，这里会展示学业成长维度。</span>
+                    </div>
+                    <b>待导入</b>
+                  </div>
+                )
+              ) : null}
             </div>
             <div className="detail-card span-2">
               <div className="student-ai-header">
@@ -1276,13 +1848,18 @@ export function StudentsPage({
             <div className="detail-card span-2">
               <h4>萌宠档案</h4>
               <div className="detail-pet-panel">
-                <div className="detail-pet-cover">{selectedStudentDetail?.pet?.name?.slice(0, 1) ?? selectedStudent.pet?.name?.slice(0, 1) ?? '未'}</div>
+                <div className={`detail-pet-cover${selectedStudentDetail?.pet || selectedStudent.pet ? '' : ' detail-pet-cover--seed'}`}>
+                  <img
+                    src={resolveAssetUrl(selectedStudentDetail?.pet?.coverUrl ?? selectedStudent.pet?.coverUrl ?? '/assets/pets/400/star-seed.png')}
+                    alt={selectedStudentDetail?.pet?.name ?? selectedStudent.pet?.name ?? '待孕育星种'}
+                  />
+                </div>
                 <div className="detail-list">
-                  <div><span>萌宠名称</span><strong>{selectedStudentDetail?.pet?.name ?? selectedStudent.pet?.name ?? '未领养'}</strong></div>
+                  <div><span>萌宠名称</span><strong>{selectedStudentDetail?.pet?.name ?? selectedStudent.pet?.name ?? '待孕育星种'}</strong></div>
                   <div><span>当前等级</span><strong>{selectedStudentDetail?.pet ? `Lv.${selectedStudentDetail.pet.currentLevel}` : selectedStudent.pet ? `Lv.${selectedStudent.pet.currentLevel}` : '-'}</strong></div>
                   <div><span>当前阶段</span><strong>{selectedStudentDetail?.pet ? `第 ${selectedStudentDetail.pet.currentStageNo} 阶段` : '-'}</strong></div>
                   <div><span>累计积分</span><strong>{selectedStudentDetail?.pet?.totalScore ?? selectedStudent.pet?.totalScore ?? 0}</strong></div>
-                  <div><span>成长状态</span><strong>{selectedStudentDetail?.pet || selectedStudent.pet ? '已绑定成长轨迹' : '待领养'}</strong></div>
+                  <div><span>成长状态</span><strong>{selectedStudentDetail?.pet || selectedStudent.pet ? '已绑定成长轨迹' : '待孕育'}</strong></div>
                 </div>
               </div>
             </div>
