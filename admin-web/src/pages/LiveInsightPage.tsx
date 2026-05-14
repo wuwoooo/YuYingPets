@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { io, type Socket } from 'socket.io-client';
 import presentationLogo from '../assets/presentation-logo.svg';
 import { PresentationGlyph } from '../components/PresentationGlyph';
-import { adminApi, type AdminClass, type AdminStudent, type ScoreRecord, type SessionUser } from '../lib/api';
+import { adminApi, type AcademicExamListItem, type AcademicScoreListRow, type AdminClass, type AdminStudent, type ScoreRecord, type SessionUser } from '../lib/api';
+import { buildAcademicGrowthSummary } from '../utils/academicGrowth';
 
 type LiveInsightPageProps = {
   token: string;
@@ -31,19 +32,33 @@ function formatDelta(value: number) {
   return `${value}`;
 }
 
+const LiveInsightClock = memo(function LiveInsightClock() {
+  const [clock, setClock] = useState(() => formatClock(new Date()));
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setClock(formatClock(new Date()));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  return <div className="presentation-clock">{clock.slice(-8)}</div>;
+});
+
 export function LiveInsightPage({ token, user }: LiveInsightPageProps) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [classes, setClasses] = useState<AdminClass[]>([]);
   const [students, setStudents] = useState<AdminStudent[]>([]);
   const [records, setRecords] = useState<ScoreRecord[]>([]);
+  const [academicExams, setAcademicExams] = useState<AcademicExamListItem[]>([]);
+  const [academicScores, setAcademicScores] = useState<AcademicScoreListRow[]>([]);
   const [selectedClassId, setSelectedClassId] = useState<number | null>(null);
   const [selectedStudentId, setSelectedStudentId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
-  const [clock, setClock] = useState(() => formatClock(new Date()));
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting');
   const [pollingFallback, setPollingFallback] = useState(false);
   const [isActive, setIsActive] = useState(false);
@@ -63,10 +78,12 @@ export function LiveInsightPage({ token, user }: LiveInsightPageProps) {
       setError(null);
       setRefreshing(source !== 'initial');
       try {
-        const [classesResponse, studentsResponse, recordsResponse] = await Promise.all([
+        const [classesResponse, studentsResponse, recordsResponse, examsResponse, academicScoresResponse] = await Promise.all([
           adminApi.classes(token),
           adminApi.students(token),
           adminApi.scoreRecords(token),
+          adminApi.academicExams(token),
+          adminApi.academicScores(token),
         ]);
 
         const classRows = classesResponse.data;
@@ -76,6 +93,8 @@ export function LiveInsightPage({ token, user }: LiveInsightPageProps) {
         setClasses(classRows);
         setStudents(studentRows);
         setRecords(recordRows);
+        setAcademicExams(examsResponse.data);
+        setAcademicScores(academicScoresResponse.data);
         setSelectedClassId((current) => {
           if (current && classRows.some((item) => item.id === current)) return current;
           return classRows[0]?.id ?? null;
@@ -104,13 +123,6 @@ export function LiveInsightPage({ token, user }: LiveInsightPageProps) {
   useEffect(() => {
     void fetchSnapshot('initial');
   }, [fetchSnapshot]);
-
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      setClock(formatClock(new Date()));
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, []);
 
   useEffect(() => {
     const activation = window.setTimeout(() => setIsActive(true), 80);
@@ -292,6 +304,22 @@ export function LiveInsightPage({ token, user }: LiveInsightPageProps) {
       : 0;
     return { totalClassScore, activeClassCount, avgStudentScore };
   }, [classes, students]);
+  const academicGrowth = useMemo(
+    () => buildAcademicGrowthSummary(academicExams, academicScores, classes, students),
+    [academicExams, academicScores, classes, students],
+  );
+  const selectedAcademicClass = useMemo(
+    () => academicGrowth.classSummaries.find((item) => item.classId === selectedClass?.id) ?? null,
+    [academicGrowth.classSummaries, selectedClass?.id],
+  );
+  const selectedAcademicSignals = useMemo(
+    () =>
+      [...academicGrowth.progressLeaders, ...academicGrowth.riskStudents]
+        .filter((item, index, array) => array.findIndex((candidate) => candidate.studentId === item.studentId) === index)
+        .filter((item) => !selectedClass || item.classId === selectedClass.id)
+        .slice(0, 14),
+    [academicGrowth.progressLeaders, academicGrowth.riskStudents, selectedClass],
+  );
   useEffect(() => {
     setSelectedStudentId((current) => {
       if (current && selectedStudents.some((item) => item.id === current)) return current;
@@ -440,10 +468,11 @@ export function LiveInsightPage({ token, user }: LiveInsightPageProps) {
   const tickerText = useMemo(
     () =>
       [
+        ...academicGrowth.progressLeaders.slice(0, 5).map((item) => `${item.className}${item.studentName} 学业成长 ${item.rankDelta > 0 ? '+' : ''}${item.rankDelta}`),
         ...globalEvents.slice(0, 8).map((item) => `${item.classId}班 ${item.studentId}号 ${formatDelta(item.scoreDelta)}分`),
         ...signalRows.slice(0, 4).map((item) => `${item.name} ${item.status}`),
       ].join('  ·  '),
-    [globalEvents, signalRows],
+    [academicGrowth.progressLeaders, globalEvents, signalRows],
   );
 
   return (
@@ -501,7 +530,7 @@ export function LiveInsightPage({ token, user }: LiveInsightPageProps) {
               {pollingFallback ? ' · 轮询兜底' : ''}
             </span>
             <span className="live-insight-target-chip">TARGET · {selectedStudent?.name ?? '未锁定'}</span>
-            <div className="presentation-clock">{clock.slice(-8)}</div>
+            <LiveInsightClock />
             <button className="presentation-exit" type="button" onClick={() => void fetchSnapshot('manual')} disabled={refreshing}>
               {refreshing ? '刷新中...' : '立即刷新'}
             </button>
@@ -520,6 +549,36 @@ export function LiveInsightPage({ token, user }: LiveInsightPageProps) {
             <span key={`${item}-${index}`}>{item}</span>
           ))}
         </div>
+
+        <section className="live-academic-command">
+          <div className="live-academic-core">
+            <span>ACADEMIC GROWTH</span>
+            <strong>{academicGrowth.growthIndex}</strong>
+            <p>{academicGrowth.latestExam?.name ?? '等待成绩导入'} · 均分 {academicGrowth.averageScore} · 覆盖 {academicGrowth.coverageRate}%</p>
+          </div>
+          <div className="live-academic-radar">
+            {academicGrowth.quadrants.map((item, index) => (
+              <div
+                key={item.key}
+                className={`live-academic-radar-dot ${item.tone}`}
+                style={{
+                  left: `${18 + (index % 2) * 56}%`,
+                  top: `${22 + Math.floor(index / 2) * 48}%`,
+                  width: `${28 + Math.min(30, item.count * 2)}px`,
+                  height: `${28 + Math.min(30, item.count * 2)}px`,
+                }}
+              >
+                <strong>{item.count}</strong>
+                <span>{item.label}</span>
+              </div>
+            ))}
+          </div>
+          <div className="live-academic-focus">
+            <div><span>当前班级学业指数</span><strong>{selectedAcademicClass?.growthIndex ?? '--'}</strong></div>
+            <div><span>进步人数</span><strong>{selectedAcademicClass?.progressCount ?? 0}</strong></div>
+            <div><span>退步预警</span><strong>{selectedAcademicClass?.declineCount ?? 0}</strong></div>
+          </div>
+        </section>
 
         <section className="presentation-row presentation-row-3 live-insight-row-stretch">
           <section className="presentation-panel fade-up-panel live-insight-panel live-insight-panel-fill">
@@ -716,7 +775,68 @@ export function LiveInsightPage({ token, user }: LiveInsightPageProps) {
           </section>
         </section>
 
-        <div className="presentation-divider section-2">实时事件与全校快照</div>
+        <div className="presentation-divider section-2">学业成长态势</div>
+
+        <section className="presentation-row presentation-row-3">
+          <section className="presentation-panel fade-up-panel live-insight-panel live-insight-panel-span-2">
+            <div className="presentation-panel-title">
+              <PresentationGlyph name="heat" className="presentation-title-icon" />
+              班级学业热力图
+            </div>
+            <div className="live-academic-heatmap">
+              {academicGrowth.classSummaries.slice(0, 12).map((item) => (
+                <button
+                  type="button"
+                  key={item.classId}
+                  className={`live-academic-heat-row ${item.riskLevel}${selectedClass?.id === item.classId ? ' active' : ''}`}
+                  onClick={() => setSelectedClassId(item.classId)}
+                >
+                  <strong>{item.className}</strong>
+                  <span>均分 {item.averageScore}</span>
+                  <i style={{ width: `${Math.max(10, item.growthIndex)}%` }} />
+                  <b>{item.progressCount}/{item.declineCount}</b>
+                </button>
+              ))}
+              {academicGrowth.classSummaries.length === 0 ? <div className="table-empty">导入成绩后生成班级学业热力图。</div> : null}
+            </div>
+          </section>
+
+          <section className="presentation-panel fade-up-panel live-insight-panel">
+            <div className="presentation-panel-title">
+              <PresentationGlyph name="student" className="presentation-title-icon" />
+              学生成长星图
+            </div>
+            <div className="live-academic-starfield">
+              {selectedAcademicSignals.map((item, index) => (
+                <button
+                  type="button"
+                  key={item.studentId}
+                  className={`live-academic-star ${item.quadrant}`}
+                  style={{
+                    left: `${8 + (index % 4) * 23}%`,
+                    top: `${14 + Math.floor(index / 4) * 25}%`,
+                    width: `${30 + Math.min(24, Math.max(0, item.totalScore / 20))}px`,
+                    height: `${30 + Math.min(24, Math.max(0, item.totalScore / 20))}px`,
+                  }}
+                  onClick={() => setSelectedStudentId(item.studentId)}
+                >
+                  <strong>{item.studentName.slice(0, 2)}</strong>
+                </button>
+              ))}
+              {selectedAcademicSignals.length === 0 ? <div className="table-empty">当前班级暂无学业成长信号。</div> : null}
+            </div>
+            <div className="live-insight-mini-list live-insight-mini-list-dense">
+              {selectedAcademicSignals.slice(0, 4).map((item) => (
+                <div className="live-insight-mini-row" key={`signal-${item.studentId}`}>
+                  <strong>{item.studentName} · {item.totalScore}</strong>
+                  <span>{item.reason} · 变化 {item.rankDelta > 0 ? '+' : ''}{item.rankDelta}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+        </section>
+
+        <div className="presentation-divider section-3">实时事件与全校快照</div>
 
         <section className="presentation-row presentation-row-3">
           <section className="presentation-panel fade-up-panel live-insight-panel">

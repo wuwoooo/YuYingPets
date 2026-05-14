@@ -296,6 +296,9 @@ export class StudentsService {
         throw new BadRequestException('缺少导入班级，请选择目标班级或在表格中提供班级列');
       }
       this.authService.ensureCanAccessClass(user, fallbackClassId);
+      if (user.roleCode === 'homeroom_teacher') {
+        await this.authService.ensureIsHomeroomOfClass(user, fallbackClassId);
+      }
     }
 
     const result = await this.prisma.$transaction(
@@ -347,6 +350,9 @@ export class StudentsService {
 
           if (!createdClass && !createdClassIds.has(resolvedClass.id.toString())) {
             this.authService.ensureCanAccessClass(user, resolvedClass.id);
+            if (user.roleCode === 'homeroom_teacher') {
+              await this.authService.ensureIsHomeroomOfClass(user, resolvedClass.id);
+            }
           }
 
           const student = await tx.student.create({
@@ -441,6 +447,10 @@ export class StudentsService {
 
     this.authService.ensureCanAccessClass(user, existing.classId);
     this.authService.ensureCanAccessClass(user, classId);
+    if (user.roleCode === 'homeroom_teacher') {
+      await this.authService.ensureIsHomeroomOfClass(user, existing.classId);
+      await this.authService.ensureIsHomeroomOfClass(user, classId);
+    }
 
     const targetClass = await this.prisma.classroom.findFirst({
       where: {
@@ -578,6 +588,16 @@ export class StudentsService {
           classId: created.id,
         },
       });
+      await tx.teacherClassAssignment.create({
+        data: {
+          schoolId: user.schoolId,
+          teacherId: user.id,
+          classId: created.id,
+          roleInClass: 'homeroom',
+          isPrimary: true,
+          status: 'enabled',
+        },
+      });
     }
 
     classes.push(created);
@@ -642,6 +662,7 @@ export class StudentsService {
     if (user.roleCode !== 'homeroom_teacher') {
       throw new ForbiddenException('当前角色无权执行萌宠领养');
     }
+    await this.authService.ensureIsHomeroomOfClass(user, body.classId);
 
     const result = await this.prisma.$transaction(async (tx) => {
       const student = await tx.student.findFirst({

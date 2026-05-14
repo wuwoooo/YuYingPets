@@ -75,6 +75,12 @@ enum GeneratedBy {
   manual
 }
 
+enum TeacherClassRole {
+  homeroom
+  co_homeroom
+  subject_teacher
+}
+
 model School {
   id                  BigInt   @id @default(autoincrement())
   code                String   @unique @db.VarChar(64)
@@ -90,33 +96,34 @@ model School {
   createdAt           DateTime @default(now()) @map("created_at")
   updatedAt           DateTime @updatedAt @map("updated_at")
 
-  semesters           Semester[]
-  roles               Role[]
-  users               User[]
-  classrooms          Classroom[]
-  gradeConfigs        GradeConfig[]
-  students            Student[]
-  scoreRules          ScoreRule[]
-  scoreRecords        ScoreRecord[]
-  scoreRecordBatches  ScoreRecordBatch[]
-  academicExams       AcademicExam[]
-  academicScoreRecords AcademicScoreRecord[]
-  classScoreProfiles  ClassScoreProfile[]
-  classScoreRecords   ClassScoreRecord[]
-  classScoreBatches   ClassScoreRecordBatch[]
-  pets                Pet[]
-  honors              Honor[]
-  honorRecords        HonorRecord[]
-  rewards             Reward[]
-  rewardOrders        RewardOrder[]
-  displayConfigs      DisplayConfig[]
-  displayTerminals    DisplayTerminal[]
-  aiStudentSnapshots  AiStudentSnapshot[]
-  teacherObservations TeacherObservation[]
-  teacherScheduleSlots TeacherScheduleSlot[]
+  semesters                   Semester[]
+  roles                       Role[]
+  users                       User[]
+  classrooms                  Classroom[]
+  gradeConfigs                GradeConfig[]
+  students                    Student[]
+  scoreRules                  ScoreRule[]
+  scoreRecords                ScoreRecord[]
+  scoreRecordBatches          ScoreRecordBatch[]
+  academicExams               AcademicExam[]
+  academicScoreRecords        AcademicScoreRecord[]
+  classScoreProfiles          ClassScoreProfile[]
+  classScoreRecords           ClassScoreRecord[]
+  classScoreBatches           ClassScoreRecordBatch[]
+  pets                        Pet[]
+  honors                      Honor[]
+  honorRecords                HonorRecord[]
+  rewards                     Reward[]
+  rewardOrders                RewardOrder[]
+  displayConfigs              DisplayConfig[]
+  displayTerminals            DisplayTerminal[]
+  aiStudentSnapshots          AiStudentSnapshot[]
+  teacherClassAssignments     TeacherClassAssignment[]
+  teacherObservations         TeacherObservation[]
+  teacherScheduleSlots        TeacherScheduleSlot[]
   pendingTeacherScheduleSlots PendingTeacherScheduleSlot[]
-  teacherOccupancyRules TeacherOccupancyRule[]
-  operationLogs       OperationLog[]
+  teacherOccupancyRules       TeacherOccupancyRule[]
+  operationLogs               OperationLog[]
 
   @@map("school")
 }
@@ -132,15 +139,15 @@ model Semester {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  school             School              @relation(fields: [schoolId], references: [id])
-  classrooms         Classroom[]
-  scoreRules         ScoreRule[]
-  scoreRecords       ScoreRecord[]
-  academicExams      AcademicExam[]
+  school               School                @relation(fields: [schoolId], references: [id])
+  classrooms           Classroom[]
+  scoreRules           ScoreRule[]
+  scoreRecords         ScoreRecord[]
+  academicExams        AcademicExam[]
   academicScoreRecords AcademicScoreRecord[]
-  classScoreProfiles ClassScoreProfile[]
-  classScoreRecords  ClassScoreRecord[]
-  aiStudentSnapshots AiStudentSnapshot[]
+  classScoreProfiles   ClassScoreProfile[]
+  classScoreRecords    ClassScoreRecord[]
+  aiStudentSnapshots   AiStudentSnapshot[]
 
   @@index([schoolId])
   @@index([schoolId, isCurrent])
@@ -208,20 +215,21 @@ model User {
   updatedAt    DateTime  @updatedAt @map("updated_at")
   deletedAt    DateTime? @map("deleted_at")
 
-  school                      School                  @relation(fields: [schoolId], references: [id])
-  role                        Role                    @relation(fields: [roleId], references: [id])
+  school                      School                   @relation(fields: [schoolId], references: [id])
+  role                        Role                     @relation(fields: [roleId], references: [id])
   scopes                      UserScope[]
-  homeroomClasses             Classroom[]             @relation("HomeroomTeacherClasses")
+  homeroomClasses             Classroom[]              @relation("HomeroomTeacherClasses")
   scoreRecords                ScoreRecord[]
   classScoreRecords           ClassScoreRecord[]
   classScoreBatches           ClassScoreRecordBatch[]
-  createdScoreRules           ScoreRule[]             @relation("ScoreRuleCreatedBy")
-  updatedScoreRules           ScoreRule[]             @relation("ScoreRuleUpdatedBy")
+  createdScoreRules           ScoreRule[]              @relation("ScoreRuleCreatedBy")
+  updatedScoreRules           ScoreRule[]              @relation("ScoreRuleUpdatedBy")
   rewardOrders                RewardOrder[]
   honorRecords                HonorRecord[]
   displayUnlockSessions       DisplayUnlockSession[]
-  initializedDisplayTerminals DisplayTerminal[]       @relation("DisplayTerminalInitializedBy")
-  adoptedStudentPets          StudentPet[]            @relation("StudentPetAdoptedBy")
+  initializedDisplayTerminals DisplayTerminal[]        @relation("DisplayTerminalInitializedBy")
+  adoptedStudentPets          StudentPet[]             @relation("StudentPetAdoptedBy")
+  teacherClassAssignments     TeacherClassAssignment[]
   teacherObservations         TeacherObservation[]
   teacherScheduleSlots        TeacherScheduleSlot[]
   operationLogs               OperationLog[]
@@ -265,32 +273,55 @@ model Classroom {
   updatedAt         DateTime  @updatedAt @map("updated_at")
   deletedAt         DateTime? @map("deleted_at")
 
-  school                School                 @relation(fields: [schoolId], references: [id])
-  semester              Semester               @relation(fields: [semesterId], references: [id])
-  homeroomTeacher       User?                  @relation("HomeroomTeacherClasses", fields: [homeroomTeacherId], references: [id])
-  students              Student[]
-  userScopes            UserScope[]
-  classGroups           ClassGroup[]
-  studentProfiles       StudentProfile[]
-  scoreRecords          ScoreRecord[]
-  scoreRecordBatches    ScoreRecordBatch[]
-  academicScoreRecords  AcademicScoreRecord[]
-  classScoreProfile     ClassScoreProfile?
-  classScoreRecords     ClassScoreRecord[]
-  honorRecords          HonorRecord[]
-  rewardOrders          RewardOrder[]
-  displayConfigs        DisplayConfig[]
-  displayTerminals      DisplayTerminal[]
-  displayUnlockSessions DisplayUnlockSession[]
-  aiStudentSnapshots    AiStudentSnapshot[]
-  teacherObservations   TeacherObservation[]
-  teacherScheduleSlots  TeacherScheduleSlot[]
+  school                      School                       @relation(fields: [schoolId], references: [id])
+  semester                    Semester                     @relation(fields: [semesterId], references: [id])
+  homeroomTeacher             User?                        @relation("HomeroomTeacherClasses", fields: [homeroomTeacherId], references: [id])
+  students                    Student[]
+  userScopes                  UserScope[]
+  teacherClassAssignments     TeacherClassAssignment[]
+  classGroups                 ClassGroup[]
+  studentProfiles             StudentProfile[]
+  scoreRecords                ScoreRecord[]
+  scoreRecordBatches          ScoreRecordBatch[]
+  academicScoreRecords        AcademicScoreRecord[]
+  classScoreProfile           ClassScoreProfile?
+  classScoreRecords           ClassScoreRecord[]
+  honorRecords                HonorRecord[]
+  rewardOrders                RewardOrder[]
+  displayConfigs              DisplayConfig[]
+  displayTerminals            DisplayTerminal[]
+  displayUnlockSessions       DisplayUnlockSession[]
+  aiStudentSnapshots          AiStudentSnapshot[]
+  teacherObservations         TeacherObservation[]
+  teacherScheduleSlots        TeacherScheduleSlot[]
   pendingTeacherScheduleSlots PendingTeacherScheduleSlot[]
 
   @@index([schoolId, semesterId])
   @@index([gradeCode])
   @@index([homeroomTeacherId])
   @@map("class")
+}
+
+model TeacherClassAssignment {
+  id          BigInt           @id @default(autoincrement())
+  schoolId    BigInt           @map("school_id")
+  teacherId   BigInt           @map("teacher_id")
+  classId     BigInt           @map("class_id")
+  roleInClass TeacherClassRole @map("role_in_class")
+  subjectCode String?          @map("subject_code") @db.VarChar(32)
+  isPrimary   Boolean          @default(false) @map("is_primary")
+  status      Status           @default(enabled)
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @updatedAt @map("updated_at")
+
+  school    School    @relation(fields: [schoolId], references: [id])
+  teacher   User      @relation(fields: [teacherId], references: [id])
+  classroom Classroom @relation(fields: [classId], references: [id])
+
+  @@index([schoolId, classId, roleInClass])
+  @@index([schoolId, teacherId])
+  @@index([teacherId, classId])
+  @@map("teacher_class_assignment")
 }
 
 model TeacherScheduleSlot {
@@ -308,8 +339,8 @@ model TeacherScheduleSlot {
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
 
-  school    School    @relation(fields: [schoolId], references: [id])
-  teacher   User      @relation(fields: [teacherId], references: [id])
+  school    School     @relation(fields: [schoolId], references: [id])
+  teacher   User       @relation(fields: [teacherId], references: [id])
   classroom Classroom? @relation(fields: [classId], references: [id])
 
   @@index([schoolId, teacherId, weekday])
@@ -319,19 +350,19 @@ model TeacherScheduleSlot {
 }
 
 model PendingTeacherScheduleSlot {
-  id         BigInt   @id @default(autoincrement())
-  schoolId   BigInt   @map("school_id")
-  classId    BigInt?  @map("class_id")
-  teacherName String  @map("teacher_name") @db.VarChar(64)
-  weekday    Int
-  periodNo   Int      @map("period_no")
-  startTime  String   @map("start_time") @db.VarChar(8)
-  endTime    String   @map("end_time") @db.VarChar(8)
-  subject    String   @db.VarChar(64)
-  className  String?  @map("class_name") @db.VarChar(32)
-  sourceFile String?  @map("source_file") @db.VarChar(255)
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @updatedAt @map("updated_at")
+  id          BigInt   @id @default(autoincrement())
+  schoolId    BigInt   @map("school_id")
+  classId     BigInt?  @map("class_id")
+  teacherName String   @map("teacher_name") @db.VarChar(64)
+  weekday     Int
+  periodNo    Int      @map("period_no")
+  startTime   String   @map("start_time") @db.VarChar(8)
+  endTime     String   @map("end_time") @db.VarChar(8)
+  subject     String   @db.VarChar(64)
+  className   String?  @map("class_name") @db.VarChar(32)
+  sourceFile  String?  @map("source_file") @db.VarChar(255)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
   school    School     @relation(fields: [schoolId], references: [id])
   classroom Classroom? @relation(fields: [classId], references: [id])
@@ -664,21 +695,21 @@ model ScoreRecordBatchItem {
 }
 
 model AcademicExam {
-  id            BigInt   @id @default(autoincrement())
-  schoolId      BigInt   @map("school_id")
-  semesterId    BigInt   @map("semester_id")
-  gradeName     String?  @map("grade_name") @db.VarChar(32)
-  name          String   @db.VarChar(255)
-  sourceFile    String?  @map("source_file") @db.VarChar(255)
-  importedBy    BigInt?  @map("imported_by")
-  importedByName String? @map("imported_by_name") @db.VarChar(64)
-  importedAt    DateTime @default(now()) @map("imported_at")
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
+  id             BigInt   @id @default(autoincrement())
+  schoolId       BigInt   @map("school_id")
+  semesterId     BigInt   @map("semester_id")
+  gradeName      String?  @map("grade_name") @db.VarChar(32)
+  name           String   @db.VarChar(255)
+  sourceFile     String?  @map("source_file") @db.VarChar(255)
+  importedBy     BigInt?  @map("imported_by")
+  importedByName String?  @map("imported_by_name") @db.VarChar(64)
+  importedAt     DateTime @default(now()) @map("imported_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
 
-  school    School                @relation(fields: [schoolId], references: [id])
-  semester  Semester              @relation(fields: [semesterId], references: [id])
-  records   AcademicScoreRecord[]
+  school   School                @relation(fields: [schoolId], references: [id])
+  semester Semester              @relation(fields: [semesterId], references: [id])
+  records  AcademicScoreRecord[]
 
   @@index([schoolId, semesterId])
   @@index([gradeName])

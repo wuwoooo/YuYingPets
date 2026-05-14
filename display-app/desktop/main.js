@@ -7,6 +7,7 @@ function createWindow() {
     height: 900,
     minWidth: 1280,
     minHeight: 720,
+    fullscreen: process.env.DISPLAY_FULLSCREEN !== 'false',
     autoHideMenuBar: true,
     backgroundColor: '#0f3d74',
     show: false,
@@ -37,7 +38,7 @@ function createWindow() {
   }
 
   window.once('ready-to-show', () => {
-    if (process.env.DISPLAY_FULLSCREEN === 'true') {
+    if (process.env.DISPLAY_FULLSCREEN !== 'false') {
       window.setFullScreen(true);
     }
     window.show();

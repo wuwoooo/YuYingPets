@@ -99,7 +99,7 @@ export class ClassesService {
         },
       });
 
-      await this.ensureHomeroomTeacherClassScope(tx, user.schoolId, classroom.id, classroom.homeroomTeacherId);
+      await this.syncHomeroomTeacherAssignment(tx, user.schoolId, classroom.id, null, classroom.homeroomTeacherId);
       return classroom;
     });
 
@@ -191,10 +191,13 @@ export class ClassesService {
     const user = await this.authService.getAuthUserFromAuthorization(authorization);
     this.ensureCanManageClass(user.roleCode);
     this.authService.ensureCanAccessClass(user, id);
+    if (user.roleCode === 'homeroom_teacher') {
+      await this.authService.ensureIsHomeroomOfClass(user, id);
+    }
 
     const exists = await this.prisma.classroom.findFirst({
       where: { id: BigInt(id), schoolId: user.schoolId, deletedAt: null },
-      select: { id: true },
+      select: { id: true, homeroomTeacherId: true },
     });
     if (!exists) {
       throw new NotFoundException('班级不存在');
@@ -241,7 +244,13 @@ export class ClassesService {
       });
 
       if (user.roleCode !== 'homeroom_teacher' && body.homeroomTeacherId !== undefined) {
-        await this.ensureHomeroomTeacherClassScope(tx, user.schoolId, classroom.id, classroom.homeroomTeacherId);
+        await this.syncHomeroomTeacherAssignment(
+          tx,
+          user.schoolId,
+          classroom.id,
+          exists.homeroomTeacherId,
+          classroom.homeroomTeacherId,
+        );
       }
 
       return classroom;
@@ -316,6 +325,9 @@ export class ClassesService {
     const user = await this.authService.getAuthUserFromAuthorization(authorization);
     this.ensureCanManageGroups(user.roleCode);
     this.authService.ensureCanAccessClass(user, id);
+    if (user.roleCode === 'homeroom_teacher') {
+      await this.authService.ensureIsHomeroomOfClass(user, id);
+    }
 
     const groups = Array.isArray(body.groups) ? body.groups : [];
     const classId = BigInt(id);
@@ -417,12 +429,24 @@ export class ClassesService {
     }
   }
 
-  private async ensureHomeroomTeacherClassScope(
+  private async syncHomeroomTeacherAssignment(
     tx: Prisma.TransactionClient,
     schoolId: bigint,
     classId: bigint,
+    previousHomeroomTeacherId: bigint | null,
     homeroomTeacherId: bigint | null,
   ) {
+    await tx.teacherClassAssignment.deleteMany({
+      where: {
+        classId,
+        roleInClass: 'homeroom',
+      },
+    });
+
+    if (previousHomeroomTeacherId && previousHomeroomTeacherId !== homeroomTeacherId) {
+      await this.deleteClassScopeIfNoRemainingAssignment(tx, previousHomeroomTeacherId, classId);
+    }
+
     if (!homeroomTeacherId) return;
 
     const teacher = await tx.user.findFirst({
@@ -445,6 +469,17 @@ export class ClassesService {
       throw new BadRequestException('只能指派班主任角色账号为班主任');
     }
 
+    await tx.teacherClassAssignment.create({
+      data: {
+        schoolId,
+        teacherId: homeroomTeacherId,
+        classId,
+        roleInClass: 'homeroom',
+        isPrimary: true,
+        status: 'enabled',
+      },
+    });
+
     const existingScope = await tx.userScope.findFirst({
       where: {
         userId: homeroomTeacherId,
@@ -461,6 +496,39 @@ export class ClassesService {
         userId: homeroomTeacherId,
         scopeType: 'class_scope',
         classId,
+      },
+    });
+  }
+
+  private async deleteClassScopeIfNoRemainingAssignment(
+    tx: Prisma.TransactionClient,
+    teacherId: bigint,
+    classId: bigint,
+  ) {
+    const remainingAssignment = await tx.teacherClassAssignment.findFirst({
+      where: {
+        teacherId,
+        classId,
+      },
+      select: { id: true },
+    });
+    if (remainingAssignment) return;
+
+    const subjectScope = await tx.userScope.findFirst({
+      where: {
+        userId: teacherId,
+        classId,
+        scopeType: 'subject_class',
+      },
+      select: { id: true },
+    });
+    if (subjectScope) return;
+
+    await tx.userScope.deleteMany({
+      where: {
+        userId: teacherId,
+        classId,
+        scopeType: 'class_scope',
       },
     });
   }

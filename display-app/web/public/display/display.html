@@ -57,6 +57,25 @@
     </style>
   </head>
   <body>
+    <button
+      id="displayFullscreenBtn"
+      class="display-fullscreen-btn"
+      type="button"
+      title="进入全屏"
+      onclick="requestDisplayFullscreen()"
+      hidden
+    >
+      <i class="fa-solid fa-expand" aria-hidden="true"></i>
+      <span>全屏</span>
+    </button>
+    <div
+      id="displayToast"
+      class="display-toast"
+      role="status"
+      aria-live="polite"
+      hidden
+    ></div>
+
     <!-- ==================== D01 进入页 ==================== -->
       <div id="page-entry" class="page">
       <div class="entry-starfield" aria-hidden="true">
@@ -86,7 +105,7 @@
         <div class="entry-corner-sub" id="entryClassSummary">请先完成初始化配置</div>
         <div class="entry-corner-sub" id="entryTeacherName">班主任：待设置</div>
       </div>
-      <button class="entry-btn" onclick="navigateTo('login')">
+      <button class="entry-btn" onclick="enterDisplayLogin()">
         教师登录
         <span class="btn-arrow"
           ><i class="fa-solid fa-arrow-right" aria-hidden="true"></i
@@ -298,6 +317,14 @@
           <div class="login-terminal-meta" id="loginTerminalMeta">
             终端名称：未命名终端
           </div>
+        </div>
+        <div class="login-field saved-account-field" id="loginSavedAccountField" hidden>
+          <label>已保存账号</label>
+          <select
+            id="loginSavedAccount"
+            class="login-account-select"
+            onchange="handleSavedAccountChange()"
+          ></select>
         </div>
         <div class="login-field">
           <label>账号或手机号</label>
@@ -627,9 +654,9 @@
 
     <!-- 分组管理弹窗 -->
     <div class="modal-panel-overlay" id="groupManageModal">
-      <div class="modal-panel" style="max-width: 520px">
+      <div class="modal-panel group-manage-modal-panel">
         <div class="modal-panel-hd">
-          <span>学生分组</span>
+          <span>分组管理</span>
           <button
             type="button"
             class="modal-panel-close"
@@ -640,26 +667,41 @@
           </button>
         </div>
         <div class="modal-panel-bd">
-          <p style="font-size: 13px; color: #666; margin-bottom: 12px">
-            为每位学生指定小组，便于按小组进行评价。
-          </p>
-          <table class="group-manage-table" id="groupManageTable">
-            <thead>
-              <tr>
-                <th>学生</th>
-                <th>小组</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-          <div style="margin-top: 16px; text-align: right">
+          <div class="group-manage-layout">
+            <section class="group-manage-sidebar">
+              <div class="group-manage-section-head">
+                <span>小组列表</span>
+                <button type="button" class="group-manage-add-btn" onclick="addGroupManageGroup()">
+                  <i class="fa-solid fa-plus"></i>
+                  新增小组
+                </button>
+              </div>
+              <div class="group-manage-list" id="groupManageList"></div>
+            </section>
+            <section class="group-manage-students">
+              <div class="group-manage-section-head">
+                <span>学生归属</span>
+                <em id="groupManageSummary">0 个小组</em>
+              </div>
+              <table class="group-manage-table" id="groupManageTable">
+                <thead>
+                  <tr>
+                    <th>学生</th>
+                    <th>小组</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </section>
+          </div>
+          <div class="group-manage-actions">
             <button
               type="button"
               class="card-adopt-btn"
               style="background: linear-gradient(135deg, #2980b9, #3498db)"
-              onclick="saveGroupManageChanges()"
+              onclick="closeGroupManageModal()"
             >
-              保存分组
+              关闭
             </button>
           </div>
         </div>
@@ -746,38 +788,7 @@
               >
                 全部
               </button>
-              <button
-                type="button"
-                class="toolbar-chip"
-                id="gf1"
-                onclick="setGroupFilter(1)"
-              >
-                第1组
-              </button>
-              <button
-                type="button"
-                class="toolbar-chip"
-                id="gf2"
-                onclick="setGroupFilter(2)"
-              >
-                第2组
-              </button>
-              <button
-                type="button"
-                class="toolbar-chip"
-                id="gf3"
-                onclick="setGroupFilter(3)"
-              >
-                第3组
-              </button>
-              <button
-                type="button"
-                class="toolbar-chip"
-                id="gf4"
-                onclick="setGroupFilter(4)"
-              >
-                第4组
-              </button>
+              <span class="group-filter-chips" id="groupFilterChips"></span>
               <span class="toolbar-divider"></span>
               <button
                 type="button"
@@ -854,6 +865,27 @@
                 <div class="ex-entry-sub">使用积分兑换精美奖励</div>
               </div>
               <div class="ex-entry-arrow">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M5 12h14M12 5l7 7-7 7" />
+                </svg>
+              </div>
+            </div>
+            <div class="academic-entry-card" onclick="navigateTo('academic')">
+              <div class="academic-entry-icon">
+                <i class="fa-solid fa-chart-line" aria-hidden="true"></i>
+              </div>
+              <div class="academic-entry-text">
+                <div class="academic-entry-title">学业成长</div>
+                <div class="academic-entry-sub">全数据成长态势与成绩雷达</div>
+              </div>
+              <div class="academic-entry-arrow">
                 <svg
                   viewBox="0 0 24 24"
                   fill="none"
@@ -992,6 +1024,135 @@
           <button class="bottom-tab active" data-target="classroom" onclick="navigateTo('classroom')">
             主页
           </button>
+          <button class="bottom-tab" data-target="academic" onclick="navigateTo('academic')">
+            学业成长
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== D07 学业成长大屏 ==================== -->
+    <div id="page-academic" class="page">
+      <div class="academic-grid-bg" aria-hidden="true"></div>
+      <div class="academic-scanline" aria-hidden="true"></div>
+      <div class="academic-topbar">
+        <div class="academic-brand">
+          <img src="images/logo.svg" alt="育英星宠" />
+          <div>
+            <div class="academic-kicker">ACADEMIC GROWTH COMMAND</div>
+            <div class="academic-title">学业成长数据驾驶舱</div>
+          </div>
+        </div>
+        <div class="academic-headline">
+          <div class="academic-headline-track" id="academicHeadline">
+            <span>正在读取学业成长数据</span>
+            <span>正在读取学业成长数据</span>
+          </div>
+        </div>
+        <div class="academic-clock">
+          <button type="button" class="academic-top-back" onclick="navigateTo('classroom')">
+            <i class="fa-solid fa-house" aria-hidden="true"></i>
+            返回主页
+          </button>
+          <span id="academicClassLabel">--</span>
+          <span id="academicExamLabel">--</span>
+        </div>
+      </div>
+
+      <div class="academic-layout">
+        <section class="academic-panel academic-overview">
+          <div class="academic-panel-title">
+            <span>核心态势</span>
+            <button type="button" onclick="bootstrapDisplayData({ silent: true })" title="刷新学业数据">
+              <i class="fa-solid fa-rotate-right" aria-hidden="true"></i>
+            </button>
+          </div>
+          <div class="academic-index-ring">
+            <div class="academic-ring-core">
+              <span>成长指数</span>
+              <strong id="academicGrowthIndex">--</strong>
+              <em id="academicCoverage">覆盖 --%</em>
+            </div>
+          </div>
+          <div class="academic-metrics">
+            <div><span>均分</span><strong id="academicAverage">--</strong></div>
+            <div><span>样本</span><strong id="academicParticipants">--</strong></div>
+            <div><span>进步</span><strong id="academicProgress">--</strong></div>
+            <div><span>预警</span><strong id="academicRisk">--</strong></div>
+          </div>
+          <div class="academic-grade-compare">
+            <div><span>年级指数</span><strong id="academicGradeIndex">--</strong></div>
+            <div><span>年级均分</span><strong id="academicGradeAverage">--</strong></div>
+          </div>
+          <div class="academic-trajectory" id="academicTrajectory"></div>
+        </section>
+
+        <section class="academic-panel academic-matrix">
+          <div class="academic-panel-title">
+            <span>学生成绩矩阵</span>
+            <b id="academicMatrixMeta">TOTAL DATA</b>
+          </div>
+          <div class="academic-table" id="academicScoreTable"></div>
+        </section>
+
+        <section class="academic-panel academic-radar-panel">
+          <div class="academic-panel-title">
+            <span>科目雷达</span>
+            <b>SUBJECT RADAR</b>
+          </div>
+          <div class="academic-radar-wrap">
+            <div class="academic-radar" id="academicRadar"></div>
+            <div class="academic-subject-bars" id="academicSubjectBars"></div>
+          </div>
+        </section>
+
+        <section class="academic-panel academic-class-panel">
+          <div class="academic-panel-title">
+            <span>年级对照</span>
+            <b>GRADE HEATMAP</b>
+          </div>
+          <div class="academic-class-list" id="academicClassList"></div>
+        </section>
+
+        <section class="academic-panel academic-signal-panel">
+          <div class="academic-panel-title">
+            <span>成长信号</span>
+            <b>LIVE SIGNAL</b>
+          </div>
+          <div class="academic-student-detail" id="academicStudentDetail"></div>
+          <div class="academic-signal-columns">
+            <div>
+              <div class="academic-signal-heading good">进步跃迁</div>
+              <div class="academic-signal-scroll" id="academicProgressList"></div>
+            </div>
+            <div>
+              <div class="academic-signal-heading risk">重点帮扶</div>
+              <div class="academic-signal-scroll" id="academicRiskList"></div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+    </div>
+
+    <div class="academic-ai-overlay" id="academicAiModal">
+      <div class="academic-ai-modal">
+        <button type="button" class="academic-ai-close" onclick="closeAcademicAiModal()" aria-label="关闭 AI 学情分析">
+          <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+        </button>
+        <div class="academic-ai-head">
+          <div>
+            <span>AI STUDENT INSIGHT</span>
+            <strong id="academicAiStudentName">学生学情分析</strong>
+            <em id="academicAiStudentMeta">本周 · 数据生成中</em>
+          </div>
+          <button type="button" class="academic-ai-refresh" onclick="regenerateAcademicAiSummary()">
+            <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i>
+            重新生成
+          </button>
+        </div>
+        <div class="academic-ai-body" id="academicAiBody">
+          <div class="academic-ai-placeholder">正在读取 AI 学情摘要...</div>
         </div>
       </div>
     </div>

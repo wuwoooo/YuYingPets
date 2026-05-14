@@ -116,6 +116,11 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
             <a href="/">忘记密码?</a>
             <span>© 2026 育英星宠</span>
           </div>
+          <div className="login-beian">
+            <a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer">
+              滇ICP备2020007229号-4
+            </a>
+          </div>
           <div className="login-card-tail">
             <span>AUTH CHANNEL · ONLINE</span>
             <span>01 / SYSTEM ACCESS</span>

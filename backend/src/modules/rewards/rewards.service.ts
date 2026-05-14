@@ -345,6 +345,9 @@ export class RewardsService {
     if (body.sourceTerminal === 'display' && user.roleCode !== 'homeroom_teacher') {
       throw new ForbiddenException('展示端兑换仅允许班主任执行');
     }
+    if (body.sourceTerminal === 'display') {
+      await this.authService.ensureIsHomeroomOfClass(user, body.classId);
+    }
 
     const result = await this.prisma.$transaction(async (tx) => {
       const student = await tx.student.findFirst({

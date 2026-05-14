@@ -239,9 +239,8 @@ const students = [
   },
 ];
 
-/* 补全分组；未领养学生默认无宠 */
-students.forEach((s, i) => {
-  if (s.group == null) s.group = (i % 4) + 1;
+/* 未领养学生默认无宠；学生默认不自动分组 */
+students.forEach((s) => {
   if (s.hasPet == null) s.hasPet = true;
 });
 
@@ -353,6 +352,9 @@ const PET_THEME_META = {
 
 let studentSortMode = "score";
 let groupFilter = null;
+let groupManageDraft = null;
+let groupManagePersistPromise = Promise.resolve();
+let groupManagePersistTimer = null;
 let batchMode = false;
 const batchSelectedNames = new Set();
 let adoptTargetName = null;
@@ -813,12 +815,9 @@ function setStudentSortMode(mode) {
 
 function setGroupFilter(g) {
   groupFilter = g;
-  for (let i = 1; i <= 4; i++) {
-    const el = document.getElementById("gf" + i);
-    if (el) el.classList.toggle("active", g === i);
-  }
   const allEl = document.getElementById("gfAll");
   if (allEl) allEl.classList.toggle("active", g === null);
+  updateGroupToolbar();
   renderStudentGrid();
 }
 
@@ -862,7 +861,7 @@ function updateBatchCount() {
 
 function openGroupPointForFilter() {
   if (groupFilter === null) {
-    alert("请先在「小组」中选择一个组，或使用「分组管理」为学生分组。");
+    showDisplayToast("请先在「小组」中选择一个组，或使用「分组管理」为学生分组。");
     return;
   }
   openPointModalGroup(groupFilter);
@@ -870,7 +869,7 @@ function openGroupPointForFilter() {
 
 function openBatchPointModal() {
   if (batchSelectedNames.size === 0) {
-    alert("请先勾选学生。");
+    showDisplayToast("请先勾选学生。");
     return;
   }
   openPointModalBatch([...batchSelectedNames]);
@@ -878,7 +877,7 @@ function openBatchPointModal() {
 
 function openAdoptModal(studentName) {
   if (!isHomeroomTeacher()) {
-    alert("萌宠领养仅允许班主任执行");
+    showDisplayToast("萌宠领养仅允许班主任执行");
     return;
   }
   adoptTargetName = studentName;
@@ -908,7 +907,7 @@ async function confirmAdopt(petCode) {
   const s = students.find((x) => x.name === adoptTargetName);
   if (!s || s.hasPet !== false) return;
   if (!runtimeState.token || !runtimeState.classId) {
-    alert("请先登录班主任账号");
+    showDisplayToast("请先登录班主任账号");
     return;
   }
   const confirmed = await showConfirmModal({
@@ -944,79 +943,247 @@ async function confirmAdopt(petCode) {
       };
     showGlobalPetAdoptAnimation(adoptedStudent);
   } catch (error) {
-    alert(error.message || "领养失败");
+    showDisplayToast(error.message || "领养失败");
   }
 }
 
 function openGroupManageModal() {
   if (!isHomeroomTeacher()) {
-    alert("分组管理仅允许班主任执行");
+    showDisplayToast("分组管理仅允许班主任执行");
     return;
   }
+  groupManageDraft = {
+    groups: getGroupOptions().map((option) => ({
+      id: option.id,
+      groupNo: Number(option.groupNo),
+      name: option.name || `第${option.groupNo}组`,
+    })),
+    assignments: new Map(
+      students.map((student, index) => [
+        getStudentDraftKey(student, index),
+        student.group == null ? null : Number(student.group),
+      ]),
+    ),
+  };
+  renderGroupManageDraft();
+  document.getElementById("groupManageModal").classList.add("active");
+}
+
+async function closeGroupManageModal() {
+  if (groupManageDraft) {
+    await persistGroupManageChanges();
+  }
+  document.getElementById("groupManageModal").classList.remove("active");
+  groupManageDraft = null;
+  renderStudentGrid();
+}
+
+function getStudentDraftKey(student, index = 0) {
+  return String(student.id ?? `${student.name}-${index}`);
+}
+
+function renderGroupManageDraft() {
+  if (!groupManageDraft) return;
+  const list = document.getElementById("groupManageList");
   const tbody = document.querySelector("#groupManageTable tbody");
-  if (!tbody) return;
-  const options = getGroupOptions();
+  const summary = document.getElementById("groupManageSummary");
+  if (!list || !tbody) return;
+  const groups = groupManageDraft.groups.sort((a, b) => a.groupNo - b.groupNo);
+  if (summary) summary.textContent = `${groups.length} 个小组`;
+
+  list.innerHTML = groups
+    .map(
+      (group) => `
+        <div class="group-manage-row">
+          <span class="group-manage-no">第${group.groupNo}组</span>
+          <input
+            class="group-manage-name-input"
+            value="${escapeHtml(group.name)}"
+            maxlength="20"
+            onchange="renameGroupManageGroup(${group.groupNo}, this.value)"
+            oninput="renameGroupManageGroup(${group.groupNo}, this.value, true)"
+          />
+          <button
+            type="button"
+            class="group-manage-delete-btn"
+            title="删除小组"
+            onclick="deleteGroupManageGroup(${group.groupNo})"
+          >
+            <i class="fa-solid fa-trash-can"></i>
+          </button>
+        </div>`,
+    )
+    .join("");
+
+  const optionsHtml =
+    '<option value="">未分组</option>' +
+    groups
+    .map((group) => `<option value="${group.groupNo}">${escapeHtml(group.name)}</option>`)
+    .join("");
   tbody.innerHTML = students
-    .map((s) => {
-      const g = s.group || 1;
+    .map((student, index) => {
+      const key = getStudentDraftKey(student, index);
+      const current = groupManageDraft.assignments.get(key);
       return `<tr>
-        <td>${s.name}</td>
+        <td>${escapeHtml(student.name)}</td>
         <td>
-          <select onchange="setStudentGroupByName('${s.name.replace(/'/g, "\\'")}', parseInt(this.value,10))">
-            ${options
-              .map(
-                (option) =>
-                  `<option value="${option.groupNo}" ${g === option.groupNo ? "selected" : ""}>${option.name}</option>`,
-              )
-              .join("")}
+          <select data-student-key="${escapeHtml(key)}" onchange="setStudentGroupByKey(this.dataset.studentKey, this.value ? Number(this.value) : null)">
+            ${optionsHtml}
           </select>
         </td>
       </tr>`;
     })
     .join("");
-  document.getElementById("groupManageModal").classList.add("active");
+  tbody.querySelectorAll("select[data-student-key]").forEach((select) => {
+    const current = groupManageDraft.assignments.get(select.dataset.studentKey);
+    select.value = current == null ? "" : String(current);
+  });
 }
 
-function closeGroupManageModal() {
-  document.getElementById("groupManageModal").classList.remove("active");
+async function addGroupManageGroup() {
+  if (!groupManageDraft) return;
+  const used = new Set(groupManageDraft.groups.map((group) => Number(group.groupNo)));
+  let groupNo = 1;
+  while (used.has(groupNo)) groupNo += 1;
+  groupManageDraft.groups.push({
+    id: null,
+    groupNo,
+    name: `第${groupNo}组`,
+  });
+  renderGroupManageDraft();
+  await persistGroupManageChanges("新增小组失败");
+}
+
+async function renameGroupManageGroup(groupNo, name, silent = false) {
+  if (!groupManageDraft) return;
+  const group = groupManageDraft.groups.find((item) => item.groupNo === Number(groupNo));
+  if (!group) return;
+  group.name = String(name || "").trim() || `第${group.groupNo}组`;
+  if (!silent) renderGroupManageDraft();
+  if (silent) {
+    scheduleGroupManagePersist("修改小组名称失败");
+  } else {
+    await persistGroupManageChanges("修改小组名称失败");
+  }
+}
+
+async function deleteGroupManageGroup(groupNo) {
+  if (!groupManageDraft) return;
+  const targetNo = Number(groupNo);
+  const assignedCount = Array.from(groupManageDraft.assignments.values()).filter(
+    (value) => Number(value) === targetNo,
+  ).length;
+  if (assignedCount > 0) {
+    const confirmed = await showConfirmModal({
+      tone: "warn",
+      badge: "删除小组",
+      icon: "fa-layer-group",
+      title: "确认删除这个小组吗？",
+      description: `当前有 ${assignedCount} 名学生在该小组。确认删除后，这些学生会变为未分组。`,
+      confirmText: "删除小组",
+    });
+    if (!confirmed) return;
+  }
+  groupManageDraft.groups = groupManageDraft.groups.filter((group) => group.groupNo !== targetNo);
+  groupManageDraft.assignments.forEach((value, key) => {
+    if (Number(value) === targetNo) {
+      groupManageDraft.assignments.set(key, null);
+    }
+  });
+  renderGroupManageDraft();
+  await persistGroupManageChanges("删除小组失败");
+}
+
+async function setStudentGroupByKey(key, g) {
+  if (!groupManageDraft) return;
+  groupManageDraft.assignments.set(String(key), g == null ? null : Number(g));
+  applyGroupManageDraftToStudents();
   renderStudentGrid();
+  await persistGroupManageChanges("调整学生分组失败");
 }
 
-function setStudentGroupByName(name, g) {
-  const s = students.find((x) => x.name === name);
-  if (s) s.group = g;
+function buildGroupManagePayload() {
+  if (!groupManageDraft) return [];
+  const groupNos = new Set(groupManageDraft.groups.map((group) => Number(group.groupNo)));
+  return groupManageDraft.groups.map((option) => ({
+    id: option.id,
+    groupNo: Number(option.groupNo),
+    name: option.name || `第${option.groupNo}组`,
+    studentIds: students
+      .filter((student, index) => {
+        const assignedGroupNo = groupManageDraft.assignments.get(getStudentDraftKey(student, index));
+        return (
+          assignedGroupNo != null &&
+          Number(assignedGroupNo) === Number(option.groupNo) &&
+          groupNos.has(Number(option.groupNo))
+        );
+      })
+      .map((student) => student.id)
+      .filter((id) => id != null),
+  }));
 }
 
-async function saveGroupManageChanges() {
+function applyGroupManageDraftToStudents() {
+  if (!groupManageDraft) return;
+  students.forEach((student, index) => {
+    const assignedGroupNo = groupManageDraft.assignments.get(getStudentDraftKey(student, index));
+    const group = groupManageDraft.groups.find((item) => Number(item.groupNo) === Number(assignedGroupNo));
+    student.group = group ? group.groupNo : null;
+    student.groupName = group ? group.name : null;
+  });
+}
+
+async function persistGroupManageChanges(errorMessage = "保存分组失败", options = {}) {
+  const renderAfter = options.renderAfter !== false;
+  window.clearTimeout(groupManagePersistTimer);
   if (!runtimeState.token || !runtimeState.classId) {
-    alert("请先登录班主任账号");
+    showDisplayToast("请先登录班主任账号");
     return;
   }
   if (!isHomeroomTeacher()) {
-    alert("分组管理仅允许班主任执行");
+    showDisplayToast("分组管理仅允许班主任执行");
     return;
   }
-  const groupsPayload = getGroupOptions().map((option) => ({
-    id: option.id,
-    groupNo: option.groupNo,
-    name: option.name,
-    studentIds: students
-      .filter((student) => Number(student.group) === option.groupNo)
-      .map((student) => student.id),
-  }));
-
-  try {
-    await apiFetch(`/classes/${runtimeState.classId}/groups/students`, {
-      method: "PUT",
-      body: JSON.stringify({
-        groups: groupsPayload,
-      }),
-    });
-    closeGroupManageModal();
-    await bootstrapDisplayData({ authenticated: true, silent: true });
-  } catch (error) {
-    alert(error.message || "保存分组失败");
+  if (!groupManageDraft || groupManageDraft.groups.length === 0) {
+    if (!groupManageDraft) return;
   }
+
+  groupManagePersistPromise = groupManagePersistPromise
+    .catch(() => {})
+    .then(async () => {
+      const groupsPayload = buildGroupManagePayload();
+      applyGroupManageDraftToStudents();
+      await apiFetch(`/classes/${runtimeState.classId}/groups/students`, {
+        method: "PUT",
+        body: JSON.stringify({
+          groups: groupsPayload,
+        }),
+      });
+      const latestGroups = await apiFetch(`/classes/${runtimeState.classId}/groups`).catch(() => null);
+      if (!groupManageDraft) return;
+      if (Array.isArray(latestGroups)) {
+        runtimeState.groups = latestGroups;
+        const idByGroupNo = new Map(latestGroups.map((group) => [Number(group.groupNo), group.id || null]));
+        groupManageDraft.groups.forEach((group) => {
+          group.id = idByGroupNo.get(Number(group.groupNo)) || group.id || null;
+        });
+      } else {
+        runtimeState.groups = groupManageDraft.groups.map((group) => ({ ...group }));
+      }
+      updateGroupToolbar();
+      if (renderAfter) {
+        renderStudentGrid();
+        renderGroupManageDraft();
+      }
+    });
+  return groupManagePersistPromise.catch((error) => {
+    showDisplayToast(error.message || errorMessage);
+  });
+}
+
+function scheduleGroupManagePersist(errorMessage = "保存分组失败") {
+  window.clearTimeout(groupManagePersistTimer);
+  void persistGroupManageChanges(errorMessage, { renderAfter: false });
 }
 
 function lvCategory(lv) {
@@ -1051,7 +1218,7 @@ function renderStudentGrid() {
       const sel = batchSelectedNames.has(s.name);
       const topRight = batchOn
         ? `<input type="checkbox" class="card-batch-check" ${sel ? "checked" : ""} onclick="toggleBatchSelect('${s.name.replace(/'/g, "\\'")}', event)">`
-        : `<span class="card-group-tag">第${s.group}组</span>`;
+        : `<span class="card-group-tag">${escapeHtml(s.groupName || getGroupLabel(s.group))}</span>`;
       const noPetClass = noPet ? " no-pet" : "";
       const batchCls = batchOn && sel ? " batch-selected" : "";
       const modeCls = batchOn ? " batch-mode" : "";
@@ -1831,6 +1998,7 @@ const pageMap = {
   login: "page-login",
   transition: "page-transition",
   classroom: "page-classroom",
+  academic: "page-academic",
   leaderboard: "page-leaderboard",
   exchange: "page-exchange",
 };
@@ -1853,6 +2021,9 @@ function navigateTo(key) {
         const bar = document.getElementById("goalBar");
         if (bar) bar.style.width = "81.9%";
       }, 300);
+    }
+    if (key === "academic") {
+      renderAcademicGrowth();
     }
   }
 
@@ -2449,6 +2620,28 @@ function makeInteractive(card) {
 /* ========== 加减分弹窗处理 ========== */
 let currentFocusStudent = null;
 let confirmModalResolver = null;
+let displayToastTimer = null;
+
+function showDisplayToast(message, options = {}) {
+  const toast = document.getElementById("displayToast");
+  if (!toast) return;
+  const text = String(message || "").trim();
+  if (!text) return;
+  window.clearTimeout(displayToastTimer);
+  toast.textContent = text;
+  toast.hidden = false;
+  requestAnimationFrame(() => toast.classList.add("active"));
+  displayToastTimer = window.setTimeout(() => {
+    toast.classList.remove("active");
+    window.setTimeout(() => {
+      if (!toast.classList.contains("active")) {
+        toast.hidden = true;
+      }
+    }, 240);
+  }, options.duration || 2800);
+}
+
+window.alert = (message) => showDisplayToast(message);
 
 function closeConfirmModal(confirmed = false) {
   document.getElementById("confirmModal")?.classList.remove("active");
@@ -2561,10 +2754,11 @@ function openPointModalBatch(names) {
 
 function openPointModalGroup(groupNum) {
   const list = students.filter((s) => s.group === groupNum);
+  const groupLabel = getGroupLabel(groupNum);
   currentFocusStudent = { type: "group", group: groupNum };
   document.getElementById("pmAvatar").src = "images/logo.svg";
   document.getElementById("pmName").textContent =
-    "第" + groupNum + "组（" + list.length + " 人）";
+    groupLabel + "（" + list.length + " 人）";
   document.getElementById("pmPts").textContent = "—";
   document.getElementById("pmHistory").innerHTML =
     '<div style="text-align:center;color:#999;font-size:12px;padding:10px;">对本组全部学生同步加减分</div>';
@@ -2621,7 +2815,7 @@ function profileToEvo() {
     }, 100);
   } else {
     // 界面反馈：如果实在找不到，提示用户
-    alert(`暂未在图鉴中找到名为 "${petName || "未知"}" 的萌宠进化详情。`);
+    showDisplayToast(`暂未在图鉴中找到名为 "${petName || "未知"}" 的萌宠进化详情。`);
   }
 }
 
@@ -2891,6 +3085,14 @@ const runtimeState = {
   scoreRules: [],
   petCatalog: [],
   rewards: [],
+  academicGrowth: null,
+  academicRenderKey: "",
+  selectedAcademicStudentId: null,
+  selectedAcademicAiStudentId: null,
+  academicAiCache: new Map(),
+  academicAiRequests: new Map(),
+  lastAcademicAiOpenKey: "",
+  lastAcademicAiOpenAt: 0,
   leaderboardType: "score",
   leaderboardRows: [],
   lockStatus: "locked",
@@ -2939,6 +3141,36 @@ const DISPLAY_SCENE_LABELS = {
 
 const DISPLAY_LOGIN_CREDENTIALS_KEY =
   "yuyingpets_display_login_credentials";
+const DISPLAY_LOGIN_ACCOUNTS_KEY = "yuyingpets_display_login_accounts";
+const ACADEMIC_RENDER_LIMITS = {
+  default: {
+    subjectCount: 6,
+    studentRows: 24,
+    classRows: 10,
+    signalRows: 7,
+    trendPoints: 5,
+  },
+  lowMemory: {
+    subjectCount: 5,
+    studentRows: 18,
+    classRows: 6,
+    signalRows: 5,
+    trendPoints: 4,
+  },
+};
+
+function isLowMemoryDisplay() {
+  const params = new URL(window.location.href).searchParams;
+  const forced = params.get("lowMemory") === "1";
+  const deviceMemory = Number(navigator.deviceMemory || 0);
+  return forced || (deviceMemory > 0 && deviceMemory <= 4);
+}
+
+function getAcademicRenderLimits() {
+  return isLowMemoryDisplay()
+    ? ACADEMIC_RENDER_LIMITS.lowMemory
+    : ACADEMIC_RENDER_LIMITS.default;
+}
 
 function getShellLocation() {
   return window.location;
@@ -3054,6 +3286,50 @@ function setLoginMessage(message, type = "error") {
   el.style.color = type === "success" ? "#1e8e5a" : "#d64343";
 }
 
+function requestDisplayFullscreen() {
+  const root = document.documentElement;
+  if (getDisplayFullscreenElement() || !root) {
+    syncDisplayFullscreenButton();
+    return;
+  }
+  const request =
+    root.requestFullscreen ||
+    root.webkitRequestFullscreen ||
+    root.msRequestFullscreen;
+  if (typeof request !== "function") return;
+  try {
+    const result = request.call(root);
+    if (result && typeof result.catch === "function") {
+      result
+        .then(() => syncDisplayFullscreenButton())
+        .catch(() => syncDisplayFullscreenButton());
+    }
+  } catch {
+    // 浏览器只允许在点击、选择等用户动作内进入全屏。
+    syncDisplayFullscreenButton();
+  }
+}
+
+function getDisplayFullscreenElement() {
+  return (
+    document.fullscreenElement ||
+    document.webkitFullscreenElement ||
+    document.msFullscreenElement ||
+    null
+  );
+}
+
+function syncDisplayFullscreenButton() {
+  const button = document.getElementById("displayFullscreenBtn");
+  if (!button) return;
+  button.hidden = Boolean(getDisplayFullscreenElement());
+}
+
+function enterDisplayLogin() {
+  requestDisplayFullscreen();
+  navigateTo("login");
+}
+
 function getStoredLoginCredentials() {
   const raw = localStorage.getItem(DISPLAY_LOGIN_CREDENTIALS_KEY);
   if (!raw) return null;
@@ -3074,23 +3350,116 @@ function getStoredLoginCredentials() {
   }
 }
 
-function setStoredLoginCredentials(username, password) {
+function getStoredLoginAccounts() {
+  const raw = localStorage.getItem(DISPLAY_LOGIN_ACCOUNTS_KEY);
+  let accounts = [];
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        accounts = parsed.filter(
+          (item) =>
+            typeof item?.username === "string" &&
+            item.username.trim() &&
+            typeof item?.password === "string",
+        );
+      }
+    } catch {
+      accounts = [];
+    }
+  }
+  const legacy = getStoredLoginCredentials();
+  if (
+    legacy &&
+    !accounts.some((item) => item.username === legacy.username)
+  ) {
+    accounts.unshift(legacy);
+  }
+  return accounts;
+}
+
+function setStoredLoginCredentials(username, password, displayName = "") {
+  const normalizedUsername = String(username || "").trim();
+  if (!normalizedUsername || typeof password !== "string") return;
   localStorage.setItem(
     DISPLAY_LOGIN_CREDENTIALS_KEY,
     JSON.stringify({
-      username,
+      username: normalizedUsername,
       password,
     }),
   );
+  const accounts = getStoredLoginAccounts().filter(
+    (item) => item.username !== normalizedUsername,
+  );
+  accounts.unshift({
+    username: normalizedUsername,
+    password,
+    displayName: displayName || normalizedUsername,
+    updatedAt: Date.now(),
+  });
+  localStorage.setItem(
+    DISPLAY_LOGIN_ACCOUNTS_KEY,
+    JSON.stringify(accounts.slice(0, 12)),
+  );
+  renderSavedLoginAccounts(normalizedUsername);
+}
+
+function renderSavedLoginAccounts(selectedUsername = "") {
+  const field = document.getElementById("loginSavedAccountField");
+  const select = document.getElementById("loginSavedAccount");
+  if (!field || !select) return;
+  const accounts = getStoredLoginAccounts();
+  field.hidden = accounts.length === 0;
+  select.innerHTML = "";
+  if (!accounts.length) return;
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = "选择已保存账号快速登录";
+  select.appendChild(placeholder);
+  accounts.forEach((account) => {
+    const option = document.createElement("option");
+    option.value = account.username;
+    option.textContent =
+      account.displayName && account.displayName !== account.username
+        ? `${account.displayName}（${account.username}）`
+        : account.username;
+    select.appendChild(option);
+  });
+  select.value = selectedUsername || "";
 }
 
 function hydrateLoginCredentials() {
-  const stored = getStoredLoginCredentials();
+  const accounts = getStoredLoginAccounts();
+  const stored = accounts[0] || getStoredLoginCredentials();
+  renderSavedLoginAccounts();
   if (!stored) return;
   const usernameInput = document.getElementById("loginUsername");
   const passwordInput = document.getElementById("loginPassword");
   if (usernameInput) usernameInput.value = stored.username;
   if (passwordInput) passwordInput.value = stored.password;
+}
+
+function fillLoginCredentials(account) {
+  if (!account) return false;
+  const usernameInput = document.getElementById("loginUsername");
+  const passwordInput = document.getElementById("loginPassword");
+  if (usernameInput) usernameInput.value = account.username;
+  if (passwordInput) passwordInput.value = account.password;
+  return Boolean(account.username && account.password);
+}
+
+function handleSavedAccountChange() {
+  requestDisplayFullscreen();
+  const selectedUsername = document.getElementById("loginSavedAccount")?.value;
+  if (!selectedUsername) return;
+  const account = getStoredLoginAccounts().find(
+    (item) => item.username === selectedUsername,
+  );
+  if (!fillLoginCredentials(account)) {
+    setLoginMessage("该账号未保存完整登录信息");
+    return;
+  }
+  handleLogin();
 }
 
 function setPersistentToken(token) {
@@ -3146,20 +3515,21 @@ function isHomeroomTeacher() {
 }
 
 function getGroupOptions() {
-  if (runtimeState.groups.length > 0) {
-    return runtimeState.groups
-      .map((group) => ({
-        id: group.id || null,
-        groupNo: Number(group.groupNo),
-        name: group.name || `第${group.groupNo}组`,
-      }))
-      .sort((a, b) => a.groupNo - b.groupNo);
-  }
-  return [1, 2, 3, 4].map((groupNo) => ({
-    id: null,
-    groupNo,
-    name: `第${groupNo}组`,
-  }));
+  return runtimeState.groups
+    .map((group) => ({
+      id: group.id || null,
+      groupNo: Number(group.groupNo),
+      name: group.name || `第${group.groupNo}组`,
+    }))
+    .filter((group) => Number.isFinite(group.groupNo))
+    .sort((a, b) => a.groupNo - b.groupNo);
+}
+
+function getGroupLabel(groupNo) {
+  if (groupNo == null || groupNo === "") return "未分组";
+  const targetNo = Number(groupNo);
+  const group = runtimeState.groups.find((item) => Number(item.groupNo) === targetNo);
+  return group?.name || `第${targetNo}组`;
 }
 
 function connectRealtime() {
@@ -3819,17 +4189,25 @@ function getRankedStudentsByScore() {
 
 function updateGroupToolbar() {
   const allBtn = document.getElementById("gfAll");
+  const chips = document.getElementById("groupFilterChips");
   if (allBtn) allBtn.classList.toggle("active", groupFilter === null);
-  for (let i = 1; i <= 4; i += 1) {
-    const chip = document.getElementById(`gf${i}`);
-    if (!chip) continue;
-    const group = runtimeState.groups[i - 1];
-    chip.style.display = group ? "inline-flex" : "none";
-    if (group) {
-      chip.textContent = group.name || `第${group.groupNo}组`;
-      chip.classList.toggle("active", groupFilter === group.groupNo);
-      chip.setAttribute("onclick", `setGroupFilter(${group.groupNo})`);
-    }
+  if (!chips) return;
+  const groups = getGroupOptions();
+  chips.innerHTML = groups
+    .map(
+      (group) => `
+        <button
+          type="button"
+          class="toolbar-chip ${groupFilter === group.groupNo ? "active" : ""}"
+          onclick="setGroupFilter(${group.groupNo})"
+        >
+          ${escapeHtml(group.name || `第${group.groupNo}组`)}
+        </button>`,
+    )
+    .join("");
+  if (groupFilter !== null && !groups.some((group) => group.groupNo === groupFilter)) {
+    groupFilter = null;
+    if (allBtn) allBtn.classList.add("active");
   }
 }
 
@@ -4108,6 +4486,680 @@ function renderLeaderboardList() {
     })
     .join("");
   renderLeaderboardTop3();
+}
+
+function academicNumber(value, digits = 0) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return "--";
+  return digits > 0 ? numeric.toFixed(digits) : String(Math.round(numeric));
+}
+
+function academicDeltaText(value) {
+  const numeric = Number(value || 0);
+  if (!Number.isFinite(numeric) || numeric === 0) return "0";
+  return numeric > 0 ? `+${Math.round(numeric * 10) / 10}` : `${Math.round(numeric * 10) / 10}`;
+}
+
+function academicStudentKey(value) {
+  return String(value ?? "");
+}
+
+function getSelectedAcademicStudent(data = getAcademicGrowthData()) {
+  const rows = data.studentRows || [];
+  if (!rows.length) return null;
+  const selectedKey = academicStudentKey(runtimeState.selectedAcademicStudentId);
+  return rows.find((row) => academicStudentKey(row.studentId) === selectedKey) || rows[0];
+}
+
+function selectAcademicStudent(studentId) {
+  runtimeState.selectedAcademicStudentId = studentId;
+  renderAcademicStudentDetail(getAcademicGrowthData());
+  document.querySelectorAll(".academic-table tbody tr").forEach((row) => {
+    row.classList.toggle("selected", row.dataset.studentId === academicStudentKey(studentId));
+  });
+}
+
+function handleAcademicStudentPick(studentId, options = {}) {
+  if (!studentId) return;
+  selectAcademicStudent(studentId);
+  if (options.openAi === false) return;
+  const now = Date.now();
+  const key = academicStudentKey(studentId);
+  if (runtimeState.lastAcademicAiOpenKey === key && now - runtimeState.lastAcademicAiOpenAt < 450) {
+    return;
+  }
+  runtimeState.lastAcademicAiOpenKey = key;
+  runtimeState.lastAcademicAiOpenAt = now;
+  openAcademicAiModal(studentId);
+}
+
+function getAcademicGrowthData() {
+  return runtimeState.academicGrowth || {
+    classId: runtimeState.classId || 0,
+    gradeName: runtimeState.home?.gradeName || "当前年级",
+    className: runtimeState.home?.className || "当前班级",
+    hasData: false,
+    latestExam: null,
+    previousExam: null,
+    metrics: {},
+    subjects: [],
+    subjectColumns: [],
+    classSummaries: [],
+    studentRows: [],
+    trend: [],
+    progressLeaders: [],
+    riskStudents: [],
+    insight: "暂无当前班级学业成长数据。请在后台导入该班级成绩后查看。",
+  };
+}
+
+function renderAcademicGrowth() {
+  const page = document.getElementById("page-academic");
+  if (!page) return;
+  const data = getAcademicGrowthData();
+  const limits = getAcademicRenderLimits();
+  const renderKey = [
+    data.latestExam?.id || data.latestExam?.name || "none",
+    data.metrics?.growthIndex ?? 0,
+    data.studentRows?.length ?? 0,
+    limits.studentRows,
+    isLowMemoryDisplay() ? "low" : "normal",
+  ].join(":");
+  if (!page.classList.contains("active") && runtimeState.academicRenderKey === renderKey) {
+    return;
+  }
+  const metrics = data.metrics || {};
+  const setText = (id, value) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value;
+  };
+  renderAcademicHeadline(data);
+  setText("academicClassLabel", `${data.gradeName || ""} ${data.className || ""}`.trim() || "当前班级");
+  setText("academicExamLabel", data.latestExam?.name || "等待成绩导入");
+  setText("academicGrowthIndex", academicNumber(metrics.growthIndex));
+  setText("academicCoverage", `覆盖 ${academicNumber(metrics.coverageRate)}%`);
+  setText("academicAverage", academicNumber(metrics.averageScore, 1));
+  setText("academicParticipants", `${academicNumber(metrics.participantCount)}人`);
+  setText("academicProgress", academicNumber(metrics.progressCount));
+  setText("academicRisk", academicNumber(metrics.riskCount ?? metrics.declineCount));
+  setText("academicGradeIndex", academicNumber(metrics.gradeGrowthIndex ?? metrics.currentClassIndex));
+  setText("academicGradeAverage", academicNumber(metrics.gradeAverage ?? metrics.currentClassAverage, 1));
+  renderAcademicTrajectory(data, limits);
+  renderAcademicScoreTable(data, limits);
+  renderAcademicRadar(data.subjects || [], limits);
+  renderAcademicClassList(data.classSummaries || [], limits);
+  renderAcademicSignals("academicProgressList", data.progressLeaders || [], "up", limits);
+  renderAcademicSignals("academicRiskList", data.riskStudents || [], "down", limits);
+  if (!runtimeState.selectedAcademicStudentId || !(data.studentRows || []).some((row) => academicStudentKey(row.studentId) === academicStudentKey(runtimeState.selectedAcademicStudentId))) {
+    runtimeState.selectedAcademicStudentId = data.studentRows?.[0]?.studentId ?? null;
+  }
+  renderAcademicStudentDetail(data);
+  enableAcademicSelectionEvents();
+  enableAcademicDragScroll();
+  runtimeState.academicRenderKey = renderKey;
+}
+
+function renderAcademicHeadline(data) {
+  const el = document.getElementById("academicHeadline");
+  if (!el) return;
+  const metrics = data.metrics || {};
+  const text = [
+    data.insight || "当前班级学业成长数据已同步",
+    `班级均分 ${academicNumber(metrics.averageScore, 1)}`,
+    `进步 ${academicNumber(metrics.progressCount)} 人`,
+    `预警 ${academicNumber(metrics.riskCount ?? metrics.declineCount)} 人`,
+  ].join("　·　");
+  el.innerHTML = `<span>${escapeHtml(text)}</span><span>${escapeHtml(text)}</span>`;
+}
+
+function renderAcademicTrajectory(data, limits = getAcademicRenderLimits()) {
+  const wrap = document.getElementById("academicTrajectory");
+  if (!wrap) return;
+  const trend = data.trend || [];
+  if (!trend.length) {
+    wrap.innerHTML = '<div class="academic-empty">等待考试趋势与分层数据</div>';
+    return;
+  }
+  const visibleTrend = trend.slice(-limits.trendPoints);
+  const values = visibleTrend.map((item) => Number(item.averageScore || 0));
+  const max = Math.max(1, ...values);
+  const latest = visibleTrend[visibleTrend.length - 1] || null;
+  const previous = visibleTrend[visibleTrend.length - 2] || null;
+  const avgDelta = latest && previous ? Number(latest.averageScore || 0) - Number(previous.averageScore || 0) : 0;
+  const rows = data.studentRows || [];
+  const sortedRows = [...rows].sort((left, right) => Number(right.totalScore || 0) - Number(left.totalScore || 0));
+  const total = sortedRows.length || 1;
+  const highEnd = Math.max(1, Math.ceil(total * 0.25));
+  const stableEnd = Math.max(highEnd, Math.ceil(total * 0.6));
+  const borderEnd = Math.max(stableEnd, Math.ceil(total * 0.85));
+  const levels = [
+    { key: "high", label: "高分层", rows: sortedRows.slice(0, highEnd) },
+    { key: "stable", label: "稳定层", rows: sortedRows.slice(highEnd, stableEnd) },
+    { key: "border", label: "临界层", rows: sortedRows.slice(stableEnd, borderEnd) },
+    { key: "support", label: "帮扶层", rows: sortedRows.slice(borderEnd) },
+  ];
+  const migration = {
+    up: rows.filter((row) => Number(row.scoreDelta || row.rankDelta || 0) > 0).length,
+    flat: rows.filter((row) => Number(row.scoreDelta || row.rankDelta || 0) === 0).length,
+    down: rows.filter((row) => Number(row.scoreDelta || row.rankDelta || 0) < 0).length,
+  };
+  const bars = visibleTrend
+    .map((item) => {
+      const height = Math.max(14, Math.round((Number(item.averageScore || 0) / max) * 86));
+      return `<div class="academic-trend-bar" style="--h:${height}px"><span>${academicNumber(item.averageScore, 1)}</span><em>${escapeHtml(item.examName || "考试")}</em></div>`;
+    })
+    .join("");
+  const levelHtml = levels
+    .map((item) => {
+      const count = item.rows.length;
+      const width = Math.max(4, Math.round((count / total) * 100));
+      const positive = item.rows.filter((row) => Number(row.scoreDelta || row.rankDelta || 0) > 0).length;
+      const negative = item.rows.filter((row) => Number(row.scoreDelta || row.rankDelta || 0) < 0).length;
+      const delta = positive - negative;
+      return `<div class="academic-layer-row ${item.key}">
+        <span>${item.label}</span>
+        <i><b style="--w:${width}%"></b></i>
+        <strong>${count}人</strong>
+        <em class="${delta >= 0 ? "up" : "down"}">${academicDeltaText(delta)}</em>
+      </div>`;
+    })
+    .join("");
+  wrap.innerHTML = `
+    <div class="academic-trajectory-head">
+      <div>
+        <span>班级成长轨迹</span>
+        <strong>${latest ? academicNumber(latest.averageScore, 1) : "--"}</strong>
+      </div>
+      <b class="${avgDelta >= 0 ? "up" : "down"}">${academicDeltaText(avgDelta)}</b>
+    </div>
+    <div class="academic-trend">${bars}</div>
+    <div class="academic-layer-list">${levelHtml}</div>
+    <div class="academic-migration">
+      <div><span>上升</span><strong>${migration.up}</strong></div>
+      <div><span>持平</span><strong>${migration.flat}</strong></div>
+      <div><span>下滑</span><strong>${migration.down}</strong></div>
+    </div>
+  `;
+}
+
+function renderAcademicScoreTable(data, limits = getAcademicRenderLimits()) {
+  const wrap = document.getElementById("academicScoreTable");
+  const meta = document.getElementById("academicMatrixMeta");
+  if (!wrap) return;
+  const columns = (data.subjectColumns || []).slice(0, limits.subjectCount);
+  const sourceRows = data.studentRows || [];
+  const rows = sourceRows.slice(0, limits.studentRows);
+  if (meta) meta.textContent = `${rows.length}/${sourceRows.length} ROWS · ${columns.length} SUBJECTS`;
+  if (!rows.length) {
+    wrap.innerHTML = '<div class="academic-empty">暂无学生成绩矩阵</div>';
+    return;
+  }
+  const head = [
+    '<th class="rank">名次</th>',
+    '<th class="name-col">姓名</th>',
+    '<th class="group-col">小组</th>',
+    ...columns.map((item) => `<th>${escapeHtml(item.subjectName)}</th>`),
+    "<th>总分</th>",
+    "<th>变化</th>",
+  ].join("");
+  const body = rows
+    .map((row, rowIndex) => {
+      const deltaClass = Number(row.scoreDelta || row.rankDelta || 0) >= 0 ? "up" : "down";
+      const selectedClass = academicStudentKey(row.studentId) === academicStudentKey(runtimeState.selectedAcademicStudentId) ? " selected" : "";
+      const cells = columns
+        .map((_, columnIndex) => `<td>${row.subjectScores?.[columnIndex] ?? "--"}</td>`)
+        .join("");
+      return `<tr class="academic-student-row${selectedClass}" data-student-id="${escapeHtml(row.studentId)}">
+        <td class="rank">${row.classRank || rowIndex + 1}</td>
+        <td class="name">${escapeHtml(row.studentName)}</td>
+        <td class="group-col">${escapeHtml(row.groupName || "-")}</td>
+        ${cells}
+        <td class="total">${academicNumber(row.totalScore, 1)}</td>
+        <td class="${deltaClass}">${academicDeltaText(row.scoreDelta || row.rankDelta)}</td>
+      </tr>`;
+    })
+    .join("");
+  wrap.innerHTML = `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+}
+
+function renderAcademicRadar(subjects, limits = getAcademicRenderLimits()) {
+  const radar = document.getElementById("academicRadar");
+  const bars = document.getElementById("academicSubjectBars");
+  if (!radar || !bars) return;
+  const rows = subjects.slice(0, limits.subjectCount);
+  if (!rows.length) {
+    radar.innerHTML = "";
+    bars.innerHTML = '<div class="academic-empty">等待科目数据</div>';
+    return;
+  }
+  const maxScore = Math.max(1, ...rows.map((item) => Number(item.averageScore || 0)));
+  radar.innerHTML = rows
+    .map((item, index) => {
+      const angle = (Math.PI * 2 * index) / rows.length - Math.PI / 2;
+      const radius = 30 + (Number(item.averageScore || 0) / maxScore) * 48;
+      const x = 50 + Math.cos(angle) * radius;
+      const y = 50 + Math.sin(angle) * radius;
+      return `<i class="academic-radar-dot" style="--x:${x}%;--y:${y}%"><span>${escapeHtml(item.subjectName)}</span></i>`;
+    })
+    .join("");
+  bars.innerHTML = rows
+    .map((item) => {
+      const width = Math.max(8, Math.min(100, Math.round((Number(item.averageScore || 0) / maxScore) * 100)));
+      return `<div class="academic-subject-row"><span>${escapeHtml(item.subjectName)}</span><i><b style="--w:${width}%"></b></i><strong>${academicNumber(item.averageScore, 1)}</strong></div>`;
+    })
+    .join("");
+}
+
+function renderAcademicClassList(classSummaries, limits = getAcademicRenderLimits()) {
+  const wrap = document.getElementById("academicClassList");
+  if (!wrap) return;
+  if (!classSummaries.length) {
+    wrap.innerHTML = '<div class="academic-empty">等待班级热力数据</div>';
+    return;
+  }
+  wrap.innerHTML = classSummaries
+    .slice(0, limits.classRows)
+    .map((item) => {
+      const width = Math.max(6, Math.min(100, Number(item.growthIndex || 0)));
+      const current = item.isCurrentClass ? " current" : "";
+      return `<div class="academic-class-row ${item.riskLevel || "low"}${current}">
+        <span>${escapeHtml(item.className)}</span>
+        <div class="academic-class-track"><i style="--w:${width}%"></i></div>
+        <b>${academicNumber(item.growthIndex)}</b>
+      </div>`;
+    })
+    .join("");
+}
+
+function renderAcademicSignals(id, rows, tone, limits = getAcademicRenderLimits()) {
+  const wrap = document.getElementById(id);
+  if (!wrap) return;
+  if (!rows.length) {
+    wrap.innerHTML = '<div class="academic-empty">暂无信号</div>';
+    return;
+  }
+  wrap.innerHTML = rows
+    .slice(0, limits.signalRows)
+    .map((item) => {
+      const delta = item.scoreDelta || item.rankDelta || 0;
+      const deltaClass = Number(delta) >= 0 ? "up" : "down";
+      return `<div class="academic-signal-item" data-student-id="${escapeHtml(item.studentId)}">
+        <div><strong>${escapeHtml(item.studentName)}</strong><span>${escapeHtml(item.className || "")} · ${academicNumber(item.totalScore, 1)}分</span></div>
+        <b class="academic-signal-delta ${deltaClass}">${academicDeltaText(delta)}</b>
+      </div>`;
+    })
+    .join("");
+}
+
+function renderAcademicStudentDetail(data) {
+  const wrap = document.getElementById("academicStudentDetail");
+  if (!wrap) return;
+  const student = getSelectedAcademicStudent(data);
+  const columns = data.subjectColumns || [];
+  if (!student) {
+    wrap.innerHTML = '<div class="academic-student-empty">选择成绩矩阵中的学生，查看个人学业画像。</div>';
+    return;
+  }
+  const delta = Number(student.scoreDelta || student.rankDelta || 0);
+  const deltaClass = delta >= 0 ? "up" : "down";
+  const subjectRows = columns
+    .map((subject, index) => {
+      const value = student.subjectScores?.[index];
+      const width = value === null || value === undefined ? 0 : Math.max(6, Math.min(100, Math.round(Number(value))));
+      return `<div class="academic-student-subject">
+        <span>${escapeHtml(subject.subjectName)}</span>
+        <i><b style="--w:${width}%"></b></i>
+        <strong>${value ?? "--"}</strong>
+      </div>`;
+    })
+    .join("");
+  wrap.innerHTML = `
+    <div class="academic-student-top">
+      <div>
+        <span>当前选中学生</span>
+        <strong>${escapeHtml(student.studentName)}</strong>
+        <em>${escapeHtml(student.groupName || student.className || "")}</em>
+      </div>
+      <b class="${deltaClass}">${academicDeltaText(delta)}</b>
+    </div>
+    <div class="academic-student-kpis">
+      <div><span>总分</span><strong>${academicNumber(student.totalScore, 1)}</strong></div>
+      <div><span>班排</span><strong>${student.classRank ?? "--"}</strong></div>
+      <div><span>校排</span><strong>${student.schoolRank ?? "--"}</strong></div>
+      <div><span>行为积分</span><strong>${academicNumber(student.behaviorScore)}</strong></div>
+    </div>
+    <div class="academic-student-subjects">${subjectRows || '<div class="academic-student-empty">暂无科目明细</div>'}</div>
+  `;
+}
+
+function closeAcademicAiModal() {
+  document.getElementById("academicAiModal")?.classList.remove("active");
+}
+
+function splitAcademicAiLines(text) {
+  return String(text || "")
+    .split(/\n|。|；|;/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function normalizeAcademicDimensions(dimensions) {
+  return Array.isArray(dimensions)
+    ? dimensions
+        .map((item) => ({
+          dimension: item?.dimension || "未分类",
+          count: Number(item?.count || 0),
+          positiveCount: Number(item?.positiveCount || 0),
+          negativeCount: Number(item?.negativeCount || 0),
+        }))
+        .sort((left, right) => right.count - left.count)
+    : [];
+}
+
+function buildAcademicAiView(summary) {
+  if (!summary) return null;
+  const positiveCount = Number(summary.positiveSummary?.count || 0);
+  const positiveDelta = Number(summary.positiveSummary?.scoreDelta || 0);
+  const negativeCount = Number(summary.negativeSummary?.count || 0);
+  const negativeDelta = Number(summary.negativeSummary?.scoreDelta || 0);
+  const trend = summary.trendSummary || {};
+  const dimensions = normalizeAcademicDimensions(summary.dimensionSummary);
+  const topPositive = [...dimensions].sort((a, b) => b.positiveCount - a.positiveCount).find((item) => item.positiveCount > 0);
+  const topNegative = [...dimensions].sort((a, b) => b.negativeCount - a.negativeCount).find((item) => item.negativeCount > 0);
+  const periodLabel = summary.periodType === "monthly" ? "本月" : "本周";
+  const positiveRatio = Math.round(Number(trend.positiveRatio || 0) * 100);
+  const suggestions = splitAcademicAiLines(summary.aiSuggestion);
+  const highlights = [];
+  const risks = [];
+  const actions = [];
+  if (positiveCount > 0) highlights.push(`${periodLabel}正向 ${positiveCount} 次，积分 ${positiveDelta >= 0 ? "+" : ""}${positiveDelta}`);
+  if (topPositive) highlights.push(`优势维度：${topPositive.dimension}（${topPositive.positiveCount} 次）`);
+  if (trend.recentTrend === "up") highlights.push("近期状态向上，节奏正在改善");
+  if (negativeCount > 0) risks.push(`${periodLabel}负向 ${negativeCount} 次，影响 ${negativeDelta >= 0 ? "+" : ""}${negativeDelta}`);
+  if (topNegative) risks.push(`重点关注：${topNegative.dimension}（${topNegative.negativeCount} 次）`);
+  if (trend.recentTrend === "down") risks.push("近期趋势回落，需要及时纠偏");
+  suggestions.slice(0, 2).forEach((item) => actions.push(item));
+  if (!actions.length) {
+    actions.push(negativeCount > positiveCount ? "建议优先跟进课堂执行与作业完成，设置短周期目标。" : "建议保持优势维度，每周沉淀一个可量化进步目标。");
+  }
+  return {
+    summary: summary.aiSummary || "暂无阶段总结",
+    suggestion: summary.aiSuggestion || "暂无教师建议",
+    trendLine: `${periodLabel}净积分 ${Number(trend.totalScoreDelta || 0)} · 活跃天数 ${Number(trend.activeDays || 0)} · 正向占比 ${positiveRatio}%`,
+    highlights: highlights.slice(0, 3),
+    risks: risks.slice(0, 3),
+    actions: actions.slice(0, 3),
+    metrics: {
+      positiveCount,
+      negativeCount,
+      totalScoreDelta: Number(trend.totalScoreDelta || 0),
+      activeDays: Number(trend.activeDays || 0),
+    },
+    dimensions: dimensions.slice(0, 4),
+    evidence: Array.isArray(trend.evidence) ? trend.evidence.slice(0, 4) : [],
+  };
+}
+
+function renderAcademicAiModalState(state, payload = {}) {
+  const body = document.getElementById("academicAiBody");
+  const nameEl = document.getElementById("academicAiStudentName");
+  const metaEl = document.getElementById("academicAiStudentMeta");
+  const student = payload.student || getSelectedAcademicStudent();
+  if (nameEl) nameEl.textContent = student?.studentName ? `${student.studentName} · AI 学情分析` : "AI 学情分析";
+  if (metaEl) metaEl.textContent = payload.meta || "本周 · 学生画像";
+  if (!body) return;
+  if (state === "loading") {
+    body.innerHTML = '<div class="academic-ai-placeholder"><i></i>正在读取 AI 学情摘要...</div>';
+    return;
+  }
+  if (state === "error") {
+    body.innerHTML = `<div class="academic-ai-error">
+      <strong>AI 学情暂不可用</strong>
+      <p>${escapeHtml(payload.message || "请稍后重试。")}</p>
+    </div>`;
+    return;
+  }
+  const view = buildAcademicAiView(payload.summary);
+  if (!view) {
+    body.innerHTML = '<div class="academic-ai-placeholder">暂无 AI 学情摘要。</div>';
+    return;
+  }
+  const listHtml = (items, emptyText) =>
+    items.length
+      ? items.map((item) => `<span>${escapeHtml(item)}</span>`).join("")
+      : `<span>${escapeHtml(emptyText)}</span>`;
+  const dimensionHtml = view.dimensions.length
+    ? view.dimensions
+        .map((item) => `<div><span>${escapeHtml(item.dimension)}</span><strong>${item.count}</strong><em>正${item.positiveCount} / 负${item.negativeCount}</em></div>`)
+        .join("")
+    : '<div><span>暂无维度</span><strong>0</strong><em>待积累</em></div>';
+  const evidenceHtml = view.evidence.length
+    ? view.evidence
+        .map((item) => `<div class="academic-ai-evidence-item">
+          <strong>${escapeHtml(item.ruleName || item.signal || "学情事件")}</strong>
+          <span>${escapeHtml([item.date, item.subject, item.scene].filter(Boolean).join(" · "))}</span>
+          <b class="${Number(item.scoreDelta || 0) >= 0 ? "up" : "down"}">${academicDeltaText(item.scoreDelta)}</b>
+        </div>`)
+        .join("")
+    : '<div class="academic-ai-evidence-item"><strong>暂无关键证据</strong><span>后续会展示课堂、作业和学科事件</span><b>--</b></div>';
+  body.innerHTML = `
+    <div class="academic-ai-summary-grid">
+      <div class="academic-ai-copy"><span>阶段总结</span><p>${escapeHtml(view.summary)}</p></div>
+      <div class="academic-ai-copy soft"><span>教师建议</span><p>${escapeHtml(view.suggestion)}</p></div>
+    </div>
+    <div class="academic-ai-trend">${escapeHtml(view.trendLine)}</div>
+    <div class="academic-ai-metrics">
+      <div><span>正向次数</span><strong>${view.metrics.positiveCount}</strong></div>
+      <div><span>负向次数</span><strong>${view.metrics.negativeCount}</strong></div>
+      <div><span>积分净变</span><strong>${view.metrics.totalScoreDelta}</strong></div>
+      <div><span>活跃天数</span><strong>${view.metrics.activeDays}</strong></div>
+    </div>
+    <div class="academic-ai-cards">
+      <div><strong>本期亮点</strong>${listHtml(view.highlights, "暂无明显亮点，建议继续积累正向表现。")}</div>
+      <div><strong>风险提醒</strong>${listHtml(view.risks, "暂无高风险信号，当前状态整体平稳。")}</div>
+      <div><strong>下阶段建议</strong>${listHtml(view.actions, "暂无建议，可重新生成分析。")}</div>
+    </div>
+    <div class="academic-ai-lower">
+      <div class="academic-ai-dimensions">${dimensionHtml}</div>
+      <div class="academic-ai-evidence">${evidenceHtml}</div>
+    </div>
+  `;
+}
+
+async function loadAcademicAiSummary(studentId, options = {}) {
+  const periodType = "weekly";
+  const cacheKey = `${studentId}:${periodType}`;
+  if (!options.regenerate && runtimeState.academicAiCache.has(cacheKey)) {
+    return runtimeState.academicAiCache.get(cacheKey);
+  }
+  if (!runtimeState.token) {
+    if (options.regenerate) {
+      throw new Error("重新生成 AI 学情需要教师登录解锁。锁定状态下可查看已有缓存摘要。");
+    }
+    const cached = await apiFetch(`/display/classes/${runtimeState.classId}/academic-ai/${studentId}/summary?periodType=${periodType}`);
+    if (cached) {
+      runtimeState.academicAiCache.set(cacheKey, cached);
+      return cached;
+    }
+    throw new Error("当前学生暂无已生成的 AI 学情缓存。请教师登录解锁后生成一次，之后锁定状态也可查看。");
+  }
+  if (!options.regenerate && runtimeState.academicAiRequests.has(cacheKey)) {
+    return runtimeState.academicAiRequests.get(cacheKey);
+  }
+  const request = (async () => {
+    if (!options.regenerate) {
+      const cached = await apiFetch(`/ai/students/${studentId}/summary?periodType=${periodType}`);
+      if (cached) {
+        runtimeState.academicAiCache.set(cacheKey, cached);
+        return cached;
+      }
+    }
+    const generated = await apiFetch(`/ai/students/${studentId}/generate-summary`, {
+      method: "POST",
+      body: JSON.stringify({ periodType }),
+    });
+    runtimeState.academicAiCache.set(cacheKey, generated);
+    return generated;
+  })();
+  runtimeState.academicAiRequests.set(cacheKey, request);
+  try {
+    return await request;
+  } finally {
+    runtimeState.academicAiRequests.delete(cacheKey);
+  }
+}
+
+async function openAcademicAiModal(studentId) {
+  const student = (getAcademicGrowthData().studentRows || []).find((row) => academicStudentKey(row.studentId) === academicStudentKey(studentId)) || getSelectedAcademicStudent();
+  runtimeState.selectedAcademicAiStudentId = studentId;
+  document.getElementById("academicAiModal")?.classList.add("active");
+  renderAcademicAiModalState("loading", { student, meta: "本周 · 正在生成画像" });
+  try {
+    const summary = await loadAcademicAiSummary(studentId);
+    if (academicStudentKey(runtimeState.selectedAcademicAiStudentId) !== academicStudentKey(studentId)) return;
+    renderAcademicAiModalState("ready", { student, summary, meta: `${summary.periodType === "monthly" ? "本月" : "本周"} · ${summary.snapshotDate ? String(summary.snapshotDate).slice(0, 10) : "最新生成"}` });
+  } catch (error) {
+    if (academicStudentKey(runtimeState.selectedAcademicAiStudentId) !== academicStudentKey(studentId)) return;
+    renderAcademicAiModalState("error", { student, message: error instanceof Error ? error.message : "AI 学情摘要加载失败" });
+  }
+}
+
+async function regenerateAcademicAiSummary() {
+  const studentId = runtimeState.selectedAcademicAiStudentId || runtimeState.selectedAcademicStudentId;
+  if (!studentId) return;
+  const student = (getAcademicGrowthData().studentRows || []).find((row) => academicStudentKey(row.studentId) === academicStudentKey(studentId)) || getSelectedAcademicStudent();
+  renderAcademicAiModalState("loading", { student, meta: "本周 · 正在重新生成" });
+  try {
+    const summary = await loadAcademicAiSummary(studentId, { regenerate: true });
+    renderAcademicAiModalState("ready", { student, summary, meta: `${summary.periodType === "monthly" ? "本月" : "本周"} · ${summary.snapshotDate ? String(summary.snapshotDate).slice(0, 10) : "最新生成"}` });
+  } catch (error) {
+    renderAcademicAiModalState("error", { student, message: error instanceof Error ? error.message : "AI 学情生成失败" });
+  }
+}
+
+function enableAcademicSelectionEvents() {
+  ["academicScoreTable", "academicProgressList", "academicRiskList"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el || el.dataset.academicSelectReady === "1") return;
+    el.dataset.academicSelectReady = "1";
+    el.addEventListener(
+      "pointerdown",
+      (event) => {
+        const target = event.target instanceof Element ? event.target.closest("[data-student-id]") : null;
+        const studentId = target?.getAttribute("data-student-id");
+        if (!studentId) {
+          delete el.dataset.pendingAcademicStudentId;
+          return;
+        }
+        el.dataset.pendingAcademicStudentId = studentId;
+        el.dataset.pendingAcademicX = String(event.clientX);
+        el.dataset.pendingAcademicY = String(event.clientY);
+      },
+      true,
+    );
+    el.addEventListener(
+      "pointerup",
+      (event) => {
+        const studentId = el.dataset.pendingAcademicStudentId;
+        if (!studentId) return;
+        const startX = Number(el.dataset.pendingAcademicX || event.clientX);
+        const startY = Number(el.dataset.pendingAcademicY || event.clientY);
+        const moved = Math.abs(event.clientX - startX) > 8 || Math.abs(event.clientY - startY) > 8;
+        delete el.dataset.pendingAcademicStudentId;
+        delete el.dataset.pendingAcademicX;
+        delete el.dataset.pendingAcademicY;
+        if (!moved && el.dataset.dragMoved !== "1") {
+          handleAcademicStudentPick(studentId);
+        }
+      },
+      true,
+    );
+    el.addEventListener(
+      "pointercancel",
+      () => {
+        delete el.dataset.pendingAcademicStudentId;
+        delete el.dataset.pendingAcademicX;
+        delete el.dataset.pendingAcademicY;
+      },
+      true,
+    );
+    el.addEventListener("click", (event) => {
+      if (el.dataset.dragMoved === "1") return;
+      const target = event.target instanceof Element ? event.target.closest("[data-student-id]") : null;
+      const studentId = target?.getAttribute("data-student-id");
+      if (!studentId) return;
+      handleAcademicStudentPick(studentId);
+    });
+  });
+}
+
+function enableAcademicDragScroll() {
+  document
+    .querySelectorAll(".academic-table, .academic-class-list, .academic-signal-scroll, .academic-student-subjects")
+    .forEach((el) => {
+      if (el.dataset.dragScrollReady === "1") return;
+      el.dataset.dragScrollReady = "1";
+      let dragging = false;
+      let startX = 0;
+      let startY = 0;
+      let scrollLeft = 0;
+      let scrollTop = 0;
+      let pendingStudentTarget = null;
+      el.addEventListener("pointerdown", (event) => {
+        dragging = true;
+        el.dataset.dragMoved = "0";
+        pendingStudentTarget = event.target instanceof Element ? event.target.closest("[data-student-id]") : null;
+        el.classList.add("dragging");
+        startX = event.clientX;
+        startY = event.clientY;
+        scrollLeft = el.scrollLeft;
+        scrollTop = el.scrollTop;
+        try {
+          el.setPointerCapture?.(event.pointerId);
+        } catch {
+          // Some embedded browser shells reject capture on nested table targets.
+        }
+      });
+      el.addEventListener("pointermove", (event) => {
+        if (!dragging) return;
+        const dx = event.clientX - startX;
+        const dy = event.clientY - startY;
+        if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+          el.dataset.dragMoved = "1";
+          event.preventDefault();
+        }
+        el.scrollLeft = scrollLeft - dx;
+        el.scrollTop = scrollTop - dy;
+      });
+      const endDrag = (event) => {
+        const shouldSelect =
+          event?.type === "pointerup" &&
+          el.dataset.dragMoved !== "1" &&
+          pendingStudentTarget instanceof Element &&
+          el.contains(pendingStudentTarget);
+        const studentId = shouldSelect ? pendingStudentTarget.getAttribute("data-student-id") : null;
+        dragging = false;
+        el.classList.remove("dragging");
+        if (event?.pointerId !== undefined) {
+          try {
+            if (!el.hasPointerCapture || el.hasPointerCapture(event.pointerId)) {
+              el.releasePointerCapture?.(event.pointerId);
+            }
+          } catch {
+            // Capture may already be released after pointerup/cancel.
+          }
+        }
+        pendingStudentTarget = null;
+        if (studentId) {
+          handleAcademicStudentPick(studentId);
+        }
+        window.setTimeout(() => {
+          el.dataset.dragMoved = "0";
+        }, 120);
+      };
+      el.addEventListener("pointerup", endDrag);
+      el.addEventListener("pointercancel", endDrag);
+    });
 }
 
 function renderRewardCenter() {
@@ -4425,10 +5477,11 @@ function openPointModalBatch(names) {
 
 function openPointModalGroup(groupNum) {
   const list = students.filter((s) => s.group === groupNum);
+  const groupLabel = getGroupLabel(groupNum);
   currentFocusStudent = { type: "group", group: groupNum };
   document.getElementById("pmAvatar").src = "images/logo.svg";
   document.getElementById("pmName").textContent =
-    "第" + groupNum + "组（" + list.length + " 人）";
+    groupLabel + "（" + list.length + " 人）";
   document.getElementById("pmPts").textContent = "—";
   document.getElementById("pmHistory").innerHTML =
     '<div style="text-align:center;color:#999;font-size:12px;padding:10px;">对本组全部学生同步加减分</div>';
@@ -4443,11 +5496,11 @@ async function applyQuickRule(ruleId) {
   if (!currentFocusStudent) return;
   const rule = runtimeState.scoreRules.find((item) => item.id === ruleId);
   if (!rule) {
-    alert("当前规则不可用");
+    showDisplayToast("当前规则不可用");
     return;
   }
   if (!runtimeState.token) {
-    alert("请先登录教师账号");
+    showDisplayToast("请先登录教师账号");
     return;
   }
 
@@ -4545,7 +5598,7 @@ async function applyQuickRule(ruleId) {
     closePointModal();
     await bootstrapDisplayData({ authenticated: true, silent: true });
   } catch (error) {
-    alert(error.message || "加减分失败");
+    showDisplayToast(error.message || "加减分失败");
   }
 }
 
@@ -4580,7 +5633,7 @@ async function confirmExchange(studentName) {
   const s = students.find((x) => x.name === studentName);
   if (!s || s.pts < currentExchangeCost) return;
   if (!runtimeState.token) {
-    alert("请先登录班主任账号");
+    showDisplayToast("请先登录班主任账号");
     return;
   }
   const confirmed = await showConfirmModal({
@@ -4607,7 +5660,7 @@ async function confirmExchange(studentName) {
     showExchangeSuccess(currentExchangeItem, s.name, currentExchangeCost);
     await bootstrapDisplayData({ authenticated: true, silent: true });
   } catch (error) {
-    alert(error.message || "兑换失败");
+    showDisplayToast(error.message || "兑换失败");
   }
 }
 
@@ -4868,7 +5921,7 @@ function syncStudentCollection(studentRows, groups) {
       petStageName: row.pet?.currentStageName || null,
       petTotalScore: row.pet?.totalScore || 0,
       avatarUrl: row.avatarUrl || null,
-      group: groupInfo?.groupNo || (index % 4) + 1,
+      group: groupInfo?.groupNo || null,
       groupName: groupInfo?.name || null,
       history: [],
     };
@@ -4891,12 +5944,28 @@ async function bootstrapDisplayData(options = {}) {
       ]);
       return;
     }
-    const [home, rewards] = await Promise.all([
+    const [home, rewards, academicGrowth] = await Promise.all([
       apiFetch(`/display/classes/${runtimeState.classId}/home`),
       apiFetch(`/display/classes/${runtimeState.classId}/reward-center`),
+      apiFetch(`/display/classes/${runtimeState.classId}/academic-growth`).catch((error) => ({
+        hasData: false,
+        classId: runtimeState.classId,
+        gradeName: runtimeState.home?.gradeName || "",
+        className: runtimeState.home?.className || "",
+        metrics: {},
+        subjects: [],
+        subjectColumns: [],
+        classSummaries: [],
+        studentRows: [],
+        trend: [],
+        progressLeaders: [],
+        riskStudents: [],
+        insight: error?.message || "当前班级学业数据暂不可用。",
+      })),
     ]);
     runtimeState.home = home;
     runtimeState.rewards = rewards.rewards || [];
+    runtimeState.academicGrowth = academicGrowth;
 
     const petCatalog = await apiFetch("/display/pet-catalog").catch(() => adoptPetCatalog);
     runtimeState.petCatalog = normalizePetCatalog(petCatalog || []);
@@ -4932,6 +6001,7 @@ async function bootstrapDisplayData(options = {}) {
     playPendingPetUpgradeAnimations();
     renderTodayRank();
     renderRewardCenter();
+    renderAcademicGrowth();
     await fetchLeaderboard(runtimeState.leaderboardType || "score");
     applyLockOverlay();
   } catch (error) {
@@ -4942,6 +6012,7 @@ async function bootstrapDisplayData(options = {}) {
 }
 
 async function handleLogin() {
+  requestDisplayFullscreen();
   const username = document.getElementById("loginUsername")?.value?.trim();
   const password = document.getElementById("loginPassword")?.value || "";
   const loginBtn = document.querySelector(".login-btn");
@@ -4975,7 +6046,7 @@ async function handleLogin() {
         throw new Error("当前账号无权进入这块大屏绑定的班级");
       }
       if (shouldStoreLoginCredentials) {
-        setStoredLoginCredentials(username, password);
+        setStoredLoginCredentials(username, password, result.user?.name);
       }
       await finalizeTeacherSession();
     } else {
@@ -4984,7 +6055,7 @@ async function handleLogin() {
         throw new Error("当前账号未分配任何班级权限");
       }
       if (shouldStoreLoginCredentials) {
-        setStoredLoginCredentials(username, password);
+        setStoredLoginCredentials(username, password, result.user?.name);
       }
       if (classScopeIds.length === 1) {
         runtimeState.classId = classScopeIds[0];
@@ -5022,6 +6093,12 @@ async function handleLogin() {
 
 document.addEventListener("DOMContentLoaded", () => {
   resolveRuntimeParams();
+  document.body.classList.toggle("low-memory-display", isLowMemoryDisplay());
+  syncDisplayFullscreenButton();
+  document.addEventListener("fullscreenchange", syncDisplayFullscreenButton);
+  document.addEventListener("webkitfullscreenchange", syncDisplayFullscreenButton);
+  document.addEventListener("MSFullscreenChange", syncDisplayFullscreenButton);
+  window.addEventListener("resize", syncDisplayFullscreenButton);
   clearAuthState({ preserveClassId: true });
   hydrateLoginCredentials();
   syncSetupMode();
@@ -5048,6 +6125,14 @@ document.addEventListener("DOMContentLoaded", () => {
     petProfileModal.addEventListener("click", (event) => {
       if (event.target === petProfileModal) {
         closePetProfileModal();
+      }
+    });
+  }
+  const academicAiModal = document.getElementById("academicAiModal");
+  if (academicAiModal) {
+    academicAiModal.addEventListener("click", (event) => {
+      if (event.target === academicAiModal) {
+        closeAcademicAiModal();
       }
     });
   }

@@ -1308,8 +1308,8 @@ export class AdminInsightsService {
     if (['super_admin', 'school_admin', 'moral_admin'].includes(user.roleCode)) {
       return null;
     }
-    return user.scopes
-      .map((scope) => toNumber(scope.classId))
+    return [...user.scopes.map((scope) => scope.classId), ...user.classAssignments.map((assignment) => assignment.classId)]
+      .map((classId) => toNumber(classId))
       .filter((item): item is number => item !== null);
   }
 }

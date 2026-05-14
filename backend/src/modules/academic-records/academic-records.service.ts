@@ -320,6 +320,7 @@ export class AcademicRecordsService {
     const examId = Number(query.examId);
     const keyword = String(query.keyword ?? '').trim();
     const gradeName = String(query.gradeName ?? '').trim();
+    const includeSubjects = query.includeSubjects === 'true';
 
     if (query.classId) {
       if (!Number.isInteger(classId) || classId <= 0) {
@@ -331,7 +332,7 @@ export class AcademicRecordsService {
     const rows = await this.prisma.academicScoreRecord.findMany({
       where: {
         schoolId: user.schoolId,
-        subjectCode: 'total',
+        ...(includeSubjects ? {} : { subjectCode: 'total' }),
         ...(query.classId ? { classId: BigInt(classId) } : classRestriction ? { classId: { in: classRestriction } } : {}),
         ...(query.examId && Number.isInteger(examId) && examId > 0 ? { examId: BigInt(examId) } : {}),
         ...(gradeName ? { classroom: { gradeName } } : {}),
@@ -358,7 +359,7 @@ export class AcademicRecordsService {
         },
       },
       orderBy: [{ exam: { importedAt: 'desc' } }, { classId: 'asc' }, { classRank: 'asc' }, { studentNo: 'asc' }],
-      take: 2000,
+      take: includeSubjects ? 20000 : 2000,
     });
 
     return {
@@ -376,6 +377,8 @@ export class AcademicRecordsService {
         studentId: toNumber(record.studentId),
         studentNo: record.studentNo,
         studentName: record.studentName,
+        subjectCode: record.subjectCode,
+        subjectName: record.subjectName,
         totalScore: record.score === null ? null : Number(record.score),
         schoolRank: record.schoolRank,
         schoolRankDelta: record.schoolRankDelta,

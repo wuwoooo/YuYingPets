@@ -12,6 +12,7 @@ body {
 }
 
 .prototype-shell {
+  position: relative;
   width: 100%;
   height: 100%;
   background: #0a2f4b;
@@ -23,4 +24,25 @@ body {
   border: 0;
   display: block;
   background: #0a2f4b;
+}
+
+.prototype-beian {
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+  z-index: 10;
+  font-size: 12px;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.82);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+.prototype-beian a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.prototype-beian a:hover {
+  text-decoration: underline;
 }

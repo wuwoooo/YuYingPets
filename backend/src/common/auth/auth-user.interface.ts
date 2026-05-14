@@ -5,6 +5,13 @@ export interface AuthUserScope {
   subjectCode?: string | null;
 }
 
+export interface AuthUserClassAssignment {
+  classId: bigint;
+  roleInClass: string;
+  subjectCode?: string | null;
+  isPrimary: boolean;
+}
+
 export interface AuthUser {
   id: bigint;
   schoolId: bigint;
@@ -12,5 +19,7 @@ export interface AuthUser {
   name: string;
   roleCode: string;
   roleName: string;
+  dutyTags: string[];
   scopes: AuthUserScope[];
+  classAssignments: AuthUserClassAssignment[];
 }

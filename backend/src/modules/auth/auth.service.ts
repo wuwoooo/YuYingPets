@@ -1,8 +1,9 @@
 import { ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { compare } from 'bcryptjs';
+import { compare, hashSync } from 'bcryptjs';
 import { PrismaService } from '@/prisma/prisma.service';
 import { LoginDto } from './dto/login.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { AuthUser } from '@/common/auth/auth-user.interface';
 import { toNumber } from '@/common/utils/bigint.util';
 
@@ -31,6 +32,9 @@ export class AuthService {
       include: {
         role: true,
         scopes: true,
+        teacherClassAssignments: {
+          where: { status: 'enabled' },
+        },
       },
       orderBy: [{ username: 'asc' }, { id: 'asc' }],
     });
@@ -77,12 +81,20 @@ export class AuthService {
           id: toNumber(user.id),
           name: user.name,
           roleCode: user.role.code,
+          roleName: user.role.name,
+          dutyTags: this.normalizeDutyTags(user.dutyTags),
         },
         scopes: user.scopes.map((scope) => ({
           scopeType: scope.scopeType,
           classId: toNumber(scope.classId),
           gradeCode: scope.gradeCode,
           subjectCode: scope.subjectCode,
+        })),
+        classAssignments: user.teacherClassAssignments.map((assignment) => ({
+          classId: toNumber(assignment.classId),
+          roleInClass: assignment.roleInClass,
+          subjectCode: assignment.subjectCode,
+          isPrimary: assignment.isPrimary,
         })),
       },
     };
@@ -101,6 +113,7 @@ export class AuthService {
           name: user.name,
           roleCode: user.roleCode,
           roleName: user.roleName,
+          dutyTags: user.dutyTags,
         },
         scopes: user.scopes.map((scope) => ({
           scopeType: scope.scopeType,
@@ -108,11 +121,48 @@ export class AuthService {
           gradeCode: scope.gradeCode,
           subjectCode: scope.subjectCode,
         })),
+        classAssignments: user.classAssignments.map((assignment) => ({
+          classId: toNumber(assignment.classId),
+          roleInClass: assignment.roleInClass,
+          subjectCode: assignment.subjectCode,
+          isPrimary: assignment.isPrimary,
+        })),
       },
     };
   }
 
   logout() {
+    return { code: 0, message: 'ok', data: null };
+  }
+
+  async changePassword(authorization: string | undefined, dto: ChangePasswordDto) {
+    const user = await this.getAuthUserFromAuthorization(authorization);
+    const currentUser = await this.prisma.user.findFirst({
+      where: {
+        id: user.id,
+        schoolId: user.schoolId,
+        deletedAt: null,
+        status: 'enabled',
+      },
+      select: { id: true, passwordHash: true },
+    });
+
+    if (!currentUser) {
+      throw new UnauthorizedException('用户不存在或已禁用');
+    }
+
+    const passwordMatched =
+      currentUser.passwordHash === dto.currentPassword ||
+      (await compare(dto.currentPassword, currentUser.passwordHash).catch(() => false));
+    if (!passwordMatched) {
+      throw new UnauthorizedException('当前密码错误');
+    }
+
+    await this.prisma.user.update({
+      where: { id: currentUser.id },
+      data: { passwordHash: hashSync(dto.newPassword, 10) },
+    });
+
     return { code: 0, message: 'ok', data: null };
   }
 
@@ -141,6 +191,9 @@ export class AuthService {
       include: {
         role: true,
         scopes: true,
+        teacherClassAssignments: {
+          where: { status: 'enabled' },
+        },
       },
     });
 
@@ -155,11 +208,18 @@ export class AuthService {
       name: user.name,
       roleCode: user.role.code,
       roleName: user.role.name,
+      dutyTags: this.normalizeDutyTags(user.dutyTags),
       scopes: user.scopes.map((scope) => ({
         scopeType: scope.scopeType,
         classId: scope.classId,
         gradeCode: scope.gradeCode,
         subjectCode: scope.subjectCode,
+      })),
+      classAssignments: user.teacherClassAssignments.map((assignment) => ({
+        classId: assignment.classId,
+        roleInClass: assignment.roleInClass,
+        subjectCode: assignment.subjectCode,
+        isPrimary: assignment.isPrimary,
       })),
     };
   }
@@ -170,12 +230,44 @@ export class AuthService {
     }
 
     const targetClassId = typeof classId === 'bigint' ? classId : BigInt(classId);
-    return user.scopes.some((scope) => scope.classId === targetClassId);
+    return (
+      user.scopes.some((scope) => scope.classId === targetClassId) ||
+      user.classAssignments.some((assignment) => assignment.classId === targetClassId)
+    );
   }
 
   ensureCanAccessClass(user: AuthUser, classId: bigint | number) {
     if (!this.canAccessClass(user, classId)) {
       throw new ForbiddenException('无权访问当前班级');
+    }
+  }
+
+  async ensureIsHomeroomOfClass(user: AuthUser, classId: bigint | number) {
+    if (['super_admin', 'school_admin', 'moral_admin'].includes(user.roleCode)) {
+      return;
+    }
+
+    const targetClassId = typeof classId === 'bigint' ? classId : BigInt(classId);
+    const matchedAssignment = user.classAssignments.some(
+      (assignment) =>
+        assignment.classId === targetClassId &&
+        ['homeroom', 'co_homeroom'].includes(assignment.roleInClass),
+    );
+    if (matchedAssignment) {
+      return;
+    }
+
+    const matchedClassroom = await this.prisma.classroom.findFirst({
+      where: {
+        id: targetClassId,
+        schoolId: user.schoolId,
+        homeroomTeacherId: user.id,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+    if (!matchedClassroom) {
+      throw new ForbiddenException('仅当前班级班主任可执行此操作');
     }
   }
 
@@ -230,5 +322,12 @@ export class AuthService {
     if (!this.canUseRuleForClass(user, classId, rule)) {
       throw new ForbiddenException('无权使用当前积分规则');
     }
+  }
+
+  private normalizeDutyTags(value: unknown) {
+    const rawItems = Array.isArray(value)
+      ? value
+      : String(value ?? '').split(/[,，;；、/／|]+/);
+    return Array.from(new Set(rawItems.map((item) => String(item).trim()).filter(Boolean)));
   }
 }

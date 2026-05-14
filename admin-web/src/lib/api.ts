@@ -59,6 +59,8 @@ export type LoginResponse = {
       id: number;
       name: string;
       roleCode: string;
+      roleName?: string;
+      dutyTags?: string[];
     };
   };
 };
@@ -77,9 +79,11 @@ export type ApiObjectResponse<T> = {
 
 export type SessionUser = {
   id: number;
+  username?: string;
   name: string;
   roleCode: string;
   roleName?: string;
+  dutyTags?: string[];
 };
 
 export type SessionScope = {
@@ -345,6 +349,8 @@ export type AcademicScoreListRow = {
   studentId: number;
   studentNo: string;
   studentName: string;
+  subjectCode?: string;
+  subjectName?: string;
   totalScore: number | null;
   schoolRank: number | null;
   schoolRankDelta: number | null;
@@ -1044,6 +1050,13 @@ export const adminApi = {
   me(token: string) {
     return request<SessionMeResponse>('/auth/me', { token });
   },
+  changePassword(token: string, body: { currentPassword: string; newPassword: string }) {
+    return request<ApiObjectResponse<null>>('/auth/change-password', {
+      method: 'POST',
+      token,
+      body,
+    });
+  },
   classes(token: string) {
     return request<ApiListResponse<AdminClass>>('/classes', { token });
   },
@@ -1087,13 +1100,14 @@ export const adminApi = {
   },
   academicScores(
     token: string,
-    query?: { examId?: number; classId?: number; gradeName?: string; keyword?: string },
+    query?: { examId?: number; classId?: number; gradeName?: string; keyword?: string; includeSubjects?: boolean },
   ) {
     const params = new URLSearchParams();
     if (query?.examId) params.set('examId', String(query.examId));
     if (query?.classId) params.set('classId', String(query.classId));
     if (query?.gradeName) params.set('gradeName', query.gradeName);
     if (query?.keyword) params.set('keyword', query.keyword);
+    if (query?.includeSubjects) params.set('includeSubjects', 'true');
     const suffix = params.size > 0 ? `?${params.toString()}` : '';
     return request<ApiListResponse<AcademicScoreListRow>>(`/academic-records${suffix}`, { token });
   },

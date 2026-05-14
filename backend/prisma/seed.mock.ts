@@ -98,6 +98,21 @@ async function main() {
     await prisma.userScope.upsert({ where: { id: row.id }, update: row, create: row });
   }
 
+  await prisma.teacherClassAssignment.deleteMany({
+    where: {
+      schoolId: school.id,
+      teacherId: { in: [teacherDemo.id, teacherDemoB.id, teacherDemoC.id] },
+      roleInClass: 'homeroom',
+    },
+  });
+  await prisma.teacherClassAssignment.createMany({
+    data: [
+      { schoolId: school.id, teacherId: teacherDemo.id, classId: classroomA.id, roleInClass: 'homeroom', isPrimary: true },
+      { schoolId: school.id, teacherId: teacherDemoB.id, classId: classroomB.id, roleInClass: 'homeroom', isPrimary: true },
+      { schoolId: school.id, teacherId: teacherDemoC.id, classId: classroomC.id, roleInClass: 'homeroom', isPrimary: true },
+    ],
+  });
+
   const students = [
     { id: 1n, classId: classroomA.id, studentNo: '20260101', name: '李星星', gender: '男' },
     { id: 2n, classId: classroomA.id, studentNo: '20260102', name: '王宠宠', gender: '女' },

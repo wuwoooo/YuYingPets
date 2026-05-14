@@ -77,6 +77,20 @@ export class DisplayController {
     return this.displayService.classScoreRanking(Number(classId));
   }
 
+  @Get('classes/:classId/academic-growth')
+  academicGrowth(@Param('classId') classId: string) {
+    return this.displayService.academicGrowth(Number(classId));
+  }
+
+  @Get('classes/:classId/academic-ai/:studentId/summary')
+  academicAiSummary(
+    @Param('classId') classId: string,
+    @Param('studentId') studentId: string,
+    @Query('periodType') periodType?: 'weekly' | 'monthly',
+  ) {
+    return this.displayService.academicAiSummary(Number(classId), Number(studentId), periodType);
+  }
+
   @Get('classes/:classId/reward-center')
   rewardCenter(@Param('classId') classId: string) {
     return this.displayService.rewardCenter(Number(classId));

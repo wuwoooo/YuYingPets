@@ -3,12 +3,15 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import presentationLogo from '../assets/presentation-logo.svg';
 import { PresentationGlyph } from '../components/PresentationGlyph';
 import type { 
+  AcademicExamListItem,
+  AcademicScoreListRow,
   AnalyticsData,
   DisplayWeatherPayload,
   DisplayTerminal,
   StudentImportPayload
 } from '../lib/api';
 import { adminApi } from '../lib/api';
+import { buildAcademicGrowthSummary } from '../utils/academicGrowth';
 import type {
   AdminState
 } from '../types/admin';
@@ -60,6 +63,8 @@ export function PresentationModePage({
   const [mapCenter, setMapCenter] = useState({ city: '未设置城市', lat: 25.651, lng: 100.173, source: '默认坐标' });
   const [displayTerminals, setDisplayTerminals] = useState<DisplayTerminal[]>([]);
   const [weatherInfo, setWeatherInfo] = useState<DisplayWeatherPayload | null>(null);
+  const [academicExams, setAcademicExams] = useState<AcademicExamListItem[]>([]);
+  const [academicScores, setAcademicScores] = useState<AcademicScoreListRow[]>([]);
   const clockText = snapshotData.clockText;
   const gradeFilter = searchParams.get('gradeName') || 'all';
   const classFilter = searchParams.get('classId') || 'all';
@@ -88,18 +93,22 @@ export function PresentationModePage({
 
     let frame = 0;
     let startTime = 0;
+    let lastRenderedAt = 0;
     const animateMetrics = (ts: number) => {
       if (!startTime) startTime = ts;
       const progress = Math.min((ts - startTime) / 2200, 1);
       const ease = 1 - Math.pow(1 - progress, 4);
-      setMetricDisplayValues([
-        Math.floor(metricTargets[0] * ease).toLocaleString('zh-CN'),
-        `${Math.floor(metricTargets[1] * ease)}`,
-        `${Math.floor(metricTargets[2] * ease)}`,
-        `${Math.floor(metricTargets[3] * ease)}`,
-        `${Math.floor(metricTargets[4] * ease)}`,
-        `Lv.${(metricTargets[5] * ease).toFixed(1)}`,
-      ]);
+      if (ts - lastRenderedAt >= 80 || progress === 1) {
+        lastRenderedAt = ts;
+        setMetricDisplayValues([
+          Math.floor(metricTargets[0] * ease).toLocaleString('zh-CN'),
+          `${Math.floor(metricTargets[1] * ease)}`,
+          `${Math.floor(metricTargets[2] * ease)}`,
+          `${Math.floor(metricTargets[3] * ease)}`,
+          `${Math.floor(metricTargets[4] * ease)}`,
+          `Lv.${(metricTargets[5] * ease).toFixed(1)}`,
+        ]);
+      }
       if (progress < 1) frame = window.requestAnimationFrame(animateMetrics);
     };
     const countKickOff = window.setTimeout(() => {
@@ -238,6 +247,24 @@ export function PresentationModePage({
     };
   }, [token]);
 
+  useEffect(() => {
+    let active = true;
+    Promise.all([adminApi.academicExams(token), adminApi.academicScores(token, { includeSubjects: true })])
+      .then(([examsResponse, scoresResponse]) => {
+        if (!active) return;
+        setAcademicExams(examsResponse.data);
+        setAcademicScores(scoresResponse.data);
+      })
+      .catch(() => {
+        if (!active) return;
+        setAcademicExams([]);
+        setAcademicScores([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [token]);
+
   const heroMetrics = [
     { label: '全校总积分', value: metricDisplayValues[0], sub: '较上周 +12.5%', theme: 'blue', glow: 'blue-glow', icon: 'chart' as const },
     { label: '活跃班级', value: metricDisplayValues[1], sub: `共 ${classes.length} 班 · ${classes.length ? ((activeClasses / classes.length) * 100).toFixed(1) : '0.0'}% 参与`, theme: 'green', glow: 'green-glow', icon: 'school' as const },
@@ -246,6 +273,124 @@ export function PresentationModePage({
     { label: '勋章发放', value: metricDisplayValues[4], sub: '本月累计授予次数', theme: 'gold', glow: 'gold-glow', icon: 'medal' as const },
     { label: '平均成长等级', value: metricDisplayValues[5], sub: '较上月 +0.3', theme: 'teal', glow: 'teal-glow', icon: 'paw' as const },
   ] as const;
+
+  const academicGrowth = useMemo(
+    () => buildAcademicGrowthSummary(academicExams, academicScores, classes, students),
+    [academicExams, academicScores, classes, students],
+  );
+  const academicSubjectSummaries = useMemo(() => {
+    if (!academicGrowth.latestExam) return [];
+    const totalRows = academicScores.filter(
+      (row) => row.examId === academicGrowth.latestExam?.id && row.totalScore !== null && (!row.subjectCode || row.subjectCode === 'total'),
+    );
+    const totalByStudent = new Map(totalRows.map((row) => [row.studentId, row.totalScore ?? 0]));
+    const totalAverage = totalRows.length
+      ? totalRows.reduce((sum, row) => sum + (row.totalScore ?? 0), 0) / totalRows.length
+      : academicGrowth.averageScore;
+    const correlation = (pairs: Array<{ subject: number; total: number }>) => {
+      if (pairs.length < 2) return 0;
+      const subjectAvg = pairs.reduce((sum, item) => sum + item.subject, 0) / pairs.length;
+      const totalAvg = pairs.reduce((sum, item) => sum + item.total, 0) / pairs.length;
+      const numerator = pairs.reduce((sum, item) => sum + (item.subject - subjectAvg) * (item.total - totalAvg), 0);
+      const subjectVariance = pairs.reduce((sum, item) => sum + Math.pow(item.subject - subjectAvg, 2), 0);
+      const totalVariance = pairs.reduce((sum, item) => sum + Math.pow(item.total - totalAvg, 2), 0);
+      const denominator = Math.sqrt(subjectVariance * totalVariance);
+      return denominator ? numerator / denominator : 0;
+    };
+    const subjectRows = academicScores.filter(
+      (row) => row.examId === academicGrowth.latestExam?.id && row.totalScore !== null && row.subjectCode && row.subjectCode !== 'total',
+    );
+    const grouped = subjectRows.reduce((map, row) => {
+      const key = row.subjectCode ?? row.subjectName ?? 'unknown';
+      const current = map.get(key) ?? {
+        subjectCode: key,
+        subjectName: row.subjectName ?? row.subjectCode ?? '未知科目',
+        values: [] as number[],
+        classMap: new Map<number, number[]>(),
+      };
+      if (row.totalScore !== null) {
+        current.values.push(row.totalScore);
+        const classValues = current.classMap.get(row.classId) ?? [];
+        classValues.push(row.totalScore);
+        current.classMap.set(row.classId, classValues);
+      }
+      map.set(key, current);
+      return map;
+    }, new Map<string, { subjectCode: string; subjectName: string; values: number[]; classMap: Map<number, number[]> }>());
+    return Array.from(grouped.values())
+      .map((item) => {
+        const averageScore = item.values.length ? item.values.reduce((sum, value) => sum + value, 0) / item.values.length : 0;
+        const classAverages = Array.from(item.classMap.values()).map((values) => values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length));
+        const minAverage = Math.min(...classAverages, averageScore);
+        const maxAverage = Math.max(...classAverages, averageScore);
+        const pairs = subjectRows
+          .filter((row) => (row.subjectCode ?? row.subjectName) === item.subjectCode && row.totalScore !== null && totalByStudent.has(row.studentId))
+          .map((row) => ({ subject: row.totalScore ?? 0, total: totalByStudent.get(row.studentId) ?? 0 }));
+        const relatedScore = correlation(pairs);
+        return {
+          subjectCode: item.subjectCode,
+          subjectName: item.subjectName,
+          averageScore: Math.round(averageScore * 10) / 10,
+          minAverage: Math.round(minAverage * 10) / 10,
+          maxAverage: Math.round(maxAverage * 10) / 10,
+          classSpread: Math.round((maxAverage - minAverage) * 10) / 10,
+          contributionRate: totalAverage > 0 ? Math.round((averageScore / totalAverage) * 1000) / 10 : 0,
+          relatedScore: Math.round(relatedScore * 100) / 100,
+          count: item.values.length,
+        };
+      })
+      .sort((left, right) => right.averageScore - left.averageScore)
+      .slice(0, 10);
+  }, [academicGrowth.latestExam, academicScores]);
+  const academicScatterNodes = useMemo(() => {
+    const source = academicSubjectSummaries;
+    const averageValues = source.map((item) => item.averageScore);
+    const relatedValues = source.map((item) => item.relatedScore);
+    const minAverage = Math.min(...averageValues, 0);
+    const maxAverage = Math.max(...averageValues, 1);
+    const minRelated = Math.min(...relatedValues, 0);
+    const maxRelated = Math.max(...relatedValues, 1);
+    const averageRange = Math.max(maxAverage - minAverage, 1);
+    const relatedRange = Math.max(maxRelated - minRelated, 0.05);
+    const maxContribution = Math.max(...source.map((item) => item.contributionRate), 1);
+    return source.map((item, index) => ({
+      ...item,
+      x: 72 + Math.round(((item.averageScore - minAverage) / averageRange) * 388),
+      y: 206 - Math.round(((item.relatedScore - minRelated) / relatedRange) * 152),
+      radius: 5 + Math.round((item.contributionRate / maxContribution) * 9),
+      color: item.relatedScore >= 0.75 ? '#95f5c2' : item.relatedScore >= 0.45 ? '#f7dc6f' : '#ff8a72',
+      labelDx: index % 2 === 0 ? 12 : -54,
+      labelDy: index % 3 === 0 ? -12 : index % 3 === 1 ? 4 : 18,
+      delay: `${index * 0.08}s`,
+    }));
+  }, [academicSubjectSummaries]);
+  const academicBoxRows = useMemo(() => {
+    if (!academicGrowth.latestExam) return [];
+    const latestRows = academicScores.filter((row) => row.examId === academicGrowth.latestExam?.id && row.totalScore !== null);
+    const grouped = latestRows.reduce((map, row) => {
+      const current = map.get(row.classId) ?? { className: row.className, values: [] as number[] };
+      if (row.totalScore !== null) current.values.push(row.totalScore);
+      map.set(row.classId, current);
+      return map;
+    }, new Map<number, { className: string; values: number[] }>());
+    const percentile = (values: number[], ratio: number) => {
+      if (!values.length) return 0;
+      const index = Math.min(values.length - 1, Math.max(0, Math.round((values.length - 1) * ratio)));
+      return values[index] ?? 0;
+    };
+    return Array.from(grouped.entries())
+      .map(([classId, item]) => {
+        const values = [...item.values].sort((a, b) => a - b);
+        const min = values[0] ?? 0;
+        const max = values[values.length - 1] ?? 0;
+        const q1 = percentile(values, 0.25);
+        const median = percentile(values, 0.5);
+        const q3 = percentile(values, 0.75);
+        return { classId, className: item.className, min, q1, median, q3, max };
+      })
+      .sort((left, right) => right.median - left.median)
+      .slice(0, 5);
+  }, [academicGrowth.latestExam, academicScores]);
 
   const topClasses = useMemo(() => [...classes].sort((left, right) => right.classScore - left.classScore).slice(0, 6), [classes]);
   const topStudents = useMemo(() => [...students].sort((left, right) => right.currentScore - left.currentScore).slice(0, 8), [students]);
@@ -368,12 +513,14 @@ export function PresentationModePage({
   }, [students]);
   const tickerItems = useMemo(() => {
     const items = [
+      ...academicGrowth.progressLeaders.slice(0, 6).map((item) => `${item.studentName} · 学业成长 ${item.rankDelta > 0 ? '+' : ''}${item.rankDelta}`),
+      academicGrowth.latestExam ? `${academicGrowth.latestExam.name} · 学业成长指数 ${academicGrowth.growthIndex}` : '学业成长数据等待导入',
       ...topStudents.map((item) => `${item.name} · ${item.className} 当前积分达到 ${item.currentScore} 分`),
       ...topHonors.map((item) => `${item.name} 本周累计颁发 ${item.grantedCount} 人次`),
       ...topClasses.map((item) => `${item.name} 班级积分达到 ${item.classScore} 分`),
     ];
     return [...items, ...items];
-  }, [topClasses, topHonors, topStudents]);
+  }, [academicGrowth.growthIndex, academicGrowth.latestExam, academicGrowth.progressLeaders, topClasses, topHonors, topStudents]);
   const particles = useMemo(
     () =>
       Array.from({ length: 60 }, (_, index) => {
@@ -489,6 +636,17 @@ export function PresentationModePage({
   const clockSegments = clockText.split(':');
   const clockMain = clockSegments.length === 3 ? `${clockSegments[0]}:${clockSegments[1]}` : clockText;
   const clockSecond = clockSegments.length === 3 ? clockSegments[2] : '00';
+  const presentationStages = [
+    { id: 'presentation-hero-stage', label: '开场', title: '总览' },
+    { id: 'presentation-academic-heading', label: '第一幕', title: '学业' },
+    { id: 'presentation-class-stage', label: '第二幕', title: '班级' },
+    { id: 'presentation-insight-stage', label: '第三幕', title: '洞察' },
+    { id: 'presentation-operation-stage', label: '第四幕', title: '运营' },
+    { id: 'presentation-ecosystem-stage', label: '第五幕', title: '生态' },
+  ];
+  function scrollToPresentationStage(stageId: string) {
+    document.getElementById(stageId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
   return (
     <div className={`presentation-page${isActive ? ' is-active' : ''}`}>
       <div className={`presentation-curtain${curtainOpen ? ' open' : ''}`} />
@@ -516,6 +674,14 @@ export function PresentationModePage({
       <div className="presentation-corner tr" />
       <div className="presentation-corner bl" />
       <div className="presentation-corner br" />
+      <nav className="presentation-stage-nav" aria-label="汇报章节切换">
+        {presentationStages.map((stage) => (
+          <button key={stage.id} type="button" onClick={() => scrollToPresentationStage(stage.id)}>
+            <span>{stage.label}</span>
+            <strong>{stage.title}</strong>
+          </button>
+        ))}
+      </nav>
       <div className="presentation-shell">
         <header className="presentation-topbar">
           <div className="presentation-brand">
@@ -554,7 +720,7 @@ export function PresentationModePage({
           </div>
         </header>
 
-        <section className="presentation-hero">
+        <section id="presentation-hero-stage" className="presentation-hero">
           <div className="presentation-hero-title">校级数据驾驶舱</div>
           <div className="presentation-hero-sub">SCHOOL DATA COCKPIT</div>
           <div className="presentation-hero-line" />
@@ -571,6 +737,129 @@ export function PresentationModePage({
             </div>
           ))}
         </section>
+
+        <div className="presentation-divider section-1" id="presentation-academic-heading">第一幕 · 学业成长成果</div>
+
+        <section className="presentation-academic-stage">
+          <div className="presentation-academic-title">
+            <strong>学业成长成果</strong>
+            <small>{academicGrowth.latestExam?.name ?? '暂无考试数据'}</small>
+          </div>
+          <div className="presentation-academic-core">
+            <div className="presentation-academic-index">
+              <span>学业成长指数</span>
+              <strong>{academicGrowth.growthIndex}</strong>
+              <p>{academicGrowth.insight.report}</p>
+            </div>
+            <div className="presentation-academic-orbit">
+              {academicGrowth.quadrants.map((item, index) => (
+                <div
+                  key={item.key}
+                  className={`presentation-academic-planet ${item.tone}`}
+                  style={{
+                    left: `${16 + (index % 2) * 58}%`,
+                    top: `${18 + Math.floor(index / 2) * 46}%`,
+                    width: `${62 + Math.min(34, item.count * 2)}px`,
+                    height: `${62 + Math.min(34, item.count * 2)}px`,
+                    animationDelay: `${index * 0.35}s`,
+                  }}
+                >
+                  <strong>{item.count}</strong>
+                  <span>{item.label}</span>
+                </div>
+              ))}
+            </div>
+            <div className="presentation-academic-leaders">
+              <div className="presentation-panel-title compact"><PresentationGlyph name="trend" className="presentation-title-icon" />进步样本</div>
+              {academicGrowth.progressLeaders.slice(0, 5).map((item, index) => (
+                <div className="presentation-academic-leader" key={item.studentId}>
+                  <span>{index + 1}</span>
+                  <strong>{item.studentName}</strong>
+                  <em>{item.className} · {item.rankDelta > 0 ? '+' : ''}{item.rankDelta}</em>
+                </div>
+              ))}
+              {academicGrowth.progressLeaders.length === 0 ? <div className="presentation-summary-item">暂无进步样本，导入多次考试后自动生成。</div> : null}
+            </div>
+          </div>
+          <div className="presentation-academic-chart-row">
+            <div className="presentation-academic-chart-card presentation-academic-chart-card-wide">
+              <div className="presentation-panel-title compact"><PresentationGlyph name="chart" className="presentation-title-icon" />各科对总成绩影响散点图</div>
+              <svg className="presentation-academic-scatter" viewBox="0 0 540 260" aria-hidden="true">
+                <line x1="60" y1="214" x2="484" y2="214" className="presentation-academic-axis" />
+                <line x1="60" y1="34" x2="60" y2="214" className="presentation-academic-axis" />
+                <line x1="60" y1="154" x2="484" y2="154" className="presentation-academic-grid-line" />
+                <line x1="60" y1="94" x2="484" y2="94" className="presentation-academic-grid-line" />
+                {academicScatterNodes.map((item) => (
+                  <g key={item.subjectCode} style={{ animationDelay: item.delay }}>
+                    <circle cx={item.x} cy={item.y} r={item.radius} fill={item.color} className="presentation-academic-scatter-dot" />
+                    <text
+                      x={item.x + item.labelDx}
+                      y={item.y + item.labelDy}
+                      className="presentation-academic-point-label"
+                      textAnchor={item.labelDx < 0 ? 'end' : 'start'}
+                    >
+                      {item.subjectName} · r {item.relatedScore}
+                    </text>
+                  </g>
+                ))}
+                <text x="406" y="246" className="presentation-academic-axis-label">科目均分相对位置</text>
+                <text x="8" y="28" className="presentation-academic-axis-label">总分相关度</text>
+                <text x="66" y="238" className="presentation-academic-axis-label">低</text>
+                <text x="464" y="238" className="presentation-academic-axis-label">高</text>
+              </svg>
+              {academicScatterNodes.length === 0 ? <div className="presentation-summary-item">暂无各科成绩数据。</div> : null}
+            </div>
+
+            <div className="presentation-academic-chart-card">
+              <div className="presentation-panel-title compact"><PresentationGlyph name="trend" className="presentation-title-icon" />学科均衡条带图</div>
+              <div className="presentation-academic-subject-bands">
+                {academicSubjectSummaries.slice(0, 7).map((item) => {
+                  const maxAverage = Math.max(...academicSubjectSummaries.map((row) => row.averageScore), 1);
+                  const maxSpread = Math.max(...academicSubjectSummaries.map((row) => row.classSpread), 1);
+                  return (
+                    <div className="presentation-academic-subject-band" key={item.subjectCode}>
+                      <span>{item.subjectName}</span>
+                      <div className="presentation-academic-subject-track">
+                        <i style={{ width: `${Math.max(8, Math.round((item.averageScore / maxAverage) * 100))}%` }} />
+                        <b style={{ width: `${Math.max(6, Math.round((item.classSpread / maxSpread) * 100))}%` }} />
+                      </div>
+                      <strong>{item.averageScore}</strong>
+                    </div>
+                  );
+                })}
+                {academicSubjectSummaries.length === 0 ? <div className="presentation-summary-item">暂无学科均衡数据。</div> : null}
+              </div>
+            </div>
+
+            <div className="presentation-academic-chart-card">
+              <div className="presentation-panel-title compact"><PresentationGlyph name="summary" className="presentation-title-icon" />班级分布箱线图</div>
+              <div className="presentation-academic-boxplot">
+                {academicBoxRows.map((item) => {
+                  const maxScore = Math.max(...academicBoxRows.map((row) => row.max), 1);
+                  const left = Math.round((item.min / maxScore) * 100);
+                  const q1 = Math.round((item.q1 / maxScore) * 100);
+                  const median = Math.round((item.median / maxScore) * 100);
+                  const q3 = Math.round((item.q3 / maxScore) * 100);
+                  const right = Math.round((item.max / maxScore) * 100);
+                  return (
+                    <div className="presentation-academic-box-row" key={item.classId}>
+                      <span>{item.className.replace('八年级', '')}</span>
+                      <div className="presentation-academic-box-track">
+                        <i className="presentation-academic-box-whisker" style={{ left: `${left}%`, width: `${Math.max(2, right - left)}%` }} />
+                        <i className="presentation-academic-box-body" style={{ left: `${q1}%`, width: `${Math.max(3, q3 - q1)}%` }} />
+                        <b style={{ left: `${median}%` }} />
+                      </div>
+                      <strong>{item.median}</strong>
+                    </div>
+                  );
+                })}
+                {academicBoxRows.length === 0 ? <div className="presentation-summary-item">暂无班级分布数据。</div> : null}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <div className="presentation-divider section-2" id="presentation-class-stage">第二幕 · 班级成长势能</div>
 
         <section className="presentation-row presentation-row-mid">
           <div className="presentation-panel presentation-middle-panel">
@@ -695,7 +984,7 @@ export function PresentationModePage({
           </div>
         </section>
 
-        <div className="presentation-divider section-1">多维数据洞察</div>
+        <div className="presentation-divider section-3" id="presentation-insight-stage">第三幕 · 多维数据洞察</div>
 
         <section className="presentation-row presentation-row-3">
           <div className="presentation-panel fade-up-panel">
@@ -757,7 +1046,7 @@ export function PresentationModePage({
           </div>
         </section>
 
-        <div className="presentation-divider section-2">运营态势建模</div>
+        <div className="presentation-divider section-4" id="presentation-operation-stage">第四幕 · 运营态势建模</div>
 
         <section className="presentation-row presentation-row-3">
           <div className="presentation-panel fade-up-panel bottom-panel">
@@ -847,7 +1136,7 @@ export function PresentationModePage({
           </div>
         </section>
 
-        <div className="presentation-divider section-3">荣誉 · 预警 · 萌宠生态</div>
+        <div className="presentation-divider section-5" id="presentation-ecosystem-stage">第五幕 · 荣誉 · 预警 · 萌宠生态</div>
 
         <section className="presentation-row presentation-row-3">
           <div className="presentation-panel fade-up-panel bottom-panel">

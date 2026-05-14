@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Headers, Post } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { LoginDto } from './dto/login.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { AuthService } from './auth.service';
 
 @ApiTags('Auth')
@@ -16,6 +17,11 @@ export class AuthController {
   @Get('me')
   me(@Headers('authorization') authorization?: string) {
     return this.authService.me(authorization);
+  }
+
+  @Post('change-password')
+  changePassword(@Headers('authorization') authorization: string | undefined, @Body() dto: ChangePasswordDto) {
+    return this.authService.changePassword(authorization, dto);
   }
 
   @Post('logout')

@@ -73,12 +73,16 @@ type AcademicSummaryItem = {
   importedAt: string;
   totalScore: number | null;
   totalSchoolRank: number | null;
+  totalSchoolRankDelta: number | null;
   totalClassRank: number | null;
+  totalClassRankDelta: number | null;
   subjects: Array<{
     subjectName: string;
     score: number | null;
     schoolRank: number | null;
+    schoolRankDelta: number | null;
     classRank: number | null;
+    classRankDelta: number | null;
   }>;
 };
 
@@ -453,19 +457,25 @@ export class AiService {
         importedAt: record.exam.importedAt.toISOString(),
         totalScore: null,
         totalSchoolRank: null,
+        totalSchoolRankDelta: null,
         totalClassRank: null,
+        totalClassRankDelta: null,
         subjects: [],
       };
       const item = {
         subjectName: record.subjectName,
         score: record.score === null ? null : Number(record.score),
         schoolRank: record.schoolRank,
+        schoolRankDelta: record.schoolRankDelta,
         classRank: record.classRank,
+        classRankDelta: record.classRankDelta,
       };
       if (record.subjectCode === 'total' || record.subjectName === '总分') {
         current.totalScore = item.score;
         current.totalSchoolRank = item.schoolRank;
+        current.totalSchoolRankDelta = item.schoolRankDelta;
         current.totalClassRank = item.classRank;
+        current.totalClassRankDelta = item.classRankDelta;
       } else {
         current.subjects.push(item);
       }
@@ -495,8 +505,10 @@ export class AiService {
           : '最近整体较为平稳';
 
     const latestAcademic = academicSummary[0];
+    const classRankDeltaText = this.formatRankDelta(latestAcademic?.totalClassRankDelta);
+    const schoolRankDeltaText = this.formatRankDelta(latestAcademic?.totalSchoolRankDelta);
     const academicText = latestAcademic
-      ? `最近一次成绩为“${latestAcademic.examName}”，总分${latestAcademic.totalScore ?? '暂无'}，班次${latestAcademic.totalClassRank ?? '暂无'}。`
+      ? `最近一次成绩为“${latestAcademic.examName}”，总分${latestAcademic.totalScore ?? '暂无'}，班次${latestAcademic.totalClassRank ?? '暂无'}（${classRankDeltaText}），校次${latestAcademic.totalSchoolRank ?? '暂无'}（${schoolRankDeltaText}）。`
       : '';
 
     return `${studentName}${periodLabel}累计正向表现${positiveSummary.count}次，负向表现${negativeSummary.count}次，积分净变化${trendSummary.totalScoreDelta}分。高频关注点集中在“${topDimension}”，主要发生在“${topSubject}”相关学习场景，${trendText}。${academicText}`;
@@ -512,6 +524,14 @@ export class AiService {
     academicSummary: AcademicSummaryItem[],
   ) {
     const latestAcademic = academicSummary[0];
+    if (latestAcademic?.totalClassRankDelta && latestAcademic.totalClassRankDelta > 0) {
+      return `建议及时肯定本次班级排名上升${latestAcademic.totalClassRankDelta}名的进步，并引导学生复盘提分科目和可复制的学习动作。`;
+    }
+
+    if (latestAcademic?.totalClassRankDelta && latestAcademic.totalClassRankDelta < 0) {
+      return `建议重点关注本次班级排名下降${Math.abs(latestAcademic.totalClassRankDelta)}名的原因，结合错题复盘与课堂执行做短周期纠偏。`;
+    }
+
     if (latestAcademic?.totalClassRank && latestAcademic.totalClassRank <= 5) {
       return '建议结合最近成绩优势，继续强化优势科目表达与错题复盘，把学业表现转化为稳定学习习惯。';
     }
@@ -531,6 +551,14 @@ export class AiService {
     }
 
     return '建议继续积累课堂、作业和测评场景数据，保持教师观察记录与规则评价同步，便于后续形成更稳定的学情画像。';
+  }
+
+  private formatRankDelta(value: number | null | undefined) {
+    if (value === null || value === undefined || !Number.isFinite(Number(value)) || Number(value) === 0) {
+      return '排名持平';
+    }
+    const numeric = Number(value);
+    return numeric > 0 ? `上升${numeric}名` : `下降${Math.abs(numeric)}名`;
   }
 
   private async generateWithArk(input: {
@@ -589,6 +617,8 @@ export class AiService {
                     '你是校内学情分析助手。',
                     '你只允许基于提供的数据进行判断，不夸大，不臆测。',
                     '输出必须正式、克制、适合班主任与学校管理场景。',
+                    '若 academicSummary 中存在 totalClassRankDelta、totalSchoolRankDelta 或各科 classRankDelta、schoolRankDelta，必须在总结或建议中体现排名上升/下降及其可能指向。',
+                    '排名变化字段含义：正数代表排名上升，负数代表排名下降，0 或 null 代表无明显变化或暂无数据。',
                     '请严格输出 JSON，字段只有 aiSummary 和 aiSuggestion，两个字段都必须是字符串。',
                     'aiSummary 控制在 120 字以内，aiSuggestion 控制在 80 字以内。',
                   ].join(' '),

@@ -490,7 +490,7 @@ export class AdminConfigService {
         },
       });
 
-      await this.replaceUserScopes(tx, createdUser.id, role.code, body);
+      await this.replaceUserScopes(tx, user.schoolId, createdUser.id, role.code, body);
 
       return createdUser;
     });
@@ -531,7 +531,7 @@ export class AdminConfigService {
         },
       });
 
-      await this.replaceUserScopes(tx, BigInt(id), role.code, body);
+      await this.replaceUserScopes(tx, user.schoolId, BigInt(id), role.code, body);
     });
 
     await this.logAction(user, 'permission_user', 'update', BigInt(id), body);
@@ -667,7 +667,7 @@ export class AdminConfigService {
               dutyTags: upsertBody.dutyTags ?? [],
             },
           });
-          await this.replaceUserScopes(tx, matchedUser.id, role.code, upsertBody);
+          await this.replaceUserScopes(tx, user.schoolId, matchedUser.id, role.code, upsertBody);
           matchedUser.name = row.name;
           matchedUser.phone = row.phone || null;
           updatedCount += 1;
@@ -694,7 +694,7 @@ export class AdminConfigService {
             status: 'enabled',
           },
         });
-        await this.replaceUserScopes(tx, created.id, role.code, upsertBody);
+        await this.replaceUserScopes(tx, user.schoolId, created.id, role.code, upsertBody);
         existingUsers.push({
           id: created.id,
           username: created.username,
@@ -1019,11 +1019,17 @@ export class AdminConfigService {
 
   private async replaceUserScopes(
     tx: Prisma.TransactionClient,
+    schoolId: bigint,
     userId: bigint,
     roleCode: string,
     body: PermissionUserUpsertDto,
   ) {
     await tx.userScope.deleteMany({ where: { userId } });
+    await tx.teacherClassAssignment.deleteMany({ where: { teacherId: userId } });
+    await tx.classroom.updateMany({
+      where: { schoolId, homeroomTeacherId: userId },
+      data: { homeroomTeacherId: null },
+    });
 
     if (roleCode === 'super_admin') {
       await tx.userScope.create({
@@ -1048,12 +1054,14 @@ export class AdminConfigService {
           subjectCode: item.subjectCode,
         })),
       });
+      await this.createSubjectTeacherAssignments(tx, schoolId, userId, subjectScopes);
       return;
     }
 
     if (body.classIds?.length) {
+      const classIds = Array.from(new Set(body.classIds));
       await tx.userScope.createMany({
-        data: Array.from(new Set(body.classIds)).map((classId) => ({
+        data: classIds.map((classId) => ({
           userId,
           scopeType: 'class_scope',
           classId: BigInt(classId),
@@ -1061,9 +1069,46 @@ export class AdminConfigService {
       });
 
       if (roleCode === 'homeroom_teacher') {
+        const targetClassIds = classIds.map((classId) => BigInt(classId));
+        const replacedHomeroomAssignments = await tx.teacherClassAssignment.findMany({
+          where: {
+            schoolId,
+            classId: { in: targetClassIds },
+            roleInClass: 'homeroom',
+            teacherId: { not: userId },
+          },
+          select: { teacherId: true, classId: true },
+        });
+        await tx.teacherClassAssignment.deleteMany({
+          where: {
+            schoolId,
+            classId: { in: targetClassIds },
+            roleInClass: 'homeroom',
+            teacherId: { not: userId },
+          },
+        });
+        for (const assignment of replacedHomeroomAssignments) {
+          await this.deleteClassScopeIfNoRemainingAssignment(tx, assignment.teacherId, assignment.classId);
+        }
+
+        await tx.teacherClassAssignment.createMany({
+          data: classIds.map((classId) => ({
+            schoolId,
+            teacherId: userId,
+            classId: BigInt(classId),
+            roleInClass: 'homeroom',
+            isPrimary: true,
+            status: 'enabled',
+          })),
+        });
+        await tx.classroom.updateMany({
+          where: { schoolId, id: { in: targetClassIds } },
+          data: { homeroomTeacherId: userId },
+        });
+
         const subjectScopes = this
           .normalizeSubjectScopes(body)
-          .filter((item) => body.classIds?.includes(item.classId));
+          .filter((item) => classIds.includes(item.classId));
         if (subjectScopes.length > 0) {
           await tx.userScope.createMany({
             data: subjectScopes.map((item) => ({
@@ -1073,6 +1118,7 @@ export class AdminConfigService {
               subjectCode: item.subjectCode,
             })),
           });
+          await this.createSubjectTeacherAssignments(tx, schoolId, userId, subjectScopes);
         }
       }
       return;
@@ -1081,6 +1127,59 @@ export class AdminConfigService {
     await tx.userScope.create({
       data: {
         userId,
+        scopeType: 'class_scope',
+      },
+    });
+  }
+
+  private async createSubjectTeacherAssignments(
+    tx: Prisma.TransactionClient,
+    schoolId: bigint,
+    teacherId: bigint,
+    subjectScopes: Array<{ classId: number; subjectCode: string }>,
+  ) {
+    if (subjectScopes.length === 0) return;
+    await tx.teacherClassAssignment.createMany({
+      data: subjectScopes.map((item) => ({
+        schoolId,
+        teacherId,
+        classId: BigInt(item.classId),
+        roleInClass: 'subject_teacher',
+        subjectCode: item.subjectCode,
+        isPrimary: false,
+        status: 'enabled',
+      })),
+    });
+  }
+
+  private async deleteClassScopeIfNoRemainingAssignment(
+    tx: Prisma.TransactionClient,
+    teacherId: bigint,
+    classId: bigint,
+  ) {
+    const remainingAssignment = await tx.teacherClassAssignment.findFirst({
+      where: {
+        teacherId,
+        classId,
+      },
+      select: { id: true },
+    });
+    if (remainingAssignment) return;
+
+    const subjectScope = await tx.userScope.findFirst({
+      where: {
+        userId: teacherId,
+        classId,
+        scopeType: 'subject_class',
+      },
+      select: { id: true },
+    });
+    if (subjectScope) return;
+
+    await tx.userScope.deleteMany({
+      where: {
+        userId: teacherId,
+        classId,
         scopeType: 'class_scope',
       },
     });

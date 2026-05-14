@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Modal } from '../components/Modal';
 import { Shell } from '../components/Shell';
@@ -19,7 +19,6 @@ import type {
   StudentUpdatePayload,
 } from '../lib/api';
 import { adminApi } from '../lib/api';
-import { resolveAssetUrl } from '../lib/assets';
 import {
   normalizeKeyword
 } from '../utils/adminForms';
@@ -88,6 +87,7 @@ export function StudentsPage({
   const [selectedStudentDetail, setSelectedStudentDetail] = useState<StudentDetail | null>(null);
   const [selectedStudentAiSummary, setSelectedStudentAiSummary] = useState<AiStudentSummary | null>(null);
   const [aiPeriodType, setAiPeriodType] = useState<'weekly' | 'monthly'>('weekly');
+  const autoAiSummaryRequestsRef = useRef(new Map<string, ReturnType<typeof adminApi.generateStudentAiSummary>>());
   const [studentDetailLoading, setStudentDetailLoading] = useState(false);
   const [studentDetailError, setStudentDetailError] = useState<string | null>(null);
   const [studentAiLoading, setStudentAiLoading] = useState(false);
@@ -482,6 +482,7 @@ export function StudentsPage({
       setStudentAcademicRecords([]);
       setStudentScoreRecordsLoading(false);
       setStudentAcademicLoading(false);
+      setStudentAiGenerating(false);
       setStudentScoreRecordsError(null);
       setStudentAcademicError(null);
       setShowStudentScoreRecordsModal(false);
@@ -546,19 +547,48 @@ export function StudentsPage({
     let active = true;
     setStudentAiLoading(true);
     setStudentAiError(null);
+    setSelectedStudentAiSummary(null);
 
     adminApi
       .studentAiSummary(token, selectedStudent.id, aiPeriodType)
-      .then((response) => {
+      .then(async (response) => {
         if (!active) return;
-        setSelectedStudentAiSummary(response.data);
+        if (response.data) {
+          setSelectedStudentAiSummary(response.data);
+          return;
+        }
+
+        if (aiPeriodType !== 'weekly') {
+          setSelectedStudentAiSummary(null);
+          return;
+        }
+
+        const requestKey = `${selectedStudent.id}:weekly`;
+        let request = autoAiSummaryRequestsRef.current.get(requestKey);
+        if (!request) {
+          request = adminApi.generateStudentAiSummary(token, selectedStudent.id, 'weekly');
+          autoAiSummaryRequestsRef.current.set(requestKey, request);
+          void request.then(() => {
+            autoAiSummaryRequestsRef.current.delete(requestKey);
+          }).catch(() => {
+            autoAiSummaryRequestsRef.current.delete(requestKey);
+          });
+        }
+
+        setStudentAiGenerating(true);
+        const generatedResponse = await request;
+        if (!active) return;
+        setSelectedStudentAiSummary(generatedResponse.data);
       })
       .catch((err) => {
         if (!active) return;
         setStudentAiError(err instanceof Error ? err.message : 'AI 学情摘要加载失败');
       })
       .finally(() => {
-        if (active) setStudentAiLoading(false);
+        if (active) {
+          setStudentAiLoading(false);
+          setStudentAiGenerating(false);
+        }
       });
 
     return () => {
@@ -605,6 +635,7 @@ export function StudentsPage({
   function openStudentDetail(studentId: number) {
     const matched = students.find((item) => item.id === studentId);
     if (!matched) return;
+    setAiPeriodType('weekly');
     setSelectedStudent(matched);
     setShowStudentScoreRecordsModal(false);
   }
@@ -635,6 +666,7 @@ export function StudentsPage({
     setStudentAcademicRecords([]);
     setStudentScoreRecordsLoading(false);
     setStudentAcademicLoading(false);
+    setStudentAiGenerating(false);
     setStudentScoreRecordsError(null);
     setStudentAcademicError(null);
     setShowStudentScoreRecordsModal(false);
@@ -1844,24 +1876,6 @@ export function StudentsPage({
                   </div>
                 </div>
               ) : null}
-            </div>
-            <div className="detail-card span-2">
-              <h4>萌宠档案</h4>
-              <div className="detail-pet-panel">
-                <div className={`detail-pet-cover${selectedStudentDetail?.pet || selectedStudent.pet ? '' : ' detail-pet-cover--seed'}`}>
-                  <img
-                    src={resolveAssetUrl(selectedStudentDetail?.pet?.coverUrl ?? selectedStudent.pet?.coverUrl ?? '/assets/pets/400/star-seed.png')}
-                    alt={selectedStudentDetail?.pet?.name ?? selectedStudent.pet?.name ?? '待孕育星种'}
-                  />
-                </div>
-                <div className="detail-list">
-                  <div><span>萌宠名称</span><strong>{selectedStudentDetail?.pet?.name ?? selectedStudent.pet?.name ?? '待孕育星种'}</strong></div>
-                  <div><span>当前等级</span><strong>{selectedStudentDetail?.pet ? `Lv.${selectedStudentDetail.pet.currentLevel}` : selectedStudent.pet ? `Lv.${selectedStudent.pet.currentLevel}` : '-'}</strong></div>
-                  <div><span>当前阶段</span><strong>{selectedStudentDetail?.pet ? `第 ${selectedStudentDetail.pet.currentStageNo} 阶段` : '-'}</strong></div>
-                  <div><span>累计积分</span><strong>{selectedStudentDetail?.pet?.totalScore ?? selectedStudent.pet?.totalScore ?? 0}</strong></div>
-                  <div><span>成长状态</span><strong>{selectedStudentDetail?.pet || selectedStudent.pet ? '已绑定成长轨迹' : '待孕育'}</strong></div>
-                </div>
-              </div>
             </div>
             <div className="detail-card span-2">
               <h4>教师观察</h4>

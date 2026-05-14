@@ -22,6 +22,11 @@ export function DisplayApp() {
         src={displayUrl}
         title="育英星宠 Display 端"
       />
+      <div className="prototype-beian">
+        <a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer">
+          滇ICP备2020007229号-4
+        </a>
+      </div>
     </div>
   );
 }

@@ -307,7 +307,7 @@ export class ClassScoreRecordsService {
     if (['super_admin', 'school_admin', 'moral_admin'].includes(user.roleCode)) {
       return true;
     }
-    const byClass = user.scopes.some((scope) => scope.classId === classroom.id);
+    const byClass = this.authService.canAccessClass(user, classroom.id);
     const byGrade = user.scopes.some((scope) => scope.gradeCode === classroom.gradeCode);
     return byClass || byGrade;
   }
@@ -323,7 +323,7 @@ export class ClassScoreRecordsService {
       return;
     }
     if (user.roleCode === 'grade_admin') {
-      const byClass = user.scopes.some((scope) => scope.classId === classroom.id);
+      const byClass = this.authService.canAccessClass(user, classroom.id);
       const byGrade = user.scopes.some((scope) => scope.gradeCode === classroom.gradeCode);
       if (byClass || byGrade) return;
     }

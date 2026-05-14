@@ -1,7 +1,8 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { NavLink } from 'react-router-dom';
 import presentationLogo from '../assets/presentation-logo.svg';
-import type { SessionUser } from '../lib/api';
+import { adminApi, type SessionUser } from '../lib/api';
+import { getAdminLoginCredentials, getAdminToken, setAdminLoginCredentials } from '../lib/session';
 import type { NavKey } from '../constants/admin';
 import { getAccessibleNavItems } from '../utils/adminPermissions';
 import { PresentationGlyph, type PresentationGlyphName } from './PresentationGlyph';
@@ -49,6 +50,14 @@ export function Shell({ title, subtitle: _subtitle, user, onLogout, status, chil
       hour12: false,
     }).format(new Date()),
   );
+  const [accountMenuView, setAccountMenuView] = useState<'menu' | 'profile' | 'password'>('menu');
+  const [passwordForm, setPasswordForm] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: '',
+  });
+  const [passwordSubmitting, setPasswordSubmitting] = useState(false);
+  const [passwordMessage, setPasswordMessage] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -68,6 +77,7 @@ export function Shell({ title, subtitle: _subtitle, user, onLogout, status, chil
   }, []);
 
   const roleLabel = roleNameMap[user?.roleCode ?? ''] ?? '未分配角色';
+  const dutyTags = (user?.dutyTags ?? []).filter((tag) => tag.trim());
 
   function handleLogout() {
     if (onLogout) {
@@ -75,6 +85,48 @@ export function Shell({ title, subtitle: _subtitle, user, onLogout, status, chil
       return;
     }
     window.location.href = '/login';
+  }
+
+  async function handlePasswordSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPasswordMessage(null);
+
+    if (passwordForm.newPassword.length < 6) {
+      setPasswordMessage({ type: 'error', text: '新密码至少 6 位' });
+      return;
+    }
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      setPasswordMessage({ type: 'error', text: '两次输入的新密码不一致' });
+      return;
+    }
+
+    const token = getAdminToken();
+    if (!token) {
+      setPasswordMessage({ type: 'error', text: '登录已失效，请重新登录' });
+      return;
+    }
+
+    setPasswordSubmitting(true);
+    try {
+      await adminApi.changePassword(token, {
+        currentPassword: passwordForm.currentPassword,
+        newPassword: passwordForm.newPassword,
+      });
+      const storedCredentials = getAdminLoginCredentials();
+      if (
+        storedCredentials &&
+        storedCredentials.username === user?.username &&
+        storedCredentials.password === passwordForm.currentPassword
+      ) {
+        setAdminLoginCredentials(storedCredentials.username, passwordForm.newPassword);
+      }
+      setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      setPasswordMessage({ type: 'success', text: '密码已更新，下次登录请使用新密码' });
+    } catch (error) {
+      setPasswordMessage({ type: 'error', text: error instanceof Error ? error.message : '密码修改失败' });
+    } finally {
+      setPasswordSubmitting(false);
+    }
   }
 
   return (
@@ -122,9 +174,109 @@ export function Shell({ title, subtitle: _subtitle, user, onLogout, status, chil
               <PresentationGlyph name="bell" className="notif-icon" />
               <span className="notif-dot" />
             </span>
-            <div className="user-drop">
-              <span className="av">{user?.name?.slice(0, 1) ?? '育'}</span>
-              <span>{user?.name ?? '未登录'}</span>
+            <div className="account-menu">
+              <button className="user-drop user-drop-button" type="button" onClick={() => setAccountMenuView('menu')}>
+                <span className="av">{user?.name?.slice(0, 1) ?? '育'}</span>
+                <span className="user-drop-main">
+                  <span className="user-drop-name">{user?.name ?? '未登录'}</span>
+                </span>
+              </button>
+              <div className="account-popover">
+                {accountMenuView === 'menu' ? (
+                  <>
+                    <div className="account-popover-head">
+                      <span className="account-popover-avatar">{user?.name?.slice(0, 1) ?? '育'}</span>
+                      <div>
+                        <strong>{user?.name ?? '未登录'}</strong>
+                        <span>{user?.username ?? '当前账号'} · {roleLabel}</span>
+                      </div>
+                    </div>
+                    {dutyTags.length > 0 ? (
+                      <div className="account-duty-tags compact">
+                        {dutyTags.map((tag) => (
+                          <span className="account-duty-tag" key={tag}>
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                    <div className="account-menu-list">
+                      <button type="button" onClick={() => setAccountMenuView('profile')}>
+                        个人中心
+                      </button>
+                      <button type="button" onClick={() => setAccountMenuView('password')}>
+                        修改密码
+                      </button>
+                      <button type="button" onClick={handleLogout}>
+                        退出登录
+                      </button>
+                    </div>
+                  </>
+                ) : null}
+                {accountMenuView === 'profile' ? (
+                  <>
+                    <div className="account-popover-subhead">
+                      <button type="button" onClick={() => setAccountMenuView('menu')}>返回</button>
+                      <strong>个人中心</strong>
+                    </div>
+                    <div className="account-profile-card">
+                      <div><span>姓名</span><strong>{user?.name ?? '未登录'}</strong></div>
+                      <div><span>账号</span><strong>{user?.username ?? '-'}</strong></div>
+                      <div><span>系统角色</span><strong>{roleLabel}</strong></div>
+                      <div>
+                        <span>职务标签</span>
+                        <strong>{dutyTags.length > 0 ? dutyTags.join('、') : '未设置'}</strong>
+                      </div>
+                    </div>
+                  </>
+                ) : null}
+                {accountMenuView === 'password' ? (
+                  <form className="account-password-form" onSubmit={(event) => void handlePasswordSubmit(event)}>
+                    <div className="account-popover-subhead">
+                      <button type="button" onClick={() => setAccountMenuView('menu')}>返回</button>
+                      <strong>修改密码</strong>
+                    </div>
+                    <label>
+                      <span>当前密码</span>
+                      <input
+                        type="password"
+                        value={passwordForm.currentPassword}
+                        onChange={(event) => setPasswordForm((prev) => ({ ...prev, currentPassword: event.target.value }))}
+                        autoComplete="current-password"
+                        required
+                      />
+                    </label>
+                    <label>
+                      <span>新密码</span>
+                      <input
+                        type="password"
+                        value={passwordForm.newPassword}
+                        onChange={(event) => setPasswordForm((prev) => ({ ...prev, newPassword: event.target.value }))}
+                        autoComplete="new-password"
+                        minLength={6}
+                        required
+                      />
+                    </label>
+                    <label>
+                      <span>确认新密码</span>
+                      <input
+                        type="password"
+                        value={passwordForm.confirmPassword}
+                        onChange={(event) => setPasswordForm((prev) => ({ ...prev, confirmPassword: event.target.value }))}
+                        autoComplete="new-password"
+                        minLength={6}
+                        required
+                      />
+                    </label>
+                    {passwordMessage ? (
+                      <div className={`account-message ${passwordMessage.type}`}>{passwordMessage.text}</div>
+                    ) : null}
+                    <button className="account-save-button" type="submit" disabled={passwordSubmitting}>
+                      {passwordSubmitting ? '保存中...' : '保存新密码'}
+                    </button>
+                  </form>
+                ) : null}
+              </div>
             </div>
             {onLogout ? (
               <button className="ghost-button" type="button" onClick={handleLogout}>

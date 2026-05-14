@@ -878,6 +878,408 @@ export class DisplayService {
     };
   }
 
+  async academicGrowth(classId: number) {
+    const currentClass = await this.prisma.classroom.findFirst({
+      where: {
+        id: BigInt(classId),
+        deletedAt: null,
+        status: 'enabled',
+      },
+      select: {
+        id: true,
+        schoolId: true,
+        semesterId: true,
+        gradeCode: true,
+        gradeName: true,
+        name: true,
+      },
+    });
+    if (!currentClass) {
+      throw new NotFoundException('班级不存在');
+    }
+
+    const classrooms = await this.prisma.classroom.findMany({
+      where: {
+        schoolId: currentClass.schoolId,
+        semesterId: currentClass.semesterId,
+        gradeCode: currentClass.gradeCode,
+        deletedAt: null,
+        status: 'enabled',
+      },
+      select: {
+        id: true,
+        gradeName: true,
+        name: true,
+        sortOrder: true,
+        students: {
+          where: { deletedAt: null, status: 'enabled' },
+          select: {
+            id: true,
+            studentNo: true,
+            name: true,
+            profile: true,
+            groupRel: {
+              select: {
+                classGroup: {
+                  select: {
+                    groupNo: true,
+                    name: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+    });
+    const classIds = classrooms.map((item) => item.id);
+
+    const exams = await this.prisma.academicExam.findMany({
+      where: {
+        schoolId: currentClass.schoolId,
+        semesterId: currentClass.semesterId,
+        records: {
+          some: {
+            classId: currentClass.id,
+          },
+        },
+      },
+      include: {
+        _count: {
+          select: { records: true },
+        },
+      },
+      orderBy: [{ importedAt: 'desc' }, { id: 'desc' }],
+      take: 6,
+    });
+
+    if (exams.length === 0) {
+      return {
+        code: 0,
+        message: 'ok',
+        data: {
+          classId,
+          gradeName: currentClass.gradeName,
+          className: currentClass.name,
+          hasData: false,
+          latestExam: null,
+          previousExam: null,
+          metrics: {
+            growthIndex: 0,
+            coverageRate: 0,
+            averageScore: 0,
+            participantCount: 0,
+            progressCount: 0,
+            declineCount: 0,
+            riskCount: 0,
+          },
+          subjects: [],
+          subjectColumns: [],
+          classSummaries: [],
+          studentRows: [],
+          trend: [],
+          progressLeaders: [],
+          riskStudents: [],
+          insight: '暂无成绩导入数据，导入后将自动生成学业成长大屏。',
+        },
+      };
+    }
+
+    const latestExam = exams[0];
+    const previousExam = exams[1] ?? null;
+    const examIds = exams.map((item) => item.id);
+    const subjectExamIds = previousExam ? [latestExam.id, previousExam.id] : [latestExam.id];
+    const [totalRows, subjectRows] = await Promise.all([
+      this.prisma.academicScoreRecord.findMany({
+        where: {
+          schoolId: currentClass.schoolId,
+          semesterId: currentClass.semesterId,
+          examId: { in: examIds },
+          classId: { in: classIds },
+          subjectCode: 'total',
+        },
+        orderBy: [{ exam: { importedAt: 'desc' } }, { classId: 'asc' }, { classRank: 'asc' }, { studentNo: 'asc' }],
+        take: 5000,
+      }),
+      this.prisma.academicScoreRecord.findMany({
+        where: {
+          schoolId: currentClass.schoolId,
+          semesterId: currentClass.semesterId,
+          examId: { in: subjectExamIds },
+          classId: { in: classIds },
+          subjectCode: { not: 'total' },
+        },
+        orderBy: [{ classId: 'asc' }, { studentNo: 'asc' }, { subjectCode: 'asc' }],
+        take: 8000,
+      }),
+    ]);
+
+    const latestTotalRows = totalRows.filter((row) => row.examId === latestExam.id && row.score !== null);
+    const latestClassRows = latestTotalRows.filter((row) => row.classId === currentClass.id);
+    const previousByStudent = new Map(
+      totalRows
+        .filter((row) => previousExam && row.examId === previousExam.id && row.score !== null)
+        .map((row) => [row.studentId.toString(), row]),
+    );
+    const allStudents = classrooms.flatMap((item) => item.students);
+    const currentClassStudents = classrooms.find((item) => item.id === currentClass.id)?.students ?? [];
+    const studentById = new Map(allStudents.map((item) => [item.id.toString(), item]));
+    const classById = new Map(classrooms.map((item) => [item.id.toString(), item]));
+
+    const latestAverage = this.averageNumber(latestClassRows.map((row) => Number(row.score)));
+    const progressCount = latestClassRows.filter((row) => this.resolveAcademicDelta(row, previousByStudent.get(row.studentId.toString())) > 0).length;
+    const declineCount = latestClassRows.filter((row) => this.resolveAcademicDelta(row, previousByStudent.get(row.studentId.toString())) < 0).length;
+    const coverageRate = currentClassStudents.length ? Math.round((latestClassRows.length / currentClassStudents.length) * 100) : 0;
+    const progressRate = latestClassRows.length ? (progressCount / latestClassRows.length) * 100 : 0;
+    const declineRate = latestClassRows.length ? (declineCount / latestClassRows.length) * 100 : 0;
+    const growthIndex = Math.round(this.clampMetric(latestAverage * 0.12 + coverageRate * 0.22 + progressRate * 0.42 - declineRate * 0.24));
+
+    const latestSubjectRows = subjectRows.filter((row) => row.examId === latestExam.id && row.classId === currentClass.id && row.score !== null);
+    const previousSubjectByStudentAndSubject = new Map(
+      subjectRows
+        .filter((row) => previousExam && row.examId === previousExam.id && row.classId === currentClass.id && row.score !== null)
+        .map((row) => [`${row.studentId}:${row.subjectCode}`, row]),
+    );
+    const latestSubjectByStudentAndSubject = new Map(
+      latestSubjectRows.map((row) => [`${row.studentId}:${row.subjectCode}`, row]),
+    );
+    const subjects = Array.from(
+      latestSubjectRows.reduce((map, row) => {
+        const current = map.get(row.subjectCode) ?? {
+          subjectCode: row.subjectCode,
+          subjectName: row.subjectName,
+          scores: [] as number[],
+          progressCount: 0,
+        };
+        current.scores.push(Number(row.score));
+        const previous = previousSubjectByStudentAndSubject.get(`${row.studentId}:${row.subjectCode}`);
+        if (previous && Number(row.score) - Number(previous.score) > 0) {
+          current.progressCount += 1;
+        }
+        map.set(row.subjectCode, current);
+        return map;
+      }, new Map<string, { subjectCode: string; subjectName: string; scores: number[]; progressCount: number }>())
+        .values(),
+    ).map((item) => ({
+      subjectCode: item.subjectCode,
+      subjectName: item.subjectName,
+      averageScore: this.averageNumber(item.scores),
+      maxScore: item.scores.length ? Math.max(...item.scores) : 0,
+      minScore: item.scores.length ? Math.min(...item.scores) : 0,
+      progressRate: item.scores.length ? Math.round((item.progressCount / item.scores.length) * 100) : 0,
+    }));
+
+    const classSummaries = classrooms
+      .map((classroom) => {
+        const rows = latestTotalRows.filter((row) => row.classId === classroom.id);
+        const classProgress = rows.filter((row) => this.resolveAcademicDelta(row, previousByStudent.get(row.studentId.toString())) > 0).length;
+        const classDecline = rows.filter((row) => this.resolveAcademicDelta(row, previousByStudent.get(row.studentId.toString())) < 0).length;
+        const behaviorAverage = this.averageNumber(classroom.students.map((student) => student.profile?.currentScore ?? 0));
+        const classAverage = this.averageNumber(rows.map((row) => Number(row.score)));
+        const classProgressRate = rows.length ? (classProgress / rows.length) * 100 : 0;
+        const classDeclineRate = rows.length ? (classDecline / rows.length) * 100 : 0;
+        const classGrowthIndex = Math.round(this.clampMetric(classAverage * 0.12 + behaviorAverage * 0.32 + classProgressRate * 0.42 - classDeclineRate * 0.18));
+        return {
+          classId: toNumber(classroom.id),
+          className: classroom.name,
+          gradeName: classroom.gradeName,
+          averageScore: classAverage,
+          participantCount: rows.length,
+          progressCount: classProgress,
+          declineCount: classDecline,
+          behaviorAverage,
+          growthIndex: classGrowthIndex,
+          riskLevel: classDeclineRate >= 35 ? 'high' : classDeclineRate >= 18 ? 'medium' : 'low',
+          isCurrentClass: classroom.id === currentClass.id,
+        };
+      })
+      .sort((left, right) => right.growthIndex - left.growthIndex || right.averageScore - left.averageScore);
+
+    const subjectColumns = subjects.slice(0, 8).map((item) => ({ subjectCode: item.subjectCode, subjectName: item.subjectName }));
+    const studentRows = latestClassRows
+      .map((row) => {
+        const previous = previousByStudent.get(row.studentId.toString());
+        const student = studentById.get(row.studentId.toString());
+        const score = Number(row.score);
+        const scoreDelta = previous?.score === null || previous?.score === undefined ? this.resolveAcademicDelta(row, previous) : Math.round((score - Number(previous.score)) * 10) / 10;
+        const subjectScores = subjectColumns.map((subject) => {
+          const subjectRow = latestSubjectByStudentAndSubject.get(`${row.studentId}:${subject.subjectCode}`);
+          return subjectRow?.score === null || subjectRow?.score === undefined ? null : Number(subjectRow.score);
+        });
+        return {
+          studentId: toNumber(row.studentId),
+          studentNo: row.studentNo,
+          studentName: row.studentName,
+          classId: toNumber(row.classId),
+          className: row.className,
+          groupName: student?.groupRel?.classGroup?.name ?? null,
+          totalScore: score,
+          scoreDelta,
+          rankDelta: this.resolveAcademicDelta(row, previous),
+          classRank: row.classRank,
+          schoolRank: row.schoolRank,
+          behaviorScore: student?.profile?.currentScore ?? 0,
+          subjectScores,
+        };
+      })
+      .sort((left, right) => (left.classRank ?? 99999) - (right.classRank ?? 99999) || right.totalScore - left.totalScore);
+
+    const signalRows = latestClassRows.map((row) => {
+      const previous = previousByStudent.get(row.studentId.toString());
+      const student = studentById.get(row.studentId.toString());
+      const classInfo = classById.get(row.classId.toString());
+      const score = Number(row.score);
+      const scoreDelta = previous?.score === null || previous?.score === undefined ? this.resolveAcademicDelta(row, previous) : Math.round((score - Number(previous.score)) * 10) / 10;
+      return {
+        studentId: toNumber(row.studentId),
+        studentName: row.studentName,
+        classId: toNumber(row.classId),
+        className: classInfo?.name ?? currentClass.name,
+        totalScore: score,
+        scoreDelta,
+        rankDelta: this.resolveAcademicDelta(row, previous),
+        classRank: row.classRank,
+        schoolRank: row.schoolRank,
+        behaviorScore: student?.profile?.currentScore ?? 0,
+      };
+    });
+    const progressLeaders = signalRows
+      .filter((item) => item.rankDelta > 0 || item.scoreDelta > 0)
+      .sort((left, right) => right.rankDelta - left.rankDelta || right.scoreDelta - left.scoreDelta || right.totalScore - left.totalScore)
+      .slice(0, 12);
+    const riskStudents = signalRows
+      .filter((item) => item.rankDelta < 0 || item.scoreDelta < 0)
+      .sort((left, right) => left.rankDelta - right.rankDelta || left.totalScore - right.totalScore)
+      .slice(0, 12);
+
+    const trend = exams
+      .map((exam) => {
+        const rows = totalRows.filter((row) => row.examId === exam.id && row.classId === currentClass.id && row.score !== null);
+        return {
+          examId: toNumber(exam.id),
+          examName: exam.name,
+          importedAt: exam.importedAt,
+          averageScore: this.averageNumber(rows.map((row) => Number(row.score))),
+          participantCount: rows.length,
+        };
+      })
+      .reverse();
+
+    const currentClassSummary = classSummaries.find((item) => item.classId === classId) ?? classSummaries[0] ?? null;
+    const gradeAverage = this.averageNumber(latestTotalRows.map((row) => Number(row.score)));
+    const gradeGrowthIndex = Math.round(
+      this.clampMetric(
+        gradeAverage * 0.12 +
+          (allStudents.length ? Math.round((latestTotalRows.length / allStudents.length) * 100) : 0) * 0.22 +
+          (latestTotalRows.length
+            ? (latestTotalRows.filter((row) => this.resolveAcademicDelta(row, previousByStudent.get(row.studentId.toString())) > 0).length / latestTotalRows.length) * 100
+            : 0) *
+            0.42 -
+          (latestTotalRows.length
+            ? (latestTotalRows.filter((row) => this.resolveAcademicDelta(row, previousByStudent.get(row.studentId.toString())) < 0).length / latestTotalRows.length) * 100
+            : 0) *
+            0.24,
+      ),
+    );
+
+    return {
+      code: 0,
+      message: 'ok',
+      data: {
+        classId,
+        gradeName: currentClass.gradeName,
+        className: currentClass.name,
+        hasData: latestClassRows.length > 0,
+        latestExam: {
+          id: toNumber(latestExam.id),
+          name: latestExam.name,
+          gradeName: latestExam.gradeName,
+          importedAt: latestExam.importedAt,
+          recordCount: latestExam._count.records,
+        },
+        previousExam: previousExam
+          ? {
+              id: toNumber(previousExam.id),
+              name: previousExam.name,
+              gradeName: previousExam.gradeName,
+              importedAt: previousExam.importedAt,
+              recordCount: previousExam._count.records,
+            }
+          : null,
+        metrics: {
+          growthIndex,
+          coverageRate,
+          averageScore: latestAverage,
+          participantCount: latestClassRows.length,
+          progressCount,
+          declineCount,
+          riskCount: riskStudents.length,
+          currentClassIndex: currentClassSummary?.growthIndex ?? 0,
+          currentClassAverage: currentClassSummary?.averageScore ?? 0,
+          gradeGrowthIndex,
+          gradeAverage,
+          gradeParticipantCount: latestTotalRows.length,
+        },
+        subjects,
+        subjectColumns,
+        classSummaries,
+        studentRows,
+        trend,
+        progressLeaders,
+        riskStudents,
+        insight: `${currentClass.gradeName}${currentClass.name} · ${latestExam.name} 已覆盖 ${latestClassRows.length}/${currentClassStudents.length} 人，班级学业成长指数 ${growthIndex}，年级对照指数 ${gradeGrowthIndex}。`,
+      },
+    };
+  }
+
+  async academicAiSummary(classId: number, studentId: number, periodType: 'weekly' | 'monthly' = 'weekly') {
+    const student = await this.prisma.student.findFirst({
+      where: {
+        id: BigInt(studentId),
+        classId: BigInt(classId),
+        deletedAt: null,
+        status: 'enabled',
+      },
+      select: {
+        id: true,
+        classId: true,
+      },
+    });
+    if (!student) {
+      throw new NotFoundException('学生不存在或不属于当前大屏班级');
+    }
+
+    const snapshot = await this.prisma.aiStudentSnapshot.findFirst({
+      where: {
+        studentId: student.id,
+        classId: student.classId,
+        periodType,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return {
+      code: 0,
+      message: 'ok',
+      data: snapshot
+        ? {
+            id: toNumber(snapshot.id),
+            studentId,
+            classId,
+            periodType: snapshot.periodType,
+            snapshotDate: snapshot.snapshotDate,
+            positiveSummary: snapshot.positiveSummary,
+            negativeSummary: snapshot.negativeSummary,
+            dimensionSummary: snapshot.dimensionSummary,
+            trendSummary: snapshot.trendSummary,
+            aiSummary: snapshot.aiSummary,
+            aiSuggestion: snapshot.aiSuggestion,
+          }
+        : null,
+    };
+  }
+
   async petCatalog() {
     const [school, pets] = await Promise.all([
       this.prisma.school.findFirst({
@@ -971,5 +1373,28 @@ export class DisplayService {
         })),
       },
     };
+  }
+
+  private averageNumber(values: number[]) {
+    const finite = values.filter((value) => Number.isFinite(value));
+    if (finite.length === 0) return 0;
+    return Math.round((finite.reduce((sum, value) => sum + value, 0) / finite.length) * 10) / 10;
+  }
+
+  private clampMetric(value: number, min = 0, max = 100) {
+    if (!Number.isFinite(value)) return min;
+    return Math.max(min, Math.min(max, value));
+  }
+
+  private resolveAcademicDelta(
+    row: { classRankDelta: number | null; schoolRankDelta: number | null; score: unknown },
+    previous?: { score: unknown } | null,
+  ) {
+    const explicit = row.classRankDelta ?? row.schoolRankDelta;
+    if (typeof explicit === 'number' && Number.isFinite(explicit)) return explicit;
+    if (previous?.score !== null && previous?.score !== undefined && row.score !== null && row.score !== undefined) {
+      return Math.round((Number(row.score) - Number(previous.score)) * 10) / 10;
+    }
+    return 0;
   }
 }
