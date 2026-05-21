@@ -9,6 +9,7 @@ import { PetGrowthSettingsUpdateDto } from './dto/pet-growth-settings-update.dto
 import { PermissionUserUpsertDto } from './dto/permission-user-upsert.dto';
 import { PermissionUserStatusUpdateDto } from './dto/permission-user-status-update.dto';
 import { PermissionUserImportDto } from './dto/permission-user-import.dto';
+import { PresentationModeUpdateDto } from './dto/presentation-mode-update.dto';
 
 @ApiTags('AdminConfig')
 @Controller('admin')
@@ -30,9 +31,22 @@ export class AdminConfigController {
     return this.adminConfigService.updateSemester(authorization, body);
   }
 
+  @Get('settings/display')
+  displaySettings(@Headers('authorization') authorization: string | undefined) {
+    return this.adminConfigService.getDisplaySettings(authorization);
+  }
+
   @Put('settings/display')
   updateDisplay(@Headers('authorization') authorization: string | undefined, @Body() body: DisplaySettingsUpdateDto) {
     return this.adminConfigService.updateDisplay(authorization, body);
+  }
+
+  @Put('settings/presentation-mode')
+  setPresentationMode(
+    @Headers('authorization') authorization: string | undefined,
+    @Body() body: PresentationModeUpdateDto,
+  ) {
+    return this.adminConfigService.setPresentationMode(authorization, body.mode);
   }
 
   @Put('settings/grades')

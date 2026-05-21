@@ -6,7 +6,7 @@ import { canManageRewards } from '../utils/adminPermissions';
 
 export function useAdminData(): UseAdminDataResult {
   const [reloadKey, setReloadKey] = useState(0);
-  const [state, setState] = useState<AdminState>({
+  const [state, setState] = useState<AdminState>(() => ({
     token: getAdminToken(),
     user: null,
     scopes: [],
@@ -15,9 +15,10 @@ export function useAdminData(): UseAdminDataResult {
     rules: [],
     honors: [],
     rewards: [],
-    loading: false,
+    /** 本地已有 token 时首帧即视为加载中，避免工作台误渲染校级视图 */
+    loading: Boolean(getAdminToken()),
     error: null,
-  });
+  }));
 
   useEffect(() => {
     if (!state.token) return;
@@ -42,7 +43,10 @@ export function useAdminData(): UseAdminDataResult {
         if (!active) return;
         setState((prev) => ({
           ...prev,
-          user: me.data.user,
+          user: {
+            ...me.data.user,
+            classAssignments: me.data.classAssignments,
+          },
           scopes: me.data.scopes,
           classes: classes.data,
           students: students.data,

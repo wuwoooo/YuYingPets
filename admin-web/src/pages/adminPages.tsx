@@ -7,7 +7,7 @@ export { LoginPage } from './LoginPage';
 export { OrganizationPage } from './OrganizationPage';
 export { PetsPage } from './PetsPage';
 export { PresentationModePage } from './PresentationModePage';
-export { PresentationPage } from './PresentationPage';
+export { RealtimeMonitorPage } from './RealtimeMonitorPage';
 export { RewardsPage } from './RewardsPage';
 export { RulesPage } from './RulesPage';
 export { SettingsPage } from './SettingsPage';

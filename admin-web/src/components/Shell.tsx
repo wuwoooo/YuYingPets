@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { NavLink } from 'react-router-dom';
 import presentationLogo from '../assets/presentation-logo.svg';
+import { useAdminView } from '../context/AdminViewContext';
 import { adminApi, type SessionUser } from '../lib/api';
 import { getAdminLoginCredentials, getAdminToken, setAdminLoginCredentials } from '../lib/session';
 import type { NavKey } from '../constants/admin';
@@ -17,6 +18,7 @@ type ShellProps = {
 };
 
 export function Shell({ title, subtitle: _subtitle, user, onLogout, status, children }: ShellProps) {
+  const { originalUser, availableViews, activeView, setActiveViewKey, isActingSubjectView } = useAdminView();
   const navIconMap: Record<NavKey, PresentationGlyphName> = {
     dashboard: 'display',
     classes: 'school',
@@ -35,9 +37,10 @@ export function Shell({ title, subtitle: _subtitle, user, onLogout, status, chil
   const roleNameMap: Record<string, string> = {
     super_admin: '超级管理员',
     school_admin: '学校管理员',
+    academic_admin: '教务管理员',
     moral_admin: '德育管理员',
     homeroom_teacher: '班主任',
-    subject_teacher: '学科教师',
+    subject_teacher: '任课教师',
   };
 
   const [nowText, setNowText] = useState(() =>
@@ -77,6 +80,7 @@ export function Shell({ title, subtitle: _subtitle, user, onLogout, status, chil
   }, []);
 
   const roleLabel = roleNameMap[user?.roleCode ?? ''] ?? '未分配角色';
+  const originalRoleLabel = roleNameMap[originalUser?.roleCode ?? ''] ?? roleLabel;
   const dutyTags = (user?.dutyTags ?? []).filter((tag) => tag.trim());
 
   function handleLogout() {
@@ -139,14 +143,17 @@ export function Shell({ title, subtitle: _subtitle, user, onLogout, status, chil
           <span>育英星宠</span>
         </div>
         <nav className="sidebar-nav">
-          {getAccessibleNavItems(user?.roleCode).map(([path, label]) => (
+          {getAccessibleNavItems(user?.roleCode).map((item) => (
             <NavLink
-              key={path}
-              to={`/${path}`}
+              key={item.key}
+              to={`/${item.key}`}
               className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
             >
-              <PresentationGlyph name={navIconMap[path]} className="nav-icon" />
-              {label}
+              <PresentationGlyph name={navIconMap[item.key]} className="nav-icon" />
+              <span className="nav-item-text">
+                <span className="nav-item-label">{item.label}</span>
+                {item.hint ? <span className="nav-item-hint">{item.hint}</span> : null}
+              </span>
             </NavLink>
           ))}
         </nav>
@@ -170,6 +177,25 @@ export function Shell({ title, subtitle: _subtitle, user, onLogout, status, chil
           <div className="semester">2026 春季学期</div>
           <div className="right-area">
             <span>{nowText}</span>
+            {availableViews.length > 1 ? (
+              <label
+                className={`topbar-view-pill${isActingSubjectView ? ' is-acting' : ''}`}
+                title={isActingSubjectView ? '切换右上角菜单：可选择任课班级与学科' : '切换右上角菜单：平台管理与任课视图'}
+              >
+                <PresentationGlyph name="student" className="topbar-view-pill-icon" />
+                <select
+                  aria-label="切换班级或工作视图"
+                  value={activeView.key}
+                  onChange={(event) => setActiveViewKey(event.target.value)}
+                >
+                  {availableViews.map((item) => (
+                    <option key={item.key} value={item.key}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
             <span className="notif">
               <PresentationGlyph name="bell" className="notif-icon" />
               <span className="notif-dot" />
@@ -191,6 +217,12 @@ export function Shell({ title, subtitle: _subtitle, user, onLogout, status, chil
                         <span>{user?.username ?? '当前账号'} · {roleLabel}</span>
                       </div>
                     </div>
+                    {availableViews.length > 1 ? (
+                      <div className="account-profile-card compact">
+                        <div><span>主角色</span><strong>{originalRoleLabel}</strong></div>
+                        <div><span>当前所选</span><strong>{activeView.label}</strong></div>
+                      </div>
+                    ) : null}
                     {dutyTags.length > 0 ? (
                       <div className="account-duty-tags compact">
                         {dutyTags.map((tag) => (
@@ -222,7 +254,8 @@ export function Shell({ title, subtitle: _subtitle, user, onLogout, status, chil
                     <div className="account-profile-card">
                       <div><span>姓名</span><strong>{user?.name ?? '未登录'}</strong></div>
                       <div><span>账号</span><strong>{user?.username ?? '-'}</strong></div>
-                      <div><span>系统角色</span><strong>{roleLabel}</strong></div>
+                      <div><span>系统角色</span><strong>{originalRoleLabel}</strong></div>
+                      <div><span>当前所选</span><strong>{activeView.label}</strong></div>
                       <div>
                         <span>职务标签</span>
                         <strong>{dutyTags.length > 0 ? dutyTags.join('、') : '未设置'}</strong>

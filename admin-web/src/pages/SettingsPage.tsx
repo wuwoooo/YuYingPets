@@ -230,6 +230,11 @@ export function SettingsPage({
     setSavingKey("petGrowth");
 
     try {
+      const classScoreStudentLinkMultiplier = petGrowthForm.classScoreStudentLinkMultiplier.trim();
+      if (!/^\d+$/.test(classScoreStudentLinkMultiplier)) {
+        throw new Error("班级评价联动倍率必须是大于等于 0 的整数");
+      }
+
       const thresholds = petGrowthForm.thresholds.map((value, index) => {
         const trimmed = value.trim();
         if (!/^\d+$/.test(trimmed)) {
@@ -246,6 +251,7 @@ export function SettingsPage({
 
       const payload: PetGrowthSettingsUpdatePayload = {
         thresholds,
+        classScoreStudentLinkMultiplier: Number(classScoreStudentLinkMultiplier),
       };
       await adminApi.updatePetGrowthSettings(token, payload);
       await loadSettings();
@@ -670,6 +676,9 @@ export function SettingsPage({
                     最高阈值 {petGrowthForm.thresholds[9] || "0"}
                   </span>
                   <span className="settings-hero-tag">10 级成长</span>
+                  <span className="settings-hero-tag">
+                    班级联动 x{petGrowthForm.classScoreStudentLinkMultiplier || "0"}
+                  </span>
                 </div>
               </div>
               <div className="settings-display-preview">
@@ -684,7 +693,35 @@ export function SettingsPage({
               </div>
             </div>
             <div className="settings-note">
-              当前功能只保留“积分阈值”配置。已有萌宠图鉴如果单独配置了阶段阈值，建议同步调整为相同积分口径。
+              当前页同时维护萌宠成长阈值与班级评价联动倍率。联动倍率为 0 表示关闭；例如配置 6 时，班级积分 +1 会同步让本班每位学生 +6 分。
+            </div>
+            <div className="settings-grade-list" style={{ marginBottom: 20 }}>
+              <div className="settings-grade-row">
+                <div className="settings-grade-row-head">
+                  <div>
+                    <span className="settings-insight-label">班级评价联动</span>
+                    <h4>学生积分倍率</h4>
+                  </div>
+                  <span className={`settings-grade-status ${Number(petGrowthForm.classScoreStudentLinkMultiplier || "0") > 0 ? "enabled" : ""}`}>
+                    {Number(petGrowthForm.classScoreStudentLinkMultiplier || "0") > 0 ? "已启用" : "已关闭"}
+                  </span>
+                </div>
+                <div className="s-field">
+                  <label>每 1 点班级积分联动到每位学生</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={petGrowthForm.classScoreStudentLinkMultiplier}
+                    onChange={(event) =>
+                      setPetGrowthForm((prev) => ({
+                        ...prev,
+                        classScoreStudentLinkMultiplier: event.target.value,
+                      }))
+                    }
+                  />
+                </div>
+              </div>
             </div>
             <div className="settings-grade-list">
               {petGrowthForm.thresholds.map((value, index) => (

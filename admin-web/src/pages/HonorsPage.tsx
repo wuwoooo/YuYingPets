@@ -1,4 +1,4 @@
-import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react';
 import { Modal } from '../components/Modal';
 import { Shell } from '../components/Shell';
 import type { 
@@ -14,7 +14,7 @@ import type {
 import {
   buildAutoCode,
   createHonorForm,
-  formatEnabledStatus
+  normalizeKeyword,
 } from '../utils/adminForms';
 import { canManageHonors } from '../utils/adminPermissions';
 
@@ -36,6 +36,8 @@ export function HonorsPage({
   onSaved,
 }: HonorsPageProps) {
   const [tab, setTab] = useState<'all' | 'personal' | 'collective' | 'phase' | 'longterm'>('all');
+  const [searchKeyword, setSearchKeyword] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'enabled' | 'disabled'>('all');
   const [editingHonor, setEditingHonor] = useState<Honor | null>(null);
   const [showCreateHonor, setShowCreateHonor] = useState(false);
   const [form, setForm] = useState<HonorFormState>(() => createHonorForm());
@@ -68,7 +70,30 @@ export function HonorsPage({
     };
   }, [allowManage, honors, token]);
 
-  const visibleCards = pageHonors.filter((item) => tab === 'all' || item.category === tab);
+  const visibleCards = useMemo(() => {
+    const keyword = normalizeKeyword(searchKeyword);
+    return pageHonors.filter((item) => {
+      const matchesTab = tab === 'all' || item.category === tab;
+      const matchesKeyword =
+        !keyword ||
+        normalizeKeyword(item.name).includes(keyword) ||
+        normalizeKeyword(item.code).includes(keyword) ||
+        normalizeKeyword(item.description ?? '').includes(keyword) ||
+        normalizeKeyword(item.conditionType ?? '').includes(keyword);
+      const matchesStatus = statusFilter === 'all' || item.status === statusFilter;
+      return matchesTab && matchesKeyword && matchesStatus;
+    });
+  }, [pageHonors, searchKeyword, statusFilter, tab]);
+
+  const honorStats = useMemo(() => {
+    const enabledCount = pageHonors.filter((item) => item.status === 'enabled').length;
+    const grantedTotal = pageHonors.reduce((sum, item) => sum + item.grantedCount, 0);
+    return {
+      total: pageHonors.length,
+      enabledCount,
+      grantedTotal,
+    };
+  }, [pageHonors]);
 
   const categoryLabelMap = {
     personal: '个人荣誉',
@@ -83,6 +108,14 @@ export function HonorsPage({
     phase: 'target',
     longterm: 'progress',
   };
+
+  const tabOptions: Array<{ key: typeof tab; label: string }> = [
+    { key: 'all', label: '全部' },
+    { key: 'personal', label: '个人荣誉' },
+    { key: 'collective', label: '集体荣誉' },
+    { key: 'phase', label: '阶段荣誉' },
+    { key: 'longterm', label: '长期荣誉' },
+  ];
 
   function closeModal(force = false) {
     if (submitting && !force) return;
@@ -197,74 +230,125 @@ export function HonorsPage({
         <>
           {loading ? <div className="status-card">荣誉数据整理中...</div> : null}
           {error ? <div className="status-card error">{error}</div> : null}
+          {submitError ? <div className="status-card error">{submitError}</div> : null}
           {submitSuccess ? <div className="status-card success">{submitSuccess}</div> : null}
         </>
       }
     >
-      <div className="page-header">
-        <h2>荣誉勋章管理</h2>
-        {allowManage ? (
-          <div className="page-actions">
+      <div className="honors-desk">
+      <div className="page-header admin-list-page-header">
+        <div>
+          <h2>荣誉勋章</h2>
+          <p className="page-desc">维护个人、集体、阶段与长期成长荣誉，统一配置授予口径与展示样式</p>
+        </div>
+        <div className="page-actions">
+          <div className="search-box">
+            <span className="s-icon">⌕</span>
+            <input
+              placeholder="搜索勋章名称..."
+              value={searchKeyword}
+              onChange={(event) => setSearchKeyword(event.target.value)}
+            />
+          </div>
+          <select
+            className="filter-select"
+            value={statusFilter}
+            onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}
+          >
+            <option value="all">全部状态</option>
+            <option value="enabled">启用中</option>
+            <option value="disabled">已停用</option>
+          </select>
+          {allowManage ? (
             <button className="btn btn-primary" type="button" onClick={openCreateHonor}>
               + 新建勋章
             </button>
-          </div>
-        ) : null}
+          ) : null}
+        </div>
       </div>
-      <div className="honor-tabs">
-        {[
-          ['all', '全部'],
-          ['personal', '个人荣誉'],
-          ['collective', '集体荣誉'],
-          ['phase', '阶段荣誉'],
-          ['longterm', '长期荣誉'],
-        ].map(([key, label]) => (
+
+      <div className="honors-summary-strip">
+        <div className="honors-summary-item">
+          <span>勋章总数</span>
+          <strong>{honorStats.total}</strong>
+        </div>
+        <div className="honors-summary-item">
+          <span>启用中</span>
+          <strong>{honorStats.enabledCount}</strong>
+        </div>
+        <div className="honors-summary-item">
+          <span>累计授予</span>
+          <strong>{honorStats.grantedTotal}</strong>
+        </div>
+        <div className="honors-summary-item">
+          <span>当前筛选</span>
+          <strong>{visibleCards.length}</strong>
+        </div>
+      </div>
+
+      <div className="reward-tabs">
+        {tabOptions.map((item) => (
           <button
-            key={key}
+            key={item.key}
             type="button"
-            className={`honor-tab${tab === key ? ' active' : ''}`}
-            onClick={() => setTab(key as typeof tab)}
+            className={`reward-tab${tab === item.key ? ' active' : ''}`}
+            onClick={() => setTab(item.key)}
           >
-            {label}
+            {item.label}
           </button>
         ))}
       </div>
+
       <div className="honor-grid">
         {visibleCards.map((item) => (
-          <div className="honor-card" key={item.id} data-icon={iconThemeMap[item.category]}>
-            <span className="h-icon">
+          <article
+            className={`honor-card${item.status === 'disabled' ? ' is-disabled' : ''}`}
+            key={item.id}
+            data-icon={iconThemeMap[item.category]}
+          >
+            <div className="honor-card-media">
               {item.iconUrl ? (
-                <img className="honor-icon-image" src={resolveAssetUrl(item.iconUrl)} alt={item.name} />
+                <img src={resolveAssetUrl(item.iconUrl)} alt="" />
               ) : (
-                item.name.slice(0, 1)
+                <span className="honor-fallback">{item.name.slice(0, 2)}</span>
               )}
-            </span>
-            <div className="h-name">{item.name}</div>
-            <span className={`h-cat ${item.category}`}>{categoryLabelMap[item.category]}</span>
-            <div className="h-desc">{item.description ?? '暂无勋章说明，建议补充授予场景与评定口径。'}</div>
-            <div className="h-bottom">
-              <span className={`h-status ${item.status === 'enabled' ? 'on' : 'off'}`}>{formatEnabledStatus(item.status, '启用中', '已停用')}</span>
-              <div className="h-actions">
-                <span>已授予 {item.grantedCount} 次</span>
-                {allowManage ? (
+              {item.status === 'disabled' ? <span className="honor-card-flag">已停用</span> : null}
+              {allowManage ? (
+                <div className="honor-card-toolbar">
+                  <button type="button" className="honor-tool-btn" onClick={() => openEditHonor(item)} title="编辑">
+                    编
+                  </button>
+                  <button
+                    type="button"
+                    className="honor-tool-btn"
+                    onClick={() => void toggleHonorStatus(item)}
+                    disabled={statusUpdatingId === item.id}
+                    title={item.status === 'enabled' ? '停用' : '启用'}
+                  >
+                    {item.status === 'enabled' ? '停' : '启'}
+                  </button>
+                </div>
+              ) : null}
+            </div>
+            <div className="honor-card-body">
+              <div className="honor-card-head">
+                <h3 className="h-name">{item.name}</h3>
+                <span className={`h-cat ${item.category}`}>{categoryLabelMap[item.category]}</span>
+              </div>
+              <p className="honor-card-summary">
+                已授予 <strong>{item.grantedCount}</strong> 次
+                {item.conditionType ? (
                   <>
-                    <button className="link-button" type="button" onClick={() => openEditHonor(item)}>
-                      编辑
-                    </button>
-                    <button
-                      className="link-button"
-                      type="button"
-                      onClick={() => void toggleHonorStatus(item)}
-                      disabled={statusUpdatingId === item.id}
-                    >
-                      {item.status === 'enabled' ? '停用' : '启用'}
-                    </button>
+                    <span className="honor-card-sep">·</span>
+                    {item.conditionType}
                   </>
                 ) : null}
-              </div>
+              </p>
             </div>
-          </div>
+          </article>
         ))}
+        {visibleCards.length === 0 ? <div className="settings-note">当前筛选条件下暂无荣誉勋章。</div> : null}
+      </div>
       </div>
 
       {showCreateHonor || editingHonor ? (

@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsBoolean, IsEnum, IsInt, IsOptional, IsString } from 'class-validator';
+import { IsArray, IsBoolean, IsEnum, IsInt, IsOptional, IsString } from 'class-validator';
 
 enum ModuleTypeDto {
   GENERAL = 'general',
@@ -83,6 +83,12 @@ export class ScoreRuleUpsertDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  @ApiProperty({ required: false, type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  allowedRoleCodes?: string[];
 
   @ApiProperty({ default: false })
   @IsOptional()

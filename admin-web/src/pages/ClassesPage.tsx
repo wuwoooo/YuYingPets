@@ -143,11 +143,29 @@ export function ClassesPage({
     if (nextStatsView === "grade" || nextStatsView === "class" || nextStatsView === "governance") {
       setStatsView(nextStatsView);
     }
-    if (classId) {
-      const matched = classes.find((item) => item.id === Number(classId));
-      if (matched) setSelectedClass(matched);
+    /** 工作台深链：直达编辑表单，避免仅用 classId 先打开班级档案与本弹层并存 */
+    const editRequested = searchParams.get("edit") === "1";
+    const idNum = classId ? Number(classId) : NaN;
+    const matchedClass =
+      Number.isFinite(idNum) && idNum > 0
+        ? classes.find((item) => item.id === idNum)
+        : undefined;
+    if (editRequested && matchedClass && allowEdit) {
+      setSelectedClass(null);
+      setShowCreate(false);
+      setSubmitError(null);
+      setEditingClass(matchedClass);
+      setForm(createClassForm(defaultSemesterId, matchedClass));
+      const params = new URLSearchParams(searchParams);
+      params.delete("edit");
+      params.delete("classId");
+      setSearchParams(params, { replace: true });
+      return;
     }
-  }, [searchParams]);
+    if (classId && matchedClass) {
+      setSelectedClass(matchedClass);
+    }
+  }, [allowEdit, classes, defaultSemesterId, searchParams, setSearchParams]);
 
   useEffect(() => {
     if (!allowCreate) return;
@@ -218,6 +236,20 @@ export function ClassesPage({
     }
   }, [allowViewDisplayTerminals, listTab]);
 
+  const isCountdownPending = (row: AdminClass) => {
+    if (!row.countdownTitle?.trim() || !row.countdownDeadlineAt) return true;
+    const deadlineAt = new Date(row.countdownDeadlineAt).getTime();
+    return Number.isNaN(deadlineAt) || deadlineAt <= Date.now();
+  };
+  const buildGovernanceIssues = (row: AdminClass) =>
+    [
+      !row.homeroomTeacher ? "待配班主任" : null,
+      row.displayStatus !== "enabled" ? "未开启展示" : null,
+      row.targetScore === null || row.targetScore === undefined ? "未设目标积分" : null,
+      isCountdownPending(row) ? "倒计时待设置" : null,
+    ].filter(Boolean);
+  const getGovernanceRiskScore = (row: AdminClass) => buildGovernanceIssues(row).length;
+
   const filteredClasses = useMemo(() => {
     const keyword = normalizeKeyword(searchKeyword);
     const classIdFilter = new Set(
@@ -241,10 +273,7 @@ export function ClassesPage({
         statusFilter === "all" || row.displayStatus === statusFilter;
       const matchesFocus =
         focusFilter === "all" ||
-        (!row.homeroomTeacher ||
-          row.displayStatus !== "enabled" ||
-          row.targetScore === null ||
-          row.targetScore === undefined);
+        getGovernanceRiskScore(row) > 0;
       const matchesTeacherStatus =
         searchParams.get("teacherStatus") !== "unassigned" || !row.homeroomTeacher;
       return matchesClassIds && matchesKeyword && matchesGrade && matchesStatus && matchesFocus && matchesTeacherStatus;
@@ -309,13 +338,8 @@ export function ClassesPage({
   const disabledClassCount = classes.filter((row) => row.displayStatus !== "enabled").length;
   const assignedTeacherCount = classes.filter((row) => row.homeroomTeacher?.id).length;
   const targetConfiguredCount = classes.filter((row) => row.targetScore !== null && row.targetScore !== undefined).length;
-  const governancePendingCount = classes.filter(
-    (row) =>
-      !row.homeroomTeacher ||
-      row.displayStatus !== "enabled" ||
-      row.targetScore === null ||
-      row.targetScore === undefined,
-  ).length;
+  const countdownReadyCount = classes.filter((row) => !isCountdownPending(row)).length;
+  const governancePendingCount = classes.filter((row) => getGovernanceRiskScore(row) > 0).length;
   const averageStudentCount = classes.length
     ? Math.round(classes.reduce((sum, row) => sum + row.studentCount, 0) / classes.length)
     : 0;
@@ -344,10 +368,10 @@ export function ClassesPage({
     }, new Map<string, { gradeName: string; classCount: number; studentCount: number; enabledCount: number; assignedTeacherCount: number }>()),
   ).sort((a, b) => b[1].classCount - a[1].classCount || a[0].localeCompare(b[0], "zh-CN"));
   const governanceWatchList = [...classes]
-    .filter((row) => !row.homeroomTeacher || row.displayStatus !== "enabled" || row.targetScore === null || row.targetScore === undefined)
+    .filter((row) => getGovernanceRiskScore(row) > 0)
     .sort((a, b) => {
-      const aRisk = Number(!a.homeroomTeacher) + Number(a.displayStatus !== "enabled") + Number(a.targetScore === null || a.targetScore === undefined);
-      const bRisk = Number(!b.homeroomTeacher) + Number(b.displayStatus !== "enabled") + Number(b.targetScore === null || b.targetScore === undefined);
+      const aRisk = getGovernanceRiskScore(a);
+      const bRisk = getGovernanceRiskScore(b);
       return bRisk - aRisk || b.studentCount - a.studentCount;
     })
     .slice(0, 4);
@@ -402,11 +426,7 @@ export function ClassesPage({
         row.targetScore === null || row.targetScore === undefined
           ? "未设置"
           : `${row.targetScore} 分`,
-      governanceStatus: [
-        !row.homeroomTeacher ? "待配班主任" : null,
-        row.displayStatus !== "enabled" ? "未开启展示" : null,
-        row.targetScore === null || row.targetScore === undefined ? "未设目标积分" : null,
-      ].filter(Boolean).join(" · ") || "配置完整",
+      governanceStatus: buildGovernanceIssues(row).join(" · ") || "配置完整",
     }))
     .sort((a, b) => {
       const aRisk = Number(a.governanceStatus !== "配置完整");
@@ -550,6 +570,8 @@ export function ClassesPage({
       const gradeName = form.gradeName.trim();
       const className = form.name.trim();
       const targetScoreText = form.targetScore.trim();
+      const countdownTitle = form.countdownTitle.trim();
+      const countdownDeadlineText = form.countdownDeadlineAt.trim();
       const semesterIdNumber = Number(semesterId);
 
       if (!editingClass && (!semesterId || !gradeName || !className)) {
@@ -558,6 +580,21 @@ export function ClassesPage({
 
       if (targetScoreText && (!/^\d+$/.test(targetScoreText) || Number(targetScoreText) < 0)) {
         throw new Error("班级目标积分必须是大于等于 0 的整数");
+      }
+
+      let countdownPayload: Pick<ClassUpsertPayload, "countdownTitle" | "countdownDeadlineAt"> = {
+        countdownTitle: null,
+        countdownDeadlineAt: null,
+      };
+      if (countdownTitle && countdownDeadlineText) {
+        const deadlineAt = new Date(countdownDeadlineText);
+        if (Number.isNaN(deadlineAt.getTime())) {
+          throw new Error("倒计时截止时间格式不正确");
+        }
+        countdownPayload = {
+          countdownTitle,
+          countdownDeadlineAt: deadlineAt.toISOString(),
+        };
       }
 
       const duplicatedClass = classes.find((item) => {
@@ -583,6 +620,7 @@ export function ClassesPage({
               homeroomTeacherId: editingClass.homeroomTeacher?.id ?? null,
               slogan: form.slogan.trim() || null,
               targetScore: targetScoreText ? Number(targetScoreText) : null,
+              ...countdownPayload,
               displayStatus: form.displayStatus || "enabled",
               sortOrder: editingClass.sortOrder ?? null,
             }
@@ -613,6 +651,7 @@ export function ClassesPage({
                 : null,
               slogan: form.slogan.trim() || null,
               targetScore: targetScoreText ? Number(targetScoreText) : null,
+              ...countdownPayload,
               displayStatus: form.displayStatus || "enabled",
               sortOrder: buildSortOrder(
                 buildGradeCode(
@@ -644,6 +683,7 @@ export function ClassesPage({
             : null,
           slogan: form.slogan.trim() || null,
           targetScore: targetScoreText ? Number(targetScoreText) : null,
+          ...countdownPayload,
           displayStatus: form.displayStatus || "enabled",
           sortOrder: buildSortOrder(gradeCode, classes, form.sortOrder),
         };
@@ -677,7 +717,8 @@ export function ClassesPage({
         </>
       }
     >
-      <div className="page-header">
+      <div className="admin-list-desk">
+      <div className="page-header admin-list-page-header">
         <div>
           <h2>{pageTitle}</h2>
           <p className="page-desc">
@@ -731,53 +772,58 @@ export function ClassesPage({
         </div>
       </div>
 
-      <div className="metric-strip">
-        <div className="metric-card">
-          <span>班级总数</span>
-          <button className="metric-value-button" type="button" onClick={resetListFilters}>
-            {classes.length}
-          </button>
-          <p>当前纳入系统管理的班级数量，是校级组织盘点的基础口径。</p>
-        </div>
-        <div className="metric-card">
-          <span>展示中班级</span>
-          <button
-            className="metric-value-button"
-            type="button"
-            onClick={() => {
-              setStatusFilter("enabled");
-              setFocusFilter("all");
-            }}
-          >
-            {enabledClassCount}
-          </button>
-          <p>已接入展示端的大屏班级数量，可用于观察汇报页覆盖范围。</p>
-        </div>
-        <div className="metric-card">
-          <span>待治理班级</span>
-          <button
-            className="metric-value-button"
-            type="button"
-            onClick={() => {
-              setStatusFilter("all");
-              setFocusFilter("governance_pending");
-            }}
-          >
-            {governancePendingCount}
-          </button>
-          <p>仍需补齐展示、班主任或目标积分配置的班级数量。</p>
-        </div>
+      <div className="std-metric-grid std-metric-grid--4">
+        <button type="button" className="std-metric-card std-metric-card--blue std-metric-card--action" onClick={resetListFilters}>
+          <div className="std-metric-card__top">
+            <div className="std-metric-card__icon"><span className="sec-metric-glyph">总</span></div>
+            <span className="std-metric-card__label">班级总数</span>
+          </div>
+          <div className="std-metric-card__value">{classes.length}</div>
+          <div className="std-metric-card__hint">当前纳入系统管理的班级数量</div>
+        </button>
         <button
-          className={`metric-card metric-card-action${showOverview ? " active" : ""}`}
           type="button"
+          className="std-metric-card std-metric-card--green std-metric-card--action"
+          onClick={() => {
+            setStatusFilter("enabled");
+            setFocusFilter("all");
+          }}
+        >
+          <div className="std-metric-card__top">
+            <div className="std-metric-card__icon"><span className="sec-metric-glyph">展</span></div>
+            <span className="std-metric-card__label">展示中班级</span>
+          </div>
+          <div className="std-metric-card__value">{enabledClassCount}</div>
+          <div className="std-metric-card__hint">已接入展示端的大屏班级数量</div>
+        </button>
+        <button
+          type="button"
+          className="std-metric-card std-metric-card--purple std-metric-card--action"
+          onClick={() => {
+            setStatusFilter("all");
+            setFocusFilter("governance_pending");
+          }}
+        >
+          <div className="std-metric-card__top">
+            <div className="std-metric-card__icon"><span className="sec-metric-glyph">治</span></div>
+            <span className="std-metric-card__label">待治理班级</span>
+          </div>
+          <div className="std-metric-card__value">{governancePendingCount}</div>
+          <div className="std-metric-card__hint">待补齐展示、班主任或运营配置</div>
+        </button>
+        <button
+          type="button"
+          className={`std-metric-card std-metric-card--amber std-metric-card--action${showOverview ? " active" : ""}`}
           onClick={() => setShowOverview((prev) => !prev)}
         >
-          <span>{showOverview ? "收起更多分析" : "更多分析"}</span>
-          <strong>{showOverview ? "收起剩余分析卡片" : "展开剩余分析卡片"}</strong>
-          <p>
-            {classes.length - assignedTeacherCount} 个待配班主任，
-            {disabledClassCount} 个未展示，展开后可查看年级、班级、治理等更多分析。
-          </p>
+          <div className="std-metric-card__top">
+            <div className="std-metric-card__icon"><span className="sec-metric-glyph">析</span></div>
+            <span className="std-metric-card__label">{showOverview ? "收起分析" : "更多分析"}</span>
+          </div>
+          <div className="std-metric-card__value std-metric-card__value--text">
+            {classes.length - assignedTeacherCount} 班待配班主任
+          </div>
+          <div className="std-metric-card__hint">展开查看年级分布与治理待办</div>
         </button>
       </div>
 
@@ -807,6 +853,8 @@ export function ClassesPage({
                 <div><span>待配班主任</span><strong>{classes.length - assignedTeacherCount} 个</strong></div>
                 <div><span>已设目标积分</span><strong>{targetConfiguredCount} 个</strong></div>
                 <div><span>待补运营目标</span><strong>{classes.length - targetConfiguredCount} 个</strong></div>
+                <div><span>有效倒计时</span><strong>{countdownReadyCount} 个</strong></div>
+                <div><span>倒计时待设置</span><strong>{classes.length - countdownReadyCount} 个</strong></div>
               </div>
             </div>
             <div className="detail-card">
@@ -836,11 +884,7 @@ export function ClassesPage({
               <h4>治理待办</h4>
               <div className="mini-list">
                 {governanceWatchList.map((item) => {
-                  const issues = [
-                    !item.homeroomTeacher ? "待配班主任" : null,
-                    item.displayStatus !== "enabled" ? "未开启展示" : null,
-                    item.targetScore === null || item.targetScore === undefined ? "未设目标积分" : null,
-                  ].filter(Boolean).join(" · ");
+                  const issues = buildGovernanceIssues(item).join(" · ");
                   return (
                     <div className="mini-list-item" key={item.id}>
                       <div>
@@ -855,7 +899,7 @@ export function ClassesPage({
                   <div className="mini-list-item">
                     <div>
                       <strong>当前治理状态完整</strong>
-                      <span>所有班级都已完成展示、班主任和目标积分的基础配置。</span>
+                      <span>所有班级都已完成展示、班主任、目标积分和有效倒计时配置。</span>
                     </div>
                     <b>已完成</b>
                   </div>
@@ -866,43 +910,39 @@ export function ClassesPage({
         </div>
       ) : null}
 
-      <div className="panel">
-        <div className="page-header">
-          <div>
-            <div className="panel-title">
-              {listTab === "class" ? "班级列表" : "大屏列表"}
+      <div className="panel admin-list-panel security-accounts-panel">
+        <div className="security-panel-head">
+          {allowViewDisplayTerminals ? (
+            <div className="sec-nav-tabs">
+              <button
+                className={`sec-nav-tab${listTab === "class" ? " active" : ""}`}
+                type="button"
+                onClick={() => setListTab("class")}
+              >
+                班级列表
+              </button>
+              <button
+                className={`sec-nav-tab${listTab === "display" ? " active" : ""}`}
+                type="button"
+                onClick={() => setListTab("display")}
+              >
+                大屏列表
+              </button>
             </div>
-            <p className="page-desc">
-              {listTab === "class"
-                ? "查看班级基础信息、展示状态与班主任配置。"
-                : "展示每个大屏终端绑定到的班级，以及当前 websocket 在线状态。"}
-            </p>
-          </div>
+          ) : (
+            <div className="panel-title">班级列表</div>
+          )}
+          <p className="page-desc">
+            {listTab === "class"
+              ? "查看班级基础信息、展示状态与班主任配置。"
+              : "展示每个大屏终端绑定到的班级，以及当前 websocket 在线状态。"}
+          </p>
         </div>
-
-        {allowViewDisplayTerminals ? (
-          <div className="tabs">
-            <button
-              className={`tab${listTab === "class" ? " active" : ""}`}
-              type="button"
-              onClick={() => setListTab("class")}
-            >
-              班级列表
-            </button>
-            <button
-              className={`tab${listTab === "display" ? " active" : ""}`}
-              type="button"
-              onClick={() => setListTab("display")}
-            >
-              大屏列表
-            </button>
-          </div>
-        ) : null}
 
         {listTab === "class" ? (
           <>
-            <div className="data-table-wrap">
-              <table className="data-table">
+            <div className="data-table-wrap security-table-wrap">
+              <table className="data-table security-table">
                 <thead>
                   <tr>
                     <th>{renderSortHeader("班级", "name")}</th>
@@ -917,7 +957,7 @@ export function ClassesPage({
                 <tbody>
                   {classPagination.pagedItems.map((row) => (
                     <tr key={row.id}>
-                      <td>{row.name}</td>
+                      <td className="security-name-cell">{row.name}</td>
                       <td>{row.gradeName}</td>
                       <td>{row.homeroomTeacher?.name ?? "-"}</td>
                       <td>{row.studentCount}</td>
@@ -984,8 +1024,8 @@ export function ClassesPage({
             {displayTerminalsError ? (
               <div className="status-card error">{displayTerminalsError}</div>
             ) : null}
-            <div className="data-table-wrap">
-              <table className="data-table">
+            <div className="data-table-wrap security-table-wrap">
+              <table className="data-table security-table">
                 <thead>
                   <tr>
                     <th>终端名称</th>
@@ -1166,6 +1206,38 @@ export function ClassesPage({
                   setForm((prev) => ({ ...prev, slogan: event.target.value }))
                 }
               />
+            </label>
+            <label>
+              <span>倒计时标题</span>
+              <input
+                value={form.countdownTitle}
+                placeholder="例如：距离期末表彰"
+                onChange={(event) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    countdownTitle: event.target.value,
+                  }))
+                }
+              />
+              <small className="field-hint">
+                标题和截止时间都填写后，班级大屏才会显示倒计时。
+              </small>
+            </label>
+            <label>
+              <span>倒计时截止时间</span>
+              <input
+                type="datetime-local"
+                value={form.countdownDeadlineAt}
+                onChange={(event) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    countdownDeadlineAt: event.target.value,
+                  }))
+                }
+              />
+              <small className="field-hint">
+                清空标题或时间即可关闭该班倒计时。
+              </small>
             </label>
             {submitError ? (
               <div className="status-card error span-2">{submitError}</div>
@@ -1352,6 +1424,7 @@ export function ClassesPage({
           </div>
         </Modal>
       ) : null}
+      </div>
     </Shell>
   );
 }

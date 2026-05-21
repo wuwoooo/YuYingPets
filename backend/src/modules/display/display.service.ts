@@ -10,6 +10,7 @@ import { DisplayLockDto } from './dto/display-lock.dto';
 import { DisplayTerminalInitializeDto } from './dto/display-terminal-initialize.dto';
 import { DisplayWeatherQueryDto } from './dto/display-weather-query.dto';
 import { normalizePetGrowthThresholds, resolveStageNeedScoreTotal } from '@/common/utils/pet-growth.util';
+import { AiService } from '../ai/ai.service';
 
 type DisplayWeatherPayload = {
   label: string;
@@ -63,6 +64,7 @@ export class DisplayService {
     private readonly configService: ConfigService,
     private readonly realtimeService: RealtimeService,
     private readonly operationLogService: OperationLogService,
+    private readonly aiService: AiService,
   ) {}
 
   async terminalState(terminalCode: string) {
@@ -115,7 +117,7 @@ export class DisplayService {
 
   async terminals(authorization: string | undefined) {
     const user = await this.authService.getAuthUserFromAuthorization(authorization);
-    if (!['super_admin', 'school_admin', 'moral_admin'].includes(user.roleCode)) {
+    if (!this.authService.canManageAllDisplays(user)) {
       throw new ForbiddenException('当前角色不可查看大屏终端列表');
     }
 
@@ -169,8 +171,8 @@ export class DisplayService {
     dto: DisplayTerminalInitializeDto,
   ) {
     const user = await this.authService.getAuthUserFromAuthorization(authorization);
-    if (user.roleCode !== 'super_admin') {
-      throw new ForbiddenException('仅超级管理员可初始化展示终端');
+    if (!this.authService.canInitializeDisplayTerminal(user)) {
+      throw new ForbiddenException('仅班主任及以上账号可绑定展示终端');
     }
 
     const classroom = await this.prisma.classroom.findFirst({
@@ -188,6 +190,10 @@ export class DisplayService {
 
     if (!classroom) {
       throw new NotFoundException('要绑定的班级不存在');
+    }
+
+    if (!this.authService.canManageAllDisplays(user)) {
+      await this.authService.ensureIsHomeroomOfClass(user, dto.classId);
     }
 
     const terminal = await this.prisma.displayTerminal.upsert({
@@ -252,7 +258,7 @@ export class DisplayService {
 
   async unlock(authorization: string | undefined, dto: DisplayUnlockDto) {
     const user = await this.authService.getAuthUserFromAuthorization(authorization);
-    if (!['homeroom_teacher', 'subject_teacher'].includes(user.roleCode)) {
+    if (!this.authService.canOperateDisplay(user)) {
       throw new ForbiddenException('当前角色不可解锁展示端操作模式');
     }
     this.authService.ensureCanAccessClass(user, dto.classId);
@@ -336,7 +342,7 @@ export class DisplayService {
 
   async lock(authorization: string | undefined, dto: DisplayLockDto) {
     const user = await this.authService.getAuthUserFromAuthorization(authorization);
-    if (!['homeroom_teacher', 'subject_teacher'].includes(user.roleCode)) {
+    if (!this.authService.canOperateDisplay(user)) {
       throw new ForbiddenException('当前角色不可锁定展示端操作模式');
     }
     this.authService.ensureCanAccessClass(user, dto.classId);
@@ -517,6 +523,13 @@ export class DisplayService {
         gradeName: classroom.gradeName,
         slogan: classroom.slogan,
         targetScore: classroom.targetScore,
+        countdown:
+          classroom.countdownTitle && classroom.countdownDeadlineAt
+            ? {
+                title: classroom.countdownTitle,
+                deadlineAt: classroom.countdownDeadlineAt,
+              }
+            : null,
         homeroomTeacher: classroom.homeroomTeacher
           ? {
               id: toNumber(classroom.homeroomTeacher.id),
@@ -878,7 +891,7 @@ export class DisplayService {
     };
   }
 
-  async academicGrowth(classId: number) {
+  async academicGrowth(classId: number, selectedExamId?: number) {
     const currentClass = await this.prisma.classroom.findFirst({
       where: {
         id: BigInt(classId),
@@ -965,8 +978,10 @@ export class DisplayService {
           hasData: false,
           latestExam: null,
           previousExam: null,
+          examOptions: [],
           metrics: {
-            growthIndex: 0,
+            academicIndex: 0,
+            indexDelta: 0,
             coverageRate: 0,
             averageScore: 0,
             participantCount: 0,
@@ -987,9 +1002,12 @@ export class DisplayService {
     }
 
     const latestExam = exams[0];
-    const previousExam = exams[1] ?? null;
+    const currentExam =
+      (selectedExamId ? exams.find((item) => toNumber(item.id) === selectedExamId) : null) ?? latestExam;
+    const currentExamIndex = exams.findIndex((item) => item.id === currentExam.id);
+    const previousExam = exams[currentExamIndex + 1] ?? null;
     const examIds = exams.map((item) => item.id);
-    const subjectExamIds = previousExam ? [latestExam.id, previousExam.id] : [latestExam.id];
+    const subjectExamIds = previousExam ? [currentExam.id, previousExam.id] : [currentExam.id];
     const [totalRows, subjectRows] = await Promise.all([
       this.prisma.academicScoreRecord.findMany({
         where: {
@@ -1015,7 +1033,7 @@ export class DisplayService {
       }),
     ]);
 
-    const latestTotalRows = totalRows.filter((row) => row.examId === latestExam.id && row.score !== null);
+    const latestTotalRows = totalRows.filter((row) => row.examId === currentExam.id && row.score !== null);
     const latestClassRows = latestTotalRows.filter((row) => row.classId === currentClass.id);
     const previousByStudent = new Map(
       totalRows
@@ -1028,14 +1046,22 @@ export class DisplayService {
     const classById = new Map(classrooms.map((item) => [item.id.toString(), item]));
 
     const latestAverage = this.averageNumber(latestClassRows.map((row) => Number(row.score)));
-    const progressCount = latestClassRows.filter((row) => this.resolveAcademicDelta(row, previousByStudent.get(row.studentId.toString())) > 0).length;
-    const declineCount = latestClassRows.filter((row) => this.resolveAcademicDelta(row, previousByStudent.get(row.studentId.toString())) < 0).length;
+    const progressCount = latestClassRows.filter((row) => (this.resolveAcademicClassRankDelta(row) ?? 0) > 0).length;
+    const declineCount = latestClassRows.filter((row) => (this.resolveAcademicClassRankDelta(row) ?? 0) < 0).length;
     const coverageRate = currentClassStudents.length ? Math.round((latestClassRows.length / currentClassStudents.length) * 100) : 0;
-    const progressRate = latestClassRows.length ? (progressCount / latestClassRows.length) * 100 : 0;
     const declineRate = latestClassRows.length ? (declineCount / latestClassRows.length) * 100 : 0;
-    const growthIndex = Math.round(this.clampMetric(latestAverage * 0.12 + coverageRate * 0.22 + progressRate * 0.42 - declineRate * 0.24));
+    const gradeAverage = this.averageNumber(latestTotalRows.map((row) => Number(row.score)));
+    const academicIndex = gradeAverage > 0 ? Math.round((latestAverage / gradeAverage) * 1000) / 10 : 0;
+    const previousTotalRows = previousExam
+      ? totalRows.filter((row) => row.examId === previousExam.id && row.score !== null)
+      : [];
+    const previousClassRows = previousExam ? previousTotalRows.filter((row) => row.classId === currentClass.id) : [];
+    const previousAverage = this.averageNumber(previousClassRows.map((row) => Number(row.score)));
+    const previousGradeAverage = this.averageNumber(previousTotalRows.map((row) => Number(row.score)));
+    const previousGrowthIndex = previousGradeAverage > 0 ? Math.round((previousAverage / previousGradeAverage) * 1000) / 10 : 0;
+    const indexDelta = previousExam ? Math.round((academicIndex - previousGrowthIndex) * 10) / 10 : 0;
 
-    const latestSubjectRows = subjectRows.filter((row) => row.examId === latestExam.id && row.classId === currentClass.id && row.score !== null);
+    const latestSubjectRows = subjectRows.filter((row) => row.examId === currentExam.id && row.classId === currentClass.id && row.score !== null);
     const previousSubjectByStudentAndSubject = new Map(
       subjectRows
         .filter((row) => previousExam && row.examId === previousExam.id && row.classId === currentClass.id && row.score !== null)
@@ -1073,13 +1099,11 @@ export class DisplayService {
     const classSummaries = classrooms
       .map((classroom) => {
         const rows = latestTotalRows.filter((row) => row.classId === classroom.id);
-        const classProgress = rows.filter((row) => this.resolveAcademicDelta(row, previousByStudent.get(row.studentId.toString())) > 0).length;
-        const classDecline = rows.filter((row) => this.resolveAcademicDelta(row, previousByStudent.get(row.studentId.toString())) < 0).length;
-        const behaviorAverage = this.averageNumber(classroom.students.map((student) => student.profile?.currentScore ?? 0));
+        const classProgress = rows.filter((row) => (this.resolveAcademicClassRankDelta(row) ?? 0) > 0).length;
+        const classDecline = rows.filter((row) => (this.resolveAcademicClassRankDelta(row) ?? 0) < 0).length;
         const classAverage = this.averageNumber(rows.map((row) => Number(row.score)));
-        const classProgressRate = rows.length ? (classProgress / rows.length) * 100 : 0;
+        const classAcademicIndex = gradeAverage > 0 ? Math.round((classAverage / gradeAverage) * 1000) / 10 : 0;
         const classDeclineRate = rows.length ? (classDecline / rows.length) * 100 : 0;
-        const classGrowthIndex = Math.round(this.clampMetric(classAverage * 0.12 + behaviorAverage * 0.32 + classProgressRate * 0.42 - classDeclineRate * 0.18));
         return {
           classId: toNumber(classroom.id),
           className: classroom.name,
@@ -1088,21 +1112,19 @@ export class DisplayService {
           participantCount: rows.length,
           progressCount: classProgress,
           declineCount: classDecline,
-          behaviorAverage,
-          growthIndex: classGrowthIndex,
+          academicIndex: classAcademicIndex,
           riskLevel: classDeclineRate >= 35 ? 'high' : classDeclineRate >= 18 ? 'medium' : 'low',
           isCurrentClass: classroom.id === currentClass.id,
         };
       })
-      .sort((left, right) => right.growthIndex - left.growthIndex || right.averageScore - left.averageScore);
+      .sort((left, right) => right.academicIndex - left.academicIndex || right.averageScore - left.averageScore);
 
     const subjectColumns = subjects.slice(0, 8).map((item) => ({ subjectCode: item.subjectCode, subjectName: item.subjectName }));
     const studentRows = latestClassRows
       .map((row) => {
-        const previous = previousByStudent.get(row.studentId.toString());
         const student = studentById.get(row.studentId.toString());
         const score = Number(row.score);
-        const scoreDelta = previous?.score === null || previous?.score === undefined ? this.resolveAcademicDelta(row, previous) : Math.round((score - Number(previous.score)) * 10) / 10;
+        const rankDelta = this.resolveAcademicClassRankDelta(row);
         const subjectScores = subjectColumns.map((subject) => {
           const subjectRow = latestSubjectByStudentAndSubject.get(`${row.studentId}:${subject.subjectCode}`);
           return subjectRow?.score === null || subjectRow?.score === undefined ? null : Number(subjectRow.score);
@@ -1115,8 +1137,7 @@ export class DisplayService {
           className: row.className,
           groupName: student?.groupRel?.classGroup?.name ?? null,
           totalScore: score,
-          scoreDelta,
-          rankDelta: this.resolveAcademicDelta(row, previous),
+          rankDelta,
           classRank: row.classRank,
           schoolRank: row.schoolRank,
           behaviorScore: student?.profile?.currentScore ?? 0,
@@ -1126,62 +1147,51 @@ export class DisplayService {
       .sort((left, right) => (left.classRank ?? 99999) - (right.classRank ?? 99999) || right.totalScore - left.totalScore);
 
     const signalRows = latestClassRows.map((row) => {
-      const previous = previousByStudent.get(row.studentId.toString());
       const student = studentById.get(row.studentId.toString());
       const classInfo = classById.get(row.classId.toString());
       const score = Number(row.score);
-      const scoreDelta = previous?.score === null || previous?.score === undefined ? this.resolveAcademicDelta(row, previous) : Math.round((score - Number(previous.score)) * 10) / 10;
+      const rankDelta = this.resolveAcademicClassRankDelta(row);
       return {
         studentId: toNumber(row.studentId),
         studentName: row.studentName,
         classId: toNumber(row.classId),
         className: classInfo?.name ?? currentClass.name,
         totalScore: score,
-        scoreDelta,
-        rankDelta: this.resolveAcademicDelta(row, previous),
+        rankDelta,
         classRank: row.classRank,
         schoolRank: row.schoolRank,
         behaviorScore: student?.profile?.currentScore ?? 0,
       };
     });
     const progressLeaders = signalRows
-      .filter((item) => item.rankDelta > 0 || item.scoreDelta > 0)
-      .sort((left, right) => right.rankDelta - left.rankDelta || right.scoreDelta - left.scoreDelta || right.totalScore - left.totalScore)
+      .filter((item) => (item.rankDelta ?? 0) > 0)
+      .sort((left, right) => (right.rankDelta ?? 0) - (left.rankDelta ?? 0) || right.totalScore - left.totalScore)
       .slice(0, 12);
     const riskStudents = signalRows
-      .filter((item) => item.rankDelta < 0 || item.scoreDelta < 0)
-      .sort((left, right) => left.rankDelta - right.rankDelta || left.totalScore - right.totalScore)
+      .filter((item) => (item.rankDelta ?? 0) < 0)
+      .sort((left, right) => (left.rankDelta ?? 0) - (right.rankDelta ?? 0) || left.totalScore - right.totalScore)
       .slice(0, 12);
 
     const trend = exams
       .map((exam) => {
         const rows = totalRows.filter((row) => row.examId === exam.id && row.classId === currentClass.id && row.score !== null);
+        const gradeRows = totalRows.filter((row) => row.examId === exam.id && row.score !== null);
+        const classAverage = this.averageNumber(rows.map((row) => Number(row.score)));
+        const gradeAverageForExam = this.averageNumber(gradeRows.map((row) => Number(row.score)));
         return {
           examId: toNumber(exam.id),
           examName: exam.name,
           importedAt: exam.importedAt,
-          averageScore: this.averageNumber(rows.map((row) => Number(row.score))),
+          averageScore: classAverage,
+          gradeAverage: gradeAverageForExam,
+          relativeIndex: gradeAverageForExam > 0 ? Math.round((classAverage / gradeAverageForExam) * 1000) / 10 : 0,
           participantCount: rows.length,
         };
       })
       .reverse();
 
     const currentClassSummary = classSummaries.find((item) => item.classId === classId) ?? classSummaries[0] ?? null;
-    const gradeAverage = this.averageNumber(latestTotalRows.map((row) => Number(row.score)));
-    const gradeGrowthIndex = Math.round(
-      this.clampMetric(
-        gradeAverage * 0.12 +
-          (allStudents.length ? Math.round((latestTotalRows.length / allStudents.length) * 100) : 0) * 0.22 +
-          (latestTotalRows.length
-            ? (latestTotalRows.filter((row) => this.resolveAcademicDelta(row, previousByStudent.get(row.studentId.toString())) > 0).length / latestTotalRows.length) * 100
-            : 0) *
-            0.42 -
-          (latestTotalRows.length
-            ? (latestTotalRows.filter((row) => this.resolveAcademicDelta(row, previousByStudent.get(row.studentId.toString())) < 0).length / latestTotalRows.length) * 100
-            : 0) *
-            0.24,
-      ),
-    );
+    const gradeBaselineIndex = gradeAverage > 0 ? 100 : 0;
 
     return {
       code: 0,
@@ -1192,11 +1202,11 @@ export class DisplayService {
         className: currentClass.name,
         hasData: latestClassRows.length > 0,
         latestExam: {
-          id: toNumber(latestExam.id),
-          name: latestExam.name,
-          gradeName: latestExam.gradeName,
-          importedAt: latestExam.importedAt,
-          recordCount: latestExam._count.records,
+          id: toNumber(currentExam.id),
+          name: currentExam.name,
+          gradeName: currentExam.gradeName,
+          importedAt: currentExam.importedAt,
+          recordCount: currentExam._count.records,
         },
         previousExam: previousExam
           ? {
@@ -1207,17 +1217,27 @@ export class DisplayService {
               recordCount: previousExam._count.records,
             }
           : null,
+        examOptions: exams.map((exam) => ({
+          id: toNumber(exam.id),
+          name: exam.name,
+          gradeName: exam.gradeName,
+          importedAt: exam.importedAt,
+          recordCount: exam._count.records,
+          isLatest: exam.id === latestExam.id,
+          isSelected: exam.id === currentExam.id,
+        })),
         metrics: {
-          growthIndex,
+          academicIndex,
+          indexDelta,
           coverageRate,
           averageScore: latestAverage,
           participantCount: latestClassRows.length,
           progressCount,
           declineCount,
           riskCount: riskStudents.length,
-          currentClassIndex: currentClassSummary?.growthIndex ?? 0,
+          currentClassAcademicIndex: currentClassSummary?.academicIndex ?? 0,
           currentClassAverage: currentClassSummary?.averageScore ?? 0,
-          gradeGrowthIndex,
+          gradeBaselineIndex,
           gradeAverage,
           gradeParticipantCount: latestTotalRows.length,
         },
@@ -1228,7 +1248,7 @@ export class DisplayService {
         trend,
         progressLeaders,
         riskStudents,
-        insight: `${currentClass.gradeName}${currentClass.name} · ${latestExam.name} 已覆盖 ${latestClassRows.length}/${currentClassStudents.length} 人，班级学业成长指数 ${growthIndex}，年级对照指数 ${gradeGrowthIndex}。`,
+        insight: `${currentClass.gradeName}${currentClass.name} · ${currentExam.name} 已覆盖 ${latestClassRows.length}/${currentClassStudents.length} 人，班级学业指数 ${academicIndex}，较上次 ${indexDelta >= 0 ? '+' : ''}${indexDelta}。`,
       },
     };
   }
@@ -1280,6 +1300,25 @@ export class DisplayService {
     };
   }
 
+  async academicAiGenerate(classId: number, studentId: number, periodType: 'weekly' | 'monthly' = 'weekly') {
+    const student = await this.prisma.student.findFirst({
+      where: {
+        id: BigInt(studentId),
+        classId: BigInt(classId),
+        deletedAt: null,
+        status: 'enabled',
+      },
+      select: {
+        id: true,
+      },
+    });
+    if (!student) {
+      throw new NotFoundException('学生不存在或不属于当前大屏班级');
+    }
+
+    return this.aiService.generateForDisplay(classId, studentId, periodType);
+  }
+
   async petCatalog() {
     const [school, pets] = await Promise.all([
       this.prisma.school.findFirst({
@@ -1290,6 +1329,7 @@ export class DisplayService {
       this.prisma.pet.findMany({
         where: {
           status: 'enabled',
+          category: { in: ['star', 'zodiac'] },
         },
         include: {
           stages: {
@@ -1386,15 +1426,8 @@ export class DisplayService {
     return Math.max(min, Math.min(max, value));
   }
 
-  private resolveAcademicDelta(
-    row: { classRankDelta: number | null; schoolRankDelta: number | null; score: unknown },
-    previous?: { score: unknown } | null,
-  ) {
-    const explicit = row.classRankDelta ?? row.schoolRankDelta;
-    if (typeof explicit === 'number' && Number.isFinite(explicit)) return explicit;
-    if (previous?.score !== null && previous?.score !== undefined && row.score !== null && row.score !== undefined) {
-      return Math.round((Number(row.score) - Number(previous.score)) * 10) / 10;
-    }
-    return 0;
+  private resolveAcademicClassRankDelta(row: { classRankDelta: number | null }) {
+    const explicit = row.classRankDelta;
+    return typeof explicit === 'number' && Number.isFinite(explicit) ? explicit : null;
   }
 }

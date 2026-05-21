@@ -1,0 +1,233 @@
+.hero-3d-container {
+  position: relative;
+  width: 100%;
+  height: 400px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 20px 0 40px;
+  /* Disable pointer events so it doesn't block interactions */
+  pointer-events: none;
+  perspective: 1200px;
+}
+
+/* 底部发光光晕 */
+.hero-3d-glow {
+  position: absolute;
+  width: 500px;
+  height: 200px;
+  bottom: 50px;
+  background: radial-gradient(ellipse at center, rgba(0, 229, 255, 0.4) 0%, rgba(0, 229, 255, 0) 70%);
+  filter: blur(20px);
+  z-index: 1;
+}
+
+/* 轨道圆环 (Orbiting Rings) */
+.orbital-rings {
+  position: absolute;
+  width: 500px;
+  height: 500px;
+  transform: rotateX(75deg);
+  transform-style: preserve-3d;
+  z-index: 2;
+  bottom: -150px;
+}
+
+.orbital-ring {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  border: 2px solid rgba(0, 229, 255, 0.3);
+  box-shadow: 0 0 15px rgba(0, 229, 255, 0.2), inset 0 0 15px rgba(0, 229, 255, 0.2);
+}
+
+.ring-1 {
+  width: 300px; height: 300px;
+  border-top-color: #00e5ff;
+  border-bottom-color: #00e5ff;
+  animation: spin-ring 10s linear infinite;
+}
+
+.ring-2 {
+  width: 400px; height: 400px;
+  border: 1px dashed rgba(0, 229, 255, 0.6);
+  animation: spin-ring 15s linear infinite reverse;
+}
+
+.ring-3 {
+  width: 480px; height: 480px;
+  border-left-color: #ffb300;
+  border-right-color: #ffb300;
+  animation: spin-ring 20s linear infinite;
+}
+
+@keyframes spin-ring {
+  from { transform: translate(-50%, -50%) rotateZ(0deg); }
+  to { transform: translate(-50%, -50%) rotateZ(360deg); }
+}
+
+/* 向上投射的全息光柱 (Holographic Beam) */
+.holo-beam {
+  position: absolute;
+  bottom: 80px;
+  width: 200px;
+  height: 400px;
+  background: linear-gradient(to top, rgba(0, 229, 255, 0.8), rgba(0, 229, 255, 0));
+  clip-path: polygon(30% 100%, 70% 100%, 0 0, 100% 0);
+  opacity: 0.5;
+  z-index: 3;
+  animation: pulse-beam 3s ease-in-out infinite alternate;
+  mix-blend-mode: screen;
+}
+
+@keyframes pulse-beam {
+  0% { opacity: 0.3; height: 350px; filter: brightness(1); }
+  100% { opacity: 0.6; height: 450px; filter: brightness(1.5); }
+}
+
+/* 3D 建筑/柱体群 (Isometric Pillars) */
+.pillars-group {
+  position: absolute;
+  bottom: 120px;
+  z-index: 5;
+  transform: rotateX(60deg) rotateZ(45deg);
+  transform-style: preserve-3d;
+}
+
+/* 单个 3D 柱体结构 */
+.pillar {
+  position: absolute;
+  transform-style: preserve-3d;
+  transition: all 0.5s ease;
+}
+
+.pillar-face {
+  position: absolute;
+  background: rgba(2, 20, 40, 0.8);
+  border: 1px solid rgba(0, 229, 255, 0.6);
+  box-shadow: inset 0 0 10px rgba(0, 229, 255, 0.3);
+}
+
+.pillar-top {
+  width: var(--pw); height: var(--pd);
+  background: rgba(0, 229, 255, 0.3);
+  transform: translateZ(var(--ph));
+  box-shadow: 0 0 15px rgba(0, 229, 255, 0.5) inset;
+}
+
+.pillar-front {
+  width: var(--pw); height: var(--ph);
+  transform-origin: bottom;
+  transform: rotateX(-90deg) translateY(var(--pd));
+  background: linear-gradient(to bottom, rgba(0, 150, 255, 0.9), rgba(2, 20, 40, 0.9));
+}
+
+.pillar-right {
+  width: var(--pd); height: var(--ph);
+  transform-origin: bottom left;
+  transform: rotateY(90deg) rotateZ(-90deg) translateX(calc(var(--pw) - var(--pd))) translateY(var(--pd));
+  background: linear-gradient(to bottom, rgba(0, 100, 200, 0.9), rgba(2, 20, 40, 0.9));
+}
+
+/* 定义三个不同的柱体 */
+.p1 {
+  --pw: 60px; --pd: 60px; --ph: 120px;
+  top: 0; left: 0;
+  animation: float-p1 4s ease-in-out infinite alternate;
+}
+.p2 {
+  --pw: 40px; --pd: 40px; --ph: 80px;
+  top: 70px; left: -20px;
+  animation: float-p2 5s ease-in-out infinite alternate-reverse;
+}
+.p3 {
+  --pw: 50px; --pd: 50px; --ph: 160px;
+  top: -30px; left: 70px;
+  animation: float-p3 6s ease-in-out infinite alternate;
+}
+
+@keyframes float-p1 { 0% { transform: translateZ(0); } 100% { transform: translateZ(15px); } }
+@keyframes float-p2 { 0% { transform: translateZ(0); } 100% { transform: translateZ(25px); } }
+@keyframes float-p3 { 0% { transform: translateZ(0); } 100% { transform: translateZ(10px); } }
+
+/* 悬浮全息图标 (Floating Hologram Icon) */
+.floating-hologram {
+  position: absolute;
+  bottom: 240px;
+  z-index: 10;
+  color: #00e5ff;
+  width: 80px;
+  height: 80px;
+  filter: drop-shadow(0 0 15px rgba(0, 229, 255, 1));
+  animation: float-icon 3s ease-in-out infinite alternate;
+}
+
+.floating-hologram svg {
+  width: 100%;
+  height: 100%;
+  fill: currentColor;
+}
+
+@keyframes float-icon {
+  0% { transform: translateY(0) rotateY(0deg); }
+  100% { transform: translateY(-20px) rotateY(15deg); }
+}
+
+/* 全息粒子 (Particles) */
+.particle {
+  position: absolute;
+  background: #ffb300;
+  width: 4px; height: 4px;
+  border-radius: 50%;
+  box-shadow: 0 0 10px #ffb300, 0 0 20px #ffb300;
+  animation: rise 5s linear infinite;
+  opacity: 0;
+}
+
+.pt-1 { left: calc(50% - 60px); bottom: 100px; animation-delay: 0s; }
+.pt-2 { left: calc(50% + 40px); bottom: 120px; animation-delay: 1.5s; }
+.pt-3 { left: calc(50% - 20px); bottom: 80px; animation-delay: 3s; }
+.pt-4 { left: calc(50% + 70px); bottom: 150px; animation-delay: 0.8s; }
+.pt-5 { left: calc(50% - 80px); bottom: 130px; animation-delay: 2.2s; }
+
+@keyframes rise {
+  0% { transform: translateY(0) scale(1); opacity: 0; }
+  20% { opacity: 1; }
+  80% { opacity: 1; }
+  100% { transform: translateY(-300px) scale(0.2); opacity: 0; }
+}
+
+/* 悬浮 HUD 文本面板 */
+.hero-hud-text {
+  position: absolute;
+  font-family: monospace;
+  color: #00e5ff;
+  font-size: 10px;
+  letter-spacing: 2px;
+  background: rgba(0, 20, 40, 0.6);
+  border: 1px solid rgba(0, 229, 255, 0.3);
+  padding: 8px 12px;
+  border-radius: 4px;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  box-shadow: 0 0 10px rgba(0, 229, 255, 0.2);
+  z-index: 20;
+}
+
+.hero-hud-text .hud-label {
+  opacity: 0.6;
+  margin-bottom: 4px;
+  font-size: 9px;
+}
+.hero-hud-text .hud-value {
+  font-size: 14px;
+  font-weight: bold;
+  text-shadow: 0 0 5px rgba(0, 229, 255, 0.5);
+}
+
+.hero-hud-text.top-left { top: 20%; left: 10%; animation: float-icon 4s ease-in-out infinite alternate; }
+.hero-hud-text.top-right { top: 15%; right: 10%; animation: float-icon 5s ease-in-out infinite alternate-reverse; }
+.hero-hud-text.bottom-left { bottom: 20%; left: 15%; animation: float-icon 6s ease-in-out infinite alternate; }
+.hero-hud-text.bottom-right { bottom: 15%; right: 5%; animation: float-icon 4.5s ease-in-out infinite alternate-reverse; }

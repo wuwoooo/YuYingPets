@@ -1,0 +1,35 @@
+            <div className="presentation-eco-summary risk">
+              <div><span>高风险</span><strong>{riskShowcase.highCount}</strong></div>
+              <div><span>中风险</span><strong>{riskShowcase.mediumCount}</strong></div>
+              <div><span>低风险</span><strong>{riskShowcase.lowCount}</strong></div>
+              <div><span>正向/负向</span><strong>{riskShowcase.positiveEvents}/{riskShowcase.negativeEvents}</strong></div>
+            </div>
+            <div className="presentation-risk-table">
+              {riskShowcase.risks.length > 0 ? (
+                riskShowcase.risks.map((item) => (
+                  <div key={item.studentId} className="presentation-risk-row">
+                    <span className={`presentation-risk-badge ${item.riskLevel}`}>
+                      {item.riskLevel === 'high' ? '高' : item.riskLevel === 'medium' ? '中' : '低'}
+                    </span>
+                    <div className="presentation-risk-body">
+                      <strong>{item.studentName}</strong>
+                      <span>{item.className} · 负向 {item.negativeCount} 次 · 净变化 {item.scoreDelta}</span>
+                    </div>
+                    <span className="presentation-risk-reason">{item.reason}</span>
+                  </div>
+                ))
+              ) : (
+                <div className="presentation-eco-flow-item muted">暂无明显风险学生</div>
+              )}
+            </div>
+            <div className="presentation-alert-list compact">
+              {presentationAlerts.map((item) => (
+                <div key={item.text} className={`presentation-alert-item ${item.type}`}>
+                  <PresentationGlyph name={item.type === 'warn' ? 'warning' : 'check'} className="presentation-alert-icon" />
+                  {item.text}
+                </div>
+              ))}
+            </div>
+            <div className="presentation-panel-footnote">
+              活跃评价日 <strong>{riskShowcase.activeDays}</strong> 天 · 家校共育消息已读率 <strong>{rewards.length > 0 ? '94.2%' : '92.0%'}</strong>
+            </div>

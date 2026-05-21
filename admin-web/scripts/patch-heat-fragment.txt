@@ -1,0 +1,23 @@
+            <div className="presentation-heatmap">
+              <div className="presentation-heat-head" />
+              {presentationHeatMap.cols.map((col) => (
+                <div key={col} className="presentation-heat-head">{col}</div>
+              ))}
+              {presentationHeatMap.rows.map((row, rowIndex) => (
+                <div key={row} className="presentation-heat-row">
+                  <div className="presentation-heat-label">{row}</div>
+                  {presentationHeatMap.cols.map((col, colIndex) => {
+                    const count = presentationHeatMap.data[rowIndex]?.values[colIndex] ?? 0;
+                    const intensity = count >= 8 ? 3 : count >= 5 ? 2 : count >= 2 ? 1 : 0;
+                    return (
+                      <div key={`${row}-${col}`} className={`presentation-heat-cell heat-${intensity}`}>
+                        {count > 0 ? count : '·'}
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+            <div className="presentation-panel-footnote">
+              周期内评价 <strong>{presentationHeatMap.total}</strong> 次 · 活跃评价日 <span>{riskShowcase.activeDays} 天</span>
+            </div>

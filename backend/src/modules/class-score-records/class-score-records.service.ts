@@ -7,6 +7,7 @@ import { PrismaService } from '@/prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { OperationLogService } from '../operation-log/operation-log.service';
 import { RealtimeService } from '../realtime/realtime.service';
+import { ScoreRecordsService } from '../score-records/score-records.service';
 import { ClassScoreRecordBatchDto } from './dto/class-score-record-batch.dto';
 import { ClassScoreRecordCreateDto } from './dto/class-score-record-create.dto';
 
@@ -39,6 +40,7 @@ export class ClassScoreRecordsService {
     private readonly authService: AuthService,
     private readonly operationLogService: OperationLogService,
     private readonly realtimeService: RealtimeService,
+    private readonly scoreRecordsService: ScoreRecordsService,
   ) {}
 
   async list(authorization: string | undefined, query: Record<string, string>) {
@@ -166,7 +168,7 @@ export class ClassScoreRecordsService {
     const result = await this.prisma.$transaction(async (tx) => {
       const target = await this.loadClassTarget(tx, user, body.classId, body.ruleId);
       this.ensureCanOperateClassScore(user, target.classroom);
-      return this.createClassScoreRecord(tx, {
+      const created = await this.createClassScoreRecord(tx, {
         classroom: target.classroom,
         rule: target.rule,
         operatorId: user.id,
@@ -176,6 +178,16 @@ export class ClassScoreRecordsService {
         remark: body.remark,
         batchId: null,
       });
+      const linkedScoreItems = await this.createLinkedStudentScores(tx, {
+        classroom: target.classroom,
+        rule: target.rule,
+        operatorId: user.id,
+        operatorName: user.name,
+        sourceTerminal: body.sourceTerminal,
+        sourceRole: user.roleCode,
+        remark: body.remark,
+      });
+      return { ...created, linkedScoreItems };
     });
 
     await this.operationLogService.create({
@@ -200,6 +212,14 @@ export class ClassScoreRecordsService {
       scoreDelta: result.scoreDelta,
       currentScore: result.classScoreProfile.currentScore,
       operatorName: user.name,
+      studentIds: result.linkedScoreItems.map((item) => item.studentProfile.studentId),
+      upgrades: result.linkedScoreItems
+        .filter((item) => item.petUpgrade?.upgraded)
+        .map((item) => ({
+          studentId: item.studentProfile.studentId,
+          beforeLevel: item.petUpgrade.beforeLevel,
+          afterLevel: item.petUpgrade.afterLevel,
+        })),
     });
     this.realtimeService.emitGradeClassRankingChanged(result.gradeCode, {
       gradeCode: result.gradeCode,
@@ -247,7 +267,16 @@ export class ClassScoreRecordsService {
           remark: body.remark,
           batchId: batch.id,
         });
-        items.push(created);
+        const linkedScoreItems = await this.createLinkedStudentScores(tx, {
+          classroom,
+          rule,
+          operatorId: user.id,
+          operatorName: user.name,
+          sourceTerminal: body.sourceTerminal,
+          sourceRole: user.roleCode,
+          remark: body.remark,
+        });
+        items.push({ ...created, linkedScoreItems });
       }
 
       return {
@@ -281,6 +310,14 @@ export class ClassScoreRecordsService {
         scoreDelta: item.scoreDelta,
         currentScore: item.classScoreProfile.currentScore,
         operatorName: user.name,
+        studentIds: item.linkedScoreItems.map((linked) => linked.studentProfile.studentId),
+        upgrades: item.linkedScoreItems
+          .filter((linked) => linked.petUpgrade?.upgraded)
+          .map((linked) => ({
+            studentId: linked.studentProfile.studentId,
+            beforeLevel: linked.petUpgrade.beforeLevel,
+            afterLevel: linked.petUpgrade.afterLevel,
+          })),
       });
     }
     for (const gradeCode of gradeCodes) {
@@ -298,13 +335,13 @@ export class ClassScoreRecordsService {
     if (sourceTerminal === 'display') {
       throw new ForbiddenException('展示端不能执行班级评价');
     }
-    if (!['super_admin', 'school_admin', 'moral_admin', 'grade_admin'].includes(roleCode)) {
+    if (!['super_admin', 'school_admin', 'academic_admin', 'moral_admin', 'grade_admin'].includes(roleCode)) {
       throw new ForbiddenException('当前角色无权操作班级积分');
     }
   }
 
   private canViewClassScore(user: AuthUser, classroom: { id: bigint; gradeCode: string }) {
-    if (['super_admin', 'school_admin', 'moral_admin'].includes(user.roleCode)) {
+    if (['super_admin', 'school_admin', 'academic_admin', 'moral_admin'].includes(user.roleCode)) {
       return true;
     }
     const byClass = this.authService.canAccessClass(user, classroom.id);
@@ -319,7 +356,7 @@ export class ClassScoreRecordsService {
   }
 
   private ensureCanOperateClassScore(user: AuthUser, classroom: { id: bigint; gradeCode: string }) {
-    if (['super_admin', 'school_admin', 'moral_admin'].includes(user.roleCode)) {
+    if (['super_admin', 'school_admin', 'academic_admin', 'moral_admin'].includes(user.roleCode)) {
       return;
     }
     if (user.roleCode === 'grade_admin') {
@@ -469,5 +506,39 @@ export class ClassScoreRecordsService {
         totalScore: profile.totalScore,
       },
     };
+  }
+
+  private async createLinkedStudentScores(
+    tx: Prisma.TransactionClient,
+    params: {
+      classroom: LoadedClassroom;
+      rule: LoadedClassRule;
+      operatorId: bigint;
+      operatorName: string;
+      sourceTerminal: TerminalSource;
+      sourceRole: string;
+      remark?: string;
+    },
+  ) {
+    const school = await tx.school.findUnique({
+      where: { id: params.classroom.schoolId },
+      select: { classScoreStudentLinkMultiplier: true },
+    });
+    const linkMultiplier = school?.classScoreStudentLinkMultiplier ?? 0;
+    if (linkMultiplier <= 0) {
+      return [];
+    }
+    return this.scoreRecordsService.createLinkedRecordsForClassEvaluation(tx, {
+      schoolId: params.classroom.schoolId,
+      semesterId: params.classroom.semesterId,
+      classId: params.classroom.id,
+      rule: params.rule,
+      operatorId: params.operatorId,
+      operatorName: params.operatorName,
+      sourceTerminal: params.sourceTerminal,
+      sourceRole: params.sourceRole,
+      remark: params.remark,
+      linkMultiplier,
+    });
   }
 }

@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
+import { useAdminView } from "../context/AdminViewContext";
 import { PresentationGlyph } from "../components/PresentationGlyph";
 import { Shell } from "../components/Shell";
-import { metricThemes } from "../constants/admin";
-import { canManageAdminConfig } from "../utils/adminPermissions";
+import { TeacherAcademicDeskInsights } from "../components/TeacherAcademicDeskInsights";
+import { ruleSubjectLabelMap, resolveSubjectLabel } from "../constants/admin";
+import { canManageAdminConfig, canViewSchoolPresentation, canManageDisplays } from "../utils/adminPermissions";
 import type {
+  AcademicDeskOverviewPayload,
   AdminClass,
   AdminStudent,
   AcademicExamListItem,
@@ -15,11 +18,19 @@ import type {
   PermissionUser,
   RewardOrder,
   ScoreRecord,
+  SchoolAcademicGrowthPayload,
   ScoreRule,
+  TeacherWorkbenchContext,
 } from "../lib/api";
-import { ruleSubjectLabelMap } from "../constants/admin";
 import { adminApi } from "../lib/api";
-import { buildAcademicGrowthSummary } from "../utils/academicGrowth";
+import {
+  buildAcademicGrowthSummary,
+  type AcademicGrowthSummary,
+} from "../utils/academicGrowth";
+import {
+  buildTeacherDeskAcademicBrief,
+  mapDeskOverviewGradeBench,
+} from "../utils/teacherDeskAcademicBrief";
 import type { AdminState } from "../types/admin";
 
 type DashboardPageProps = Omit<AdminState, "token"> & {
@@ -55,6 +66,45 @@ function compareGradeName(a: string, b: string) {
   return a.localeCompare(b, "zh-CN");
 }
 
+function isClassCountdownPending(classInfo: AdminClass | null | undefined) {
+  if (!classInfo?.countdownTitle?.trim() || !classInfo.countdownDeadlineAt) {
+    return true;
+  }
+  const deadlineAt = new Date(classInfo.countdownDeadlineAt).getTime();
+  return Number.isNaN(deadlineAt) || deadlineAt <= Date.now();
+}
+
+async function copyTextWithFallback(text: string) {
+  if (
+    typeof navigator !== "undefined" &&
+    navigator.clipboard &&
+    typeof navigator.clipboard.writeText === "function"
+  ) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  if (typeof document === "undefined") {
+    throw new Error("clipboard unavailable");
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "true");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  textarea.style.pointerEvents = "none";
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+
+  const copied = document.execCommand("copy");
+  document.body.removeChild(textarea);
+  if (!copied) {
+    throw new Error("copy failed");
+  }
+}
+
 export function DashboardPage({
   token,
   user,
@@ -67,6 +117,8 @@ export function DashboardPage({
   error,
 }: DashboardPageProps) {
   const navigate = useNavigate();
+  const location = useLocation();
+  const { subjectViews, activeSubjectView, setActiveViewKey } = useAdminView();
   const isHomeroomTeacher = user?.roleCode === "homeroom_teacher";
   const isSubjectTeacher = user?.roleCode === "subject_teacher";
   const isTeacherDashboard = isHomeroomTeacher || isSubjectTeacher;
@@ -85,10 +137,6 @@ export function DashboardPage({
   const [teacherRewardOrders, setTeacherRewardOrders] = useState<RewardOrder[]>(
     [],
   );
-  const [activeTeacherSubject, setActiveTeacherSubject] = useState<string>("");
-  const [activeTeacherClassId, setActiveTeacherClassId] = useState<
-    number | null
-  >(null);
   const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(
     null,
   );
@@ -104,9 +152,332 @@ export function DashboardPage({
   const [academicScores, setAcademicScores] = useState<AcademicScoreListRow[]>(
     [],
   );
+  const [schoolAcademicGrowth, setSchoolAcademicGrowth] =
+    useState<SchoolAcademicGrowthPayload | null>(null);
+  const [selectedAcademicExamId, setSelectedAcademicExamId] = useState<
+    number | null
+  >(null);
   /** 驾驶舱「班级积分对比」：当前选中年级的展示范围 */
   const [cockpitCompareGradeName, setCockpitCompareGradeName] =
     useState<string>("");
+  const activeTeacherClassId = isSubjectTeacher
+    ? (activeSubjectView?.classId ?? null)
+    : null;
+  const activeTeacherSubject = isSubjectTeacher
+    ? (activeSubjectView?.subjectCode ?? "")
+    : "";
+
+  const [callQueueModalOpen, setCallQueueModalOpen] = useState(false);
+  const [selectedCallGrade, setSelectedCallGrade] = useState<string>('');
+  const [selectedCallClassId, setSelectedCallClassId] = useState<number | ''>('');
+  const [selectedCallStudentIds, setSelectedCallStudentIds] = useState<number[]>([]);
+  const [callLocation, setCallLocation] = useState('');
+  const [classCallQueue, setClassCallQueue] = useState<any[]>([]);
+  const [callSubmitting, setCallSubmitting] = useState(false);
+  const [callMessage, setCallMessage] = useState<string | null>(null);
+
+  const callGradeOptions = useMemo(() => {
+    const grades = classes.map(c => c.gradeName).filter(Boolean);
+    return Array.from(new Set(grades));
+  }, [classes]);
+
+  const filteredCallClasses = useMemo(() => {
+    if (!selectedCallGrade) return classes;
+    return classes.filter(c => c.gradeName === selectedCallGrade);
+  }, [classes, selectedCallGrade]);
+
+  const loadClassQueue = async (classId: number) => {
+    try {
+      const resp = await adminApi.callQueueList(token, classId);
+      if (resp.code === 0) {
+        setClassCallQueue(resp.data || []);
+      }
+    } catch (err) {
+      console.error("加载排队列表失败", err);
+    }
+  };
+
+  useEffect(() => {
+    if (callQueueModalOpen && selectedCallClassId) {
+      loadClassQueue(Number(selectedCallClassId));
+    }
+  }, [callQueueModalOpen, selectedCallClassId]);
+
+  const openCallQueueModal = () => {
+    setCallQueueModalOpen(true);
+    setCallMessage(null);
+    setCallLocation('');
+    setSelectedCallStudentIds([]);
+    if (primaryHomeroomClass) {
+      setSelectedCallGrade(primaryHomeroomClass.gradeName || '');
+      setSelectedCallClassId(primaryHomeroomClass.id);
+    } else if (classes.length > 0) {
+      setSelectedCallGrade(classes[0].gradeName || '');
+      setSelectedCallClassId(classes[0].id);
+    } else {
+      setSelectedCallGrade('');
+      setSelectedCallClassId('');
+    }
+  };
+
+  const handleCreateCall = async () => {
+    if (!selectedCallClassId) {
+      setCallMessage("请选择班级");
+      return;
+    }
+    if (selectedCallStudentIds.length === 0) {
+      setCallMessage("请选择至少一名学生");
+      return;
+    }
+    if (!callLocation.trim()) {
+      setCallMessage("请输入叫号地点");
+      return;
+    }
+
+    setCallSubmitting(true);
+    setCallMessage(null);
+    try {
+      const res = await adminApi.createCallQueue(token, {
+        classId: Number(selectedCallClassId),
+        studentIds: selectedCallStudentIds,
+        location: callLocation.trim(),
+      });
+      if (res.code === 0) {
+        setCallMessage("呼叫发起成功！");
+        setSelectedCallStudentIds([]);
+        loadClassQueue(Number(selectedCallClassId));
+      } else {
+        setCallMessage(res.message || "呼叫发起失败");
+      }
+    } catch (err: any) {
+      setCallMessage(err?.message || "呼叫服务异常");
+    } finally {
+      setCallSubmitting(false);
+    }
+  };
+
+  const handleCancelCall = async (callId: number) => {
+    try {
+      const res = await adminApi.cancelCallQueue(token, callId);
+      if (res.code === 0) {
+        if (selectedCallClassId) {
+          loadClassQueue(Number(selectedCallClassId));
+        }
+      } else {
+        alert(res.message || "取消失败");
+      }
+    } catch (err: any) {
+      alert(err?.message || "操作异常");
+    }
+  };
+
+  const classStudents = useMemo(() => {
+    if (!selectedCallClassId) return [];
+    return students.filter(s => s.classId === Number(selectedCallClassId));
+  }, [students, selectedCallClassId]);
+
+  const renderCallQueueModal = () => {
+    if (!callQueueModalOpen) return null;
+    return (
+      <div className="modal-backdrop" onClick={() => setCallQueueModalOpen(false)} style={{ zIndex: 9999 }}>
+        <div className="modal-card cq-modal" onClick={(e) => e.stopPropagation()}>
+          {/* 深色顶栏 */}
+          <div className="cq-modal-header">
+            <div className="cq-modal-header-left">
+              <span className="cq-modal-icon">
+                <svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" /></svg>
+              </span>
+              <div>
+                <h3 className="cq-modal-title">大屏叫号工作台</h3>
+                <p className="cq-modal-subtitle">选择班级与学生，发起大屏闪烁通知</p>
+              </div>
+            </div>
+            <button type="button" className="cq-modal-close" onClick={() => setCallQueueModalOpen(false)}>×</button>
+          </div>
+
+          {/* 双栏内容区 */}
+          <div className="cq-modal-body">
+            {/* 左侧：发起呼叫表单 */}
+            <div className="cq-form-panel">
+              <div className="cq-section-title">
+                <span className="cq-section-title-icon blue">
+                  <svg viewBox="0 0 24 24"><path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" /></svg>
+                </span>
+                发起新呼叫
+              </div>
+
+              <div className="cq-field">
+                <label className="cq-field-label">呼叫班级</label>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <select
+                    value={selectedCallGrade}
+                    onChange={(e) => {
+                      setSelectedCallGrade(e.target.value);
+                      setSelectedCallClassId('');
+                      setSelectedCallStudentIds([]);
+                    }}
+                    style={{ flex: 1 }}
+                  >
+                    <option value="">-- 全部年级 --</option>
+                    {callGradeOptions.map((g) => (
+                      <option key={g} value={g}>{g}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={selectedCallClassId}
+                    onChange={(e) => {
+                      setSelectedCallClassId(e.target.value ? Number(e.target.value) : '');
+                      setSelectedCallStudentIds([]);
+                    }}
+                    style={{ flex: 1 }}
+                  >
+                    <option value="">-- 请选择班级 --</option>
+                    {filteredCallClasses.map((c) => (
+                      <option key={c.id} value={c.id}>{c.gradeName} {c.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="cq-field">
+                <label className="cq-field-label">呼叫目的地</label>
+                <input
+                  type="text"
+                  placeholder="例如：班主任办公室、书吧"
+                  value={callLocation}
+                  onChange={(e) => setCallLocation(e.target.value)}
+                />
+                <div className="cq-quick-tags">
+                  {['班主任办公室', '教师办公室', '德育办公室', '教务办公室', '校长办公室', '书吧'].map(loc => (
+                    <span
+                      key={loc}
+                      className={`cq-quick-tag${callLocation === loc ? ' active' : ''}`}
+                      onClick={() => setCallLocation(loc)}
+                    >
+                      {loc}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              <div className="cq-field">
+                <div className="cq-student-header">
+                  <label className="cq-field-label" style={{ margin: 0 }}>
+                    被呼叫学生
+                    {selectedCallStudentIds.length > 0 && (
+                      <span style={{ color: '#2980b9', fontWeight: 800, marginLeft: 6 }}>
+                        ({selectedCallStudentIds.length}人)
+                      </span>
+                    )}
+                  </label>
+                  {classStudents.length > 0 && (
+                    <div className="cq-student-actions">
+                      <button type="button" className="select-all" onClick={() => setSelectedCallStudentIds(classStudents.map(s => s.id))}>全选</button>
+                      <button type="button" className="clear-all" onClick={() => setSelectedCallStudentIds([])}>清空</button>
+                    </div>
+                  )}
+                </div>
+                <div className="cq-student-grid">
+                  {classStudents.length === 0 ? (
+                    <div className="cq-student-empty">请先选择班级</div>
+                  ) : (
+                    classStudents.map((s) => {
+                      const isChecked = selectedCallStudentIds.includes(s.id);
+                      return (
+                        <label key={s.id} className={`cq-student-chip${isChecked ? ' checked' : ''}`}>
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedCallStudentIds([...selectedCallStudentIds, s.id]);
+                              } else {
+                                setSelectedCallStudentIds(selectedCallStudentIds.filter(id => id !== s.id));
+                              }
+                            }}
+                          />
+                          <span>{s.name}</span>
+                        </label>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+              {callMessage && (
+                <div className={`cq-message ${callMessage.includes("成功") ? "success" : "error"}`}>
+                  {callMessage}
+                </div>
+              )}
+
+              <button
+                type="button"
+                className="cq-submit-btn"
+                disabled={callSubmitting || !selectedCallClassId}
+                onClick={handleCreateCall}
+              >
+                {callSubmitting ? "正在发起呼叫..." : "发起大屏叫号"}
+              </button>
+            </div>
+
+            {/* 右侧：排队队列 */}
+            <div className="cq-queue-panel">
+              <div className="cq-section-title">
+                <span className="cq-section-title-icon amber">
+                  <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+                </span>
+                排队队列
+              </div>
+
+              {classCallQueue.length === 0 ? (
+                <div className="cq-queue-empty">
+                  <div>
+                    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
+                    <div>当前无排队记录</div>
+                  </div>
+                </div>
+              ) : (
+                <div className="cq-queue-list">
+                  {classCallQueue.map((item) => {
+                    const isCalling = item.status === 'calling';
+                    return (
+                      <div key={item.id} className={`cq-queue-item${isCalling ? ' active' : ''}`}>
+                        {isCalling && <span className="cq-queue-item-status calling">呼叫中</span>}
+                        {!isCalling && <span className="cq-queue-item-status pending">排队中</span>}
+                        <div className="cq-queue-item-location">前往：{item.location}</div>
+                        <div className="cq-queue-item-meta">
+                          发起人：{item.callerName || `老师#${item.callerId}`}
+                        </div>
+                        <div className="cq-queue-item-students">
+                          被叫学生：{item.calledStudents?.map((s: any) => s.name).join('、')}
+                        </div>
+                        <div className="cq-queue-item-footer">
+                          <button type="button" className="cq-cancel-btn" onClick={() => handleCancelCall(item.id)}>
+                            撤销呼叫
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  useEffect(() => {
+    if (location.pathname !== "/dashboard") return;
+    if (location.hash !== "#teacher-academic-snapshot") return;
+    requestAnimationFrame(() => {
+      document.getElementById("teacher-academic-snapshot")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+  }, [location.pathname, location.hash]);
 
   useEffect(() => {
     if (!user || !canViewGovernance) {
@@ -152,54 +523,119 @@ export function DashboardPage({
     };
   }, [isTeacherDashboard, token]);
 
+  /** 校级驾驶舱独占：教师学业数据改为下方独立 effect，避免在此处清空成绩单 */
   useEffect(() => {
     if (isTeacherDashboard) {
       setAnalyticsData(null);
       setRecentScoreRecords([]);
       setDisplayTerminals([]);
-      setAcademicExams([]);
-      setAcademicScores([]);
       return;
     }
     let active = true;
+    const canManageDisp = canManageDisplays(user?.roleCode);
     Promise.all([
       adminApi.analytics(token),
       adminApi.scoreRecords(token),
-      adminApi.displayTerminals(token),
+      canManageDisp ? adminApi.displayTerminals(token) : Promise.resolve({ data: [] }),
       adminApi.academicExams(token),
-      adminApi.academicScores(token),
     ])
-      .then(
-        ([
-          analyticsResp,
-          recordsResp,
-          terminalsResp,
-          examsResp,
-          academicScoresResp,
-        ]) => {
-          if (!active) return;
-          setAnalyticsData(analyticsResp.data);
-          setRecentScoreRecords(
-            recordsResp.data
-              .sort(
-                (a, b) =>
-                  new Date(b.createdAt).getTime() -
-                  new Date(a.createdAt).getTime(),
-              )
-              .slice(0, 20),
-          );
-          setDisplayTerminals(terminalsResp.data);
-          setAcademicExams(examsResp.data);
-          setAcademicScores(academicScoresResp.data);
-        },
-      )
+      .then(([analyticsResp, recordsResp, terminalsResp, examsResp]) => {
+        if (!active) return;
+        setAnalyticsData(analyticsResp.data);
+        setRecentScoreRecords(
+          recordsResp.data
+            .sort(
+              (a, b) =>
+                new Date(b.createdAt).getTime() -
+                new Date(a.createdAt).getTime(),
+            )
+            .slice(0, 20),
+        );
+        setDisplayTerminals(terminalsResp.data);
+        setAcademicExams(examsResp.data);
+      })
       .catch(() => {
         if (!active) return;
       });
     return () => {
       active = false;
     };
+  }, [isTeacherDashboard, token, user?.roleCode]);
+
+  const [teacherAcademicLoading, setTeacherAcademicLoading] = useState(false);
+  const [teacherSubjectDesk, setTeacherSubjectDesk] =
+    useState<AcademicDeskOverviewPayload["subjectFocus"]>(null);
+  const [teacherSubjectDeskLoading, setTeacherSubjectDeskLoading] =
+    useState(false);
+  const [teacherDeskGradeBench, setTeacherDeskGradeBench] =
+    useState<ReturnType<typeof mapDeskOverviewGradeBench>>(null);
+  const [subjectTeacherWorkbench, setSubjectTeacherWorkbench] =
+    useState<TeacherWorkbenchContext | null>(null);
+  const [subjectTeacherWorkbenchLoading, setSubjectTeacherWorkbenchLoading] =
+    useState(false);
+  const [subjectTeacherWorkbenchError, setSubjectTeacherWorkbenchError] =
+    useState<string | null>(null);
+  const [subjectTeacherCopyMessage, setSubjectTeacherCopyMessage] = useState<
+    string | null
+  >(null);
+  const [homeroomCopyMessage, setHomeroomCopyMessage] = useState<string | null>(
+    null,
+  );
+
+  function scrollToAttentionStudents() {
+    document.getElementById("teacher-attention-students")?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  }
+
+  useEffect(() => {
+    if (!isTeacherDashboard || !token) return;
+    let active = true;
+    setTeacherAcademicLoading(true);
+    Promise.all([adminApi.academicExams(token), adminApi.academicScores(token)])
+      .then(([examsResp, scoresResp]) => {
+        if (!active) return;
+        setAcademicExams(examsResp.data);
+        setAcademicScores(scoresResp.data);
+      })
+      .catch(() => {
+        if (!active) return;
+        setAcademicExams([]);
+        setAcademicScores([]);
+      })
+      .finally(() => {
+        if (!active) return;
+        setTeacherAcademicLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
   }, [isTeacherDashboard, token]);
+
+  useEffect(() => {
+    if (isTeacherDashboard || !token) {
+      setSchoolAcademicGrowth(null);
+      return;
+    }
+    let active = true;
+    adminApi
+      .academicSchoolGrowth(token, {
+        examId: selectedAcademicExamId ?? undefined,
+      })
+      .then((response) => {
+        if (!active) return;
+        setSchoolAcademicGrowth(response.data);
+      })
+      .catch(() => {
+        if (!active) return;
+        setSchoolAcademicGrowth(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [isTeacherDashboard, selectedAcademicExamId, token]);
 
   const metrics = useMemo(() => {
     const totalScore = classes.reduce((sum, item) => sum + item.classScore, 0);
@@ -598,19 +1034,245 @@ export function DashboardPage({
     [analyticsData],
   );
 
-  const academicGrowth = useMemo(
+  const teacherAcademicGrowth = useMemo(
     () =>
       buildAcademicGrowthSummary(
         academicExams,
         academicScores,
         classes,
         students,
+        selectedAcademicExamId,
       ),
-    [academicExams, academicScores, classes, students],
+    [academicExams, academicScores, classes, selectedAcademicExamId, students],
   );
 
+  const academicGrowth: AcademicGrowthSummary = isTeacherDashboard
+    ? teacherAcademicGrowth
+    : (schoolAcademicGrowth as AcademicGrowthSummary | null) ??
+      buildAcademicGrowthSummary([], [], classes, students, null);
+
+  /** 学业成长趋势：最多 2 场考试 + 4 个亮点班级，不足时用进步之星补位（共 6 行） */
+  const academicTrendPanelItems = useMemo(() => {
+    const examSlotMax = 2;
+    const classHighlightCount = 4;
+    const slotLimit = examSlotMax + classHighlightCount;
+    const examRows = academicGrowth.trend.slice(0, examSlotMax).map((item) => ({
+      kind: "exam" as const,
+      key: `exam-${item.examId}`,
+      item,
+    }));
+    const classRows = academicGrowth.classSummaries
+      .slice(
+        0,
+        Math.min(classHighlightCount, slotLimit - examRows.length),
+      )
+      .map((item) => ({
+        kind: "class" as const,
+        key: `class-${item.classId}`,
+        item,
+      }));
+    const leaderRows = academicGrowth.progressLeaders
+      .slice(0, Math.max(0, slotLimit - examRows.length - classRows.length))
+      .map((item) => ({
+        kind: "leader" as const,
+        key: `leader-${item.studentId}`,
+        item,
+      }));
+    return [...examRows, ...classRows, ...leaderRows].slice(0, slotLimit);
+  }, [academicGrowth]);
+
+  /** 学业关注名单：固定 5 行，预警学生不足时用风险班级与高分承压学生补位 */
+  const academicRiskPanelItems = useMemo(() => {
+    const slotLimit = 5;
+    const riskStudentIds = new Set(
+      academicGrowth.riskStudents.map((item) => item.studentId),
+    );
+    const studentRows = academicGrowth.riskStudents
+      .slice(0, slotLimit)
+      .map((item) => ({
+        kind: "student" as const,
+        key: `risk-${item.studentId}`,
+        tag: "学业预警",
+        item,
+      }));
+    const classRows = academicGrowth.classSummaries
+      .filter(
+        (item) =>
+          item.riskLevel !== "low" &&
+          (item.declineCount > 0 || item.riskLevel === "high"),
+      )
+      .sort(
+        (left, right) =>
+          right.declineCount - left.declineCount ||
+          left.growthIndex - right.growthIndex,
+      )
+      .slice(0, Math.max(0, slotLimit - studentRows.length))
+      .map((item) => ({
+        kind: "class" as const,
+        key: `risk-class-${item.classId}`,
+        item,
+      }));
+    const usedStudentIds = new Set(
+      studentRows.map((row) => row.item.studentId),
+    );
+    const quietRows = academicGrowth.studentSignals
+      .filter(
+        (item) =>
+          item.quadrant === "quiet" &&
+          !usedStudentIds.has(item.studentId) &&
+          !riskStudentIds.has(item.studentId),
+      )
+      .sort((left, right) => left.rankDelta - right.rankDelta)
+      .slice(
+        0,
+        Math.max(0, slotLimit - studentRows.length - classRows.length),
+      )
+      .map((item) => ({
+        kind: "student" as const,
+        key: `quiet-${item.studentId}`,
+        tag: "高分承压",
+        item,
+      }));
+    return [...studentRows, ...classRows, ...quietRows];
+  }, [academicGrowth]);
+
+  const academicRiskMetricMax = useMemo(() => {
+    const studentItems = academicRiskPanelItems.filter(
+      (row) => row.kind === "student",
+    );
+    return {
+      scoreDelta: Math.max(
+        ...studentItems.map((row) => Math.abs(row.item.scoreDelta)),
+        1,
+      ),
+      rankDelta: Math.max(
+        ...studentItems.map((row) => Math.abs(row.item.rankDelta)),
+        1,
+      ),
+    };
+  }, [academicRiskPanelItems]);
+
+  useEffect(() => {
+    if (!academicExams.length) {
+      setSelectedAcademicExamId(null);
+      return;
+    }
+    setSelectedAcademicExamId((current) => {
+      if (current && academicExams.some((exam) => exam.id === current)) {
+        return current;
+      }
+      return academicExams[0]?.id ?? null;
+    });
+  }, [academicExams]);
+
+  useEffect(() => {
+    if (!isTeacherDashboard || !token) {
+      return;
+    }
+    /** 任课以外的角色不拉单科工作台；不改变年级对标（可由班主任工作台独立 effect 写入） */
+    if (!isSubjectTeacher) {
+      setTeacherSubjectDesk(null);
+      setTeacherSubjectDeskLoading(false);
+      return;
+    }
+
+    if (!activeTeacherClassId || !activeTeacherSubject) {
+      setTeacherSubjectDesk(null);
+      setTeacherDeskGradeBench(null);
+      setTeacherSubjectDeskLoading(false);
+      return;
+    }
+
+    const latestExamId = academicGrowth.latestExam?.id;
+    if (!latestExamId) {
+      setTeacherSubjectDesk(null);
+      setTeacherDeskGradeBench(null);
+      setTeacherSubjectDeskLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setTeacherSubjectDeskLoading(true);
+    adminApi
+      .academicDeskOverview(token, {
+        classId: activeTeacherClassId,
+        examId: latestExamId,
+        subjectCode: activeTeacherSubject,
+      })
+      .then((resp) => {
+        if (!cancelled) {
+          setTeacherSubjectDesk(resp.data.subjectFocus);
+          setTeacherDeskGradeBench(
+            mapDeskOverviewGradeBench(resp.data.gradeExamBenchmark),
+          );
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setTeacherSubjectDesk(null);
+          setTeacherDeskGradeBench(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setTeacherSubjectDeskLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    academicGrowth.latestExam?.id,
+    activeTeacherClassId,
+    activeTeacherSubject,
+    isSubjectTeacher,
+    isTeacherDashboard,
+    token,
+  ]);
+
+  useEffect(() => {
+    if (!isSubjectTeacher || !token) {
+      setSubjectTeacherWorkbench(null);
+      setSubjectTeacherWorkbenchError(null);
+      setSubjectTeacherWorkbenchLoading(false);
+      return;
+    }
+    if (!activeTeacherClassId || !activeTeacherSubject) {
+      setSubjectTeacherWorkbench(null);
+      setSubjectTeacherWorkbenchError("请先在顶部选择班级与学科。");
+      setSubjectTeacherWorkbenchLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setSubjectTeacherWorkbenchLoading(true);
+    setSubjectTeacherWorkbenchError(null);
+    setSubjectTeacherCopyMessage(null);
+
+    adminApi
+      .teacherWorkbenchContext(token, {
+        classId: activeTeacherClassId,
+        subjectCode: activeTeacherSubject,
+      })
+      .then((response) => {
+        if (cancelled) return;
+        setSubjectTeacherWorkbench(response.data);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setSubjectTeacherWorkbench(null);
+        setSubjectTeacherWorkbenchError(
+          err instanceof Error ? err.message : "教学工作台加载失败",
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setSubjectTeacherWorkbenchLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTeacherClassId, activeTeacherSubject, isSubjectTeacher, token]);
+
   const academicClassMatrixRows = useMemo(() => {
-    const rows = academicGrowth.classSummaries.slice(0, 8);
+    const rows = academicGrowth.classSummaries;
     const points = rows.map((item) => {
       const progressRate = item.participantCount
         ? Math.round((item.progressCount / item.participantCount) * 100)
@@ -648,7 +1310,9 @@ export function DashboardPage({
           14,
           Math.min(
             86,
-            82 - ((item.progressRate - minProgress) / progressRange) * 62 + spreadY,
+            82 -
+              ((item.progressRate - minProgress) / progressRange) * 62 +
+              spreadY,
           ),
         ),
       };
@@ -706,28 +1370,25 @@ export function DashboardPage({
     }));
   }, [classes, cockpitCompareGradeName]);
 
-  /** 主图：全校班级积分排名前 8，与面板标题「班级积分Top8」口径一致 */
-  const cockpitTrendSvg = useMemo(() => {
-    const source = [...classes]
+  /** 主图：全校班级积分排名前 10，与面板标题「班级积分Top10」口径一致 */
+  const cockpitTop10Bars = useMemo(() => {
+    const rankedClasses = [...classes]
       .sort((a, b) => b.classScore - a.classScore)
-      .slice(0, 8)
-      .map((c) => ({
-        label: `${c.gradeName} ${c.name}`.trim(),
-        value: c.classScore,
-      }));
-    if (source.length === 0)
-      return { points: [], line: "", area: "", labels: [] };
-    const max = Math.max(...source.map((s) => s.value), 1);
-    const min = Math.min(...source.map((s) => s.value), 0);
-    const range = Math.max(max - min, 1);
-    const points = source.map((s, i) => {
-      const x = 50 + i * (400 / Math.max(source.length - 1, 1));
-      const y = 140 - ((s.value - min) / range) * 110;
-      return { x, y, value: s.value, label: s.label };
-    });
-    const line = points.map((p) => `${p.x},${p.y}`).join(" ");
-    const area = `${line} ${points[points.length - 1]?.x ?? 450},150 50,150`;
-    return { points, line, area, labels: source.map((s) => s.label) };
+      .slice(0, 10);
+    const uniqueGradeCount = new Set(
+      rankedClasses.map((item) => item.gradeName?.trim()).filter(Boolean),
+    ).size;
+    const max = Math.max(...rankedClasses.map((c) => c.classScore), 1);
+    return rankedClasses.map((c, index) => ({
+      id: c.id,
+      rank: index + 1,
+      label:
+        uniqueGradeCount <= 1
+          ? c.name.trim()
+          : `${c.gradeName} ${c.name}`.trim(),
+      value: c.classScore,
+      heightPercent: Math.max(6, Math.round((c.classScore / max) * 100)),
+    }));
   }, [classes]);
 
   const trendPoints = useMemo(() => {
@@ -767,9 +1428,10 @@ export function DashboardPage({
     setPresentSubmitting(true);
     setPresentMessage(null);
     try {
-      await adminApi.updateDisplaySettings(token, {
-        defaultMode: "report",
-      });
+      if (!canViewSchoolPresentation(user?.roleCode)) {
+        throw new Error("当前角色无权使用汇报展示模式");
+      }
+      await adminApi.setPresentationMode(token, "report");
       navigate("/presentation");
     } catch (err) {
       setPresentMessage(
@@ -780,8 +1442,8 @@ export function DashboardPage({
     }
   }
 
-  function handleEnterLiveInsight() {
-    navigate("/live-insight");
+  function handleEnterRealtimeMonitor() {
+    navigate("/realtime-monitor");
   }
 
   function navigateWithQuery(
@@ -826,76 +1488,36 @@ export function DashboardPage({
     [scopes],
   );
 
-  const teacherSubjectGroups = useMemo(() => {
-    const map = new Map<
-      string,
-      {
-        subjectCode: string;
-        classIds: Set<number>;
-        classNames: string[];
-        studentCount: number;
-      }
-    >();
-    scopes.forEach((item) => {
-      if (!item.subjectCode || typeof item.classId !== "number") return;
-      const classInfo = classes.find((row) => row.id === item.classId);
-      const current = map.get(item.subjectCode) ?? {
-        subjectCode: item.subjectCode,
-        classIds: new Set<number>(),
-        classNames: [],
-        studentCount: 0,
-      };
-      if (!current.classIds.has(item.classId)) {
-        current.classIds.add(item.classId);
-        if (classInfo) {
-          current.classNames.push(`${classInfo.gradeName}${classInfo.name}`);
-          current.studentCount += classInfo.studentCount;
-        }
-      }
-      map.set(item.subjectCode, current);
-    });
+  const homeroomManagedClasses = useMemo(() => {
+    if (!isHomeroomTeacher || !user?.id) return [];
+    return classes.filter((c) => c.homeroomTeacher?.id === user.id);
+  }, [classes, isHomeroomTeacher, user?.id]);
 
-    return Array.from(map.values()).sort(
-      (left, right) => right.classIds.size - left.classIds.size,
-    );
-  }, [classes, scopes]);
+  const homeroomTargetPendingClasses = useMemo(
+    () =>
+      homeroomManagedClasses.filter(
+        (c) => c.targetScore === null || c.targetScore === undefined,
+      ).length,
+    [homeroomManagedClasses],
+  );
 
-  useEffect(() => {
-    if (!isSubjectTeacher) {
-      setActiveTeacherSubject("");
-      return;
-    }
-
-    if (
-      !teacherSubjectGroups.some(
-        (item) => item.subjectCode === activeTeacherSubject,
-      )
-    ) {
-      setActiveTeacherSubject(teacherSubjectGroups[0]?.subjectCode ?? "");
-    }
-  }, [activeTeacherSubject, isSubjectTeacher, teacherSubjectGroups]);
-
-  useEffect(() => {
-    if (!isSubjectTeacher) {
-      setActiveTeacherClassId(null);
-      return;
-    }
-
-    if (!classes.some((item) => item.id === activeTeacherClassId)) {
-      setActiveTeacherClassId(classes[0]?.id ?? null);
-    }
-  }, [activeTeacherClassId, classes, isSubjectTeacher]);
+  const homeroomCountdownPendingClasses = useMemo(
+    () => homeroomManagedClasses.filter((c) => isClassCountdownPending(c)).length,
+    [homeroomManagedClasses],
+  );
 
   const primaryHomeroomClass = useMemo(() => {
     if (!isHomeroomTeacher) return null;
+    const pool =
+      homeroomManagedClasses.length > 0 ? homeroomManagedClasses : classes;
     return (
-      [...classes].sort(
+      [...pool].sort(
         (left, right) =>
           right.studentCount - left.studentCount ||
           right.classScore - left.classScore,
       )[0] ?? null
     );
-  }, [classes, isHomeroomTeacher]);
+  }, [classes, homeroomManagedClasses, isHomeroomTeacher]);
 
   const primaryHomeroomStudents = useMemo(() => {
     if (!primaryHomeroomClass) return [];
@@ -907,6 +1529,194 @@ export function DashboardPage({
           right.currentPetLevel - left.currentPetLevel,
       );
   }, [primaryHomeroomClass, students]);
+
+  /** 班主任本班学生在评价侧的「当前积分」人均值（非教务卷面分） */
+  const primaryHomeroomBehaviorAvg = useMemo(() => {
+    const n = primaryHomeroomStudents.length;
+    if (!n) return 0;
+    return Math.round(
+      primaryHomeroomStudents.reduce(
+        (sum, item) => sum + item.currentScore,
+        0,
+      ) / n,
+    );
+  }, [primaryHomeroomStudents]);
+
+  /** 班主任工作台：整场年级对标由服务端在全库聚合，不靠列表接口裁剪 */
+  useEffect(() => {
+    if (!isTeacherDashboard || !token) return;
+    if (!isHomeroomTeacher || isSubjectTeacher) return;
+
+    const classId = primaryHomeroomClass?.id;
+    const examId = academicGrowth.latestExam?.id;
+    if (!classId || !examId) {
+      setTeacherDeskGradeBench(null);
+      return;
+    }
+    let cancelled = false;
+    adminApi
+      .academicDeskOverview(token, { classId, examId })
+      .then((resp) => {
+        if (!cancelled)
+          setTeacherDeskGradeBench(
+            mapDeskOverviewGradeBench(resp.data.gradeExamBenchmark),
+          );
+      })
+      .catch(() => {
+        if (!cancelled) setTeacherDeskGradeBench(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    academicGrowth.latestExam?.id,
+    isHomeroomTeacher,
+    isSubjectTeacher,
+    isTeacherDashboard,
+    primaryHomeroomClass?.id,
+    token,
+  ]);
+
+  /** 班级口号 / 目标积分未配置时在工作台显性提示（班主任视角） */
+  const homeroomClassOpsGaps = useMemo(() => {
+    if (!isHomeroomTeacher || !primaryHomeroomClass) {
+      return {
+        needsBanner: false,
+        sloganMissing: false,
+        targetMissing: false,
+        countdownMissing: false,
+      };
+    }
+    const sloganMissing = !primaryHomeroomClass.slogan?.trim();
+    const targetMissing =
+      primaryHomeroomClass.targetScore === null ||
+      primaryHomeroomClass.targetScore === undefined;
+    const countdownMissing = isClassCountdownPending(primaryHomeroomClass);
+    return {
+      needsBanner: sloganMissing || targetMissing || countdownMissing,
+      sloganMissing,
+      targetMissing,
+      countdownMissing,
+    };
+  }, [isHomeroomTeacher, primaryHomeroomClass]);
+
+  function navigateHomeroomClassQuickSetup() {
+    if (!primaryHomeroomClass) return;
+    const params = new URLSearchParams({
+      classId: String(primaryHomeroomClass.id),
+      edit: "1",
+      returnTo: "/dashboard",
+      returnLabel: "返回工作台",
+    });
+    navigate(`/classes?${params.toString()}`);
+  }
+
+  /** 工作台对齐「当前班级」视角的学业汇总（数据来源与校级驾驶舱相同 API，后端按.token 裁剪） */
+  const teacherDeskAcademic = useMemo(() => {
+    if (!isTeacherDashboard) return null;
+    const deskClassId =
+      isHomeroomTeacher && primaryHomeroomClass
+        ? primaryHomeroomClass.id
+        : isSubjectTeacher && activeTeacherClassId
+          ? activeTeacherClassId
+          : null;
+    const classRow =
+      deskClassId === null
+        ? null
+        : (academicGrowth.classSummaries.find(
+            (row) => row.classId === deskClassId,
+          ) ?? null);
+    const linkClassId =
+      deskClassId ?? primaryHomeroomClass?.id ?? activeTeacherClassId ?? null;
+    return { deskClassId, classRow, growth: academicGrowth, linkClassId };
+  }, [
+    academicGrowth,
+    activeTeacherClassId,
+    isHomeroomTeacher,
+    isSubjectTeacher,
+    isTeacherDashboard,
+    primaryHomeroomClass,
+  ]);
+
+  const academicExamsSortedDesc = useMemo(
+    () =>
+      [...academicExams].sort(
+        (left, right) =>
+          new Date(right.importedAt).getTime() -
+          new Date(left.importedAt).getTime(),
+      ),
+    [academicExams],
+  );
+
+  const academicTotalScoreRows = useMemo(
+    () =>
+      academicScores.filter(
+        (row) => !row.subjectCode || row.subjectCode === "total",
+      ),
+    [academicScores],
+  );
+
+  const teacherDeskBrief = useMemo(
+    () =>
+      buildTeacherDeskAcademicBrief(
+        academicGrowth,
+        teacherDeskAcademic?.deskClassId ?? null,
+        {
+          totalScoreRows: academicTotalScoreRows,
+          examsOrdered: academicExamsSortedDesc,
+          gradeExamBenchmark: teacherDeskGradeBench,
+        },
+      ),
+    [
+      academicExamsSortedDesc,
+      academicGrowth,
+      academicTotalScoreRows,
+      teacherDeskAcademic?.deskClassId,
+      teacherDeskGradeBench,
+    ],
+  );
+
+  function renderTeacherAcademicSnapshotPanel(options?: {
+    panelTitle?: string;
+    footerNote?: string;
+  }) {
+    if (!isTeacherDashboard || !teacherDeskAcademic) return null;
+    const { deskClassId, growth, linkClassId } = teacherDeskAcademic;
+    return (
+      <section id="teacher-academic-snapshot">
+        <TeacherAcademicDeskInsights
+          panelTitle={options?.panelTitle}
+          deskPerspective={isSubjectTeacher ? "subject" : "homeroom"}
+          brief={teacherDeskBrief}
+          hasExam={Boolean(growth.latestExam)}
+          loading={teacherAcademicLoading}
+          deskClassId={deskClassId}
+          linkClassId={linkClassId}
+          subjectFocus={isSubjectTeacher ? teacherSubjectDesk : null}
+          subjectFocusLoading={Boolean(
+            isSubjectTeacher && teacherSubjectDeskLoading,
+          )}
+          subjectLabel={
+            activeTeacherSubject
+              ? resolveSubjectLabel(activeTeacherSubject)
+              : undefined
+          }
+          onOpenScores={(q) =>
+            navigateWithQuery("/students", {
+              tab: q.tab ?? "scores",
+              examId: q.examId,
+              classId: q.classId,
+              studentId: q.studentId,
+            })
+          }
+          footerNote={
+            options?.footerNote ??
+            "教务快照基于最近一次成绩归档与联考对标，不受「班级概览 / 教学概览」页上方日期区间筛选影响；积分趋势与 AI 请以概览所选区间为准。"
+          }
+        />
+      </section>
+    );
+  }
 
   useEffect(() => {
     if (!isTeacherDashboard) {
@@ -924,7 +1734,18 @@ export function DashboardPage({
     Promise.all([
       adminApi.scoreRecords(
         token,
-        targetClassId ? { classId: targetClassId } : undefined,
+        isSubjectTeacher
+          ? {
+              ...(activeTeacherClassId
+                ? { classId: activeTeacherClassId }
+                : {}),
+              ...(activeTeacherSubject
+                ? { subjectCode: activeTeacherSubject }
+                : {}),
+            }
+          : targetClassId
+            ? { classId: targetClassId }
+            : undefined,
       ),
       user?.roleCode === "homeroom_teacher" && targetClassId
         ? adminApi.rewardOrders(token, { classId: targetClassId })
@@ -948,7 +1769,15 @@ export function DashboardPage({
     return () => {
       active = false;
     };
-  }, [isTeacherDashboard, primaryHomeroomClass?.id, token, user?.roleCode]);
+  }, [
+    activeTeacherClassId,
+    activeTeacherSubject,
+    isSubjectTeacher,
+    isTeacherDashboard,
+    primaryHomeroomClass?.id,
+    token,
+    user?.roleCode,
+  ]);
 
   const teacherMetrics = useMemo(() => {
     const classCount = classes.length;
@@ -994,18 +1823,6 @@ export function DashboardPage({
         )
         .slice(0, 5),
     [students],
-  );
-
-  const teacherClassCards = useMemo(
-    () =>
-      [...classes]
-        .sort(
-          (left, right) =>
-            right.classScore - left.classScore ||
-            right.studentCount - left.studentCount,
-        )
-        .slice(0, 4),
-    [classes],
   );
 
   const teacherRules = useMemo(
@@ -1164,53 +1981,84 @@ export function DashboardPage({
     };
   }, [activeTeacherClassStudents]);
 
-  const subjectLeaderboard = useMemo(() => {
-    if (!isSubjectTeacher || !activeTeacherSubject) return [];
+  const currentSubjectViewLabel = useMemo(() => {
+    if (!isSubjectTeacher || !activeSubjectView) return "";
+    const classInfo = classes.find(
+      (item) => item.id === activeSubjectView.classId,
+    );
+    const subjectLabel = resolveSubjectLabel(activeSubjectView.subjectCode);
+    const classLabel = classInfo
+      ? `${classInfo.gradeName} ${classInfo.name}`
+      : `班级 #${activeSubjectView.classId}`;
+    return `${classLabel} · ${subjectLabel}`;
+  }, [activeSubjectView, classes, isSubjectTeacher]);
 
-    return classes
-      .map((item) => {
+  const activeSubjectDisplayLabel = useMemo(
+    () =>
+      resolveSubjectLabel(
+        subjectTeacherWorkbench?.contextHeader.subjectCode ??
+          activeTeacherSubject,
+        subjectTeacherWorkbench?.contextHeader.subjectLabel,
+      ),
+    [
+      activeTeacherSubject,
+      subjectTeacherWorkbench?.contextHeader.subjectCode,
+      subjectTeacherWorkbench?.contextHeader.subjectLabel,
+    ],
+  );
+
+  const subjectContextCards = useMemo(
+    () =>
+      subjectViews.map((item) => {
+        const classInfo =
+          classes.find((row) => row.id === item.classId) ?? null;
+        const subjectLabel = resolveSubjectLabel(item.subjectCode);
         const classStudents = students.filter(
-          (student) => student.classId === item.id,
+          (student) => student.classId === item.classId,
         );
-        const averageScore = classStudents.length
-          ? Math.round(
-              classStudents.reduce(
-                (sum, student) => sum + student.currentScore,
-                0,
-              ) / classStudents.length,
-            )
-          : 0;
-        const topStudent =
-          [...classStudents].sort(
-            (left, right) =>
-              right.currentScore - left.currentScore ||
-              right.currentPetLevel - left.currentPetLevel,
-          )[0] ?? null;
-        const recentCount = filteredTeacherRecentRecords.filter(
-          (record) => record.classId === item.id,
-        ).length;
-
         return {
-          classId: item.id,
-          classLabel: `${item.gradeName} ${item.name}`,
-          averageScore,
-          recentCount,
-          topStudent,
+          ...item,
+          classLabel: classInfo
+            ? `${classInfo.gradeName} ${classInfo.name}`
+            : `班级 #${item.classId}`,
+          subjectLabel,
+          studentCount: classStudents.length,
+          isActive: activeSubjectView?.key === item.key,
         };
-      })
-      .sort(
-        (left, right) =>
-          right.averageScore - left.averageScore ||
-          right.recentCount - left.recentCount,
-      )
-      .slice(0, 6);
-  }, [
-    activeTeacherSubject,
-    classes,
-    filteredTeacherRecentRecords,
-    isSubjectTeacher,
-    students,
-  ]);
+      }),
+    [activeSubjectView?.key, classes, students, subjectViews],
+  );
+
+  /** 任课教师视角：当前班级近 7 日评价次数 */
+  const activeClassWeeklyEvalCount = useMemo(() => {
+    if (!isSubjectTeacher || !activeTeacherClassId) return 0;
+    const weekMs = 7 * 24 * 60 * 60 * 1000;
+    const cutoff = Date.now() - weekMs;
+    return teacherRecentRecords.filter(
+      (r) =>
+        r.classId === activeTeacherClassId &&
+        new Date(r.createdAt).getTime() >= cutoff,
+    ).length;
+  }, [activeTeacherClassId, isSubjectTeacher, teacherRecentRecords]);
+
+  /** 任课教师工作台：全科授课范围近一周评价活跃度 */
+  const subjectTeacherWeeklyPulse = useMemo(() => {
+    if (!isSubjectTeacher) {
+      return { weekCount: 0, latestLabel: null as string | null };
+    }
+    const weekMs = 7 * 24 * 60 * 60 * 1000;
+    const cutoff = Date.now() - weekMs;
+    const weekCount = teacherRecentRecords.filter(
+      (r) => new Date(r.createdAt).getTime() >= cutoff,
+    ).length;
+    const last = teacherRecentRecords[0];
+    return {
+      weekCount,
+      latestLabel: last
+        ? new Date(last.createdAt).toLocaleString("zh-CN")
+        : null,
+    };
+  }, [isSubjectTeacher, teacherRecentRecords]);
 
   const homeroomTaskList = useMemo(() => {
     const tasks: Array<{
@@ -1232,6 +2080,46 @@ export function DashboardPage({
         detail:
           "当前本班还没有设置目标积分，建议尽快补齐，便于展示端形成成长目标。",
         actionLabel: "去设置",
+        onClickPath: "/classes",
+      });
+    }
+
+    if (
+      homeroomTargetPendingClasses > 0 &&
+      primaryHomeroomClass?.targetScore != null &&
+      primaryHomeroomClass?.targetScore !== undefined
+    ) {
+      tasks.push({
+        id: "targets-remaining-classes",
+        title: "还有其他负责班未设目标积分",
+        detail: `${homeroomTargetPendingClasses} 个你负责的班级仍未设置目标积分，请在班级管理中依次补齐。`,
+        actionLabel: "去班级",
+        onClickPath: "/classes",
+      });
+    }
+
+    if (primaryHomeroomClass && homeroomClassOpsGaps.countdownMissing) {
+      tasks.push({
+        id: "class-countdown",
+        title: primaryHomeroomClass.countdownDeadlineAt ? "更新班级倒计时" : "设置班级倒计时",
+        detail: primaryHomeroomClass.countdownDeadlineAt
+          ? "当前本班倒计时已到期，建议设置新的班级节点，让展示大屏继续呈现近期目标。"
+          : "当前本班还没有设置有效倒计时，建议补齐标题和截止时间，展示大屏会自动显示。",
+        actionLabel: "去设置",
+        onClickPath: "/classes",
+      });
+    }
+
+    if (
+      homeroomCountdownPendingClasses > 0 &&
+      primaryHomeroomClass &&
+      !homeroomClassOpsGaps.countdownMissing
+    ) {
+      tasks.push({
+        id: "countdowns-remaining-classes",
+        title: "还有其他负责班倒计时待设置",
+        detail: `${homeroomCountdownPendingClasses} 个你负责的班级未设置有效倒计时或倒计时已到期，请在班级管理中更新。`,
+        actionLabel: "去班级",
         onClickPath: "/classes",
       });
     }
@@ -1272,9 +2160,212 @@ export function DashboardPage({
 
     return tasks.slice(0, 4);
   }, [
+    homeroomTargetPendingClasses,
+    homeroomCountdownPendingClasses,
+    homeroomClassOpsGaps.countdownMissing,
     homeroomWatchStudents,
     primaryHomeroomClass,
     primaryHomeroomStudents,
+    teacherRewardOrders.length,
+  ]);
+
+  const homeroomPriorityTasks = useMemo(
+    () => homeroomTaskList.slice(0, 3),
+    [homeroomTaskList],
+  );
+
+  const homeroomPriorityStudents = useMemo(
+    () => homeroomWatchStudents.slice(0, 5),
+    [homeroomWatchStudents],
+  );
+
+  const homeroomQuickActions = useMemo(
+    () => [
+      {
+        key: "evaluation",
+        label: "去学生评价",
+        detail: "先把今天的关键表现记下来，后续 AI 才能给出更稳妥的提醒。",
+        actionLabel: "去办",
+        onClick: () =>
+          navigateToEvaluation({
+            classId: primaryHomeroomClass?.id,
+            mode: "single",
+          }),
+      },
+      {
+        key: "students",
+        label: "看学生档案",
+        detail: "打开本班学生页，逐个查看积分、最近记录和成绩单。",
+        actionLabel: "去看",
+        onClick: () =>
+          navigateWithQuery("/students", {
+            classId: primaryHomeroomClass?.id,
+            statsView: "class",
+          }),
+      },
+      {
+        key: "rewards",
+        label: "处理兑换",
+        detail: "确认最近兑换是否已发放，及时给学生反馈。",
+        actionLabel: "去处理",
+        onClick: () => navigate("/rewards"),
+      },
+    ],
+    [primaryHomeroomClass],
+  );
+
+  const homeroomStatusCards = useMemo(() => {
+    const configGapCount =
+      Number(homeroomClassOpsGaps.sloganMissing) +
+      Number(homeroomClassOpsGaps.targetMissing) +
+      Number(homeroomClassOpsGaps.countdownMissing);
+    return [
+      {
+        key: "students",
+        label: "班级人数",
+        value: String(primaryHomeroomStudents.length),
+        sub:
+          primaryHomeroomStudents.length > 0
+            ? "本班当前在管学生"
+            : "当前暂无学生数据",
+      },
+      {
+        key: "behavior",
+        label: "近7天行为波动",
+        value: `${homeroomBehaviorStats.positiveCount}/${homeroomBehaviorStats.negativeCount}`,
+        sub: "正向 / 负向记录数",
+      },
+      {
+        key: "rewards",
+        label: "待跟进兑换",
+        value: String(teacherRewardOrders.length),
+        sub:
+          teacherRewardOrders.length > 0
+            ? "建议尽快确认领取反馈"
+            : "当前暂无待处理兑换",
+      },
+      {
+        key: "config",
+        label: "配置缺口",
+        value: String(configGapCount),
+        sub:
+          configGapCount > 0
+            ? "口号、目标积分或倒计时仍待补齐"
+            : "班级基础配置完整",
+      },
+    ];
+  }, [
+    homeroomBehaviorStats.negativeCount,
+    homeroomBehaviorStats.positiveCount,
+    homeroomClassOpsGaps.sloganMissing,
+    homeroomClassOpsGaps.targetMissing,
+    homeroomClassOpsGaps.countdownMissing,
+    primaryHomeroomStudents.length,
+    teacherRewardOrders.length,
+  ]);
+
+  const homeroomActionDesk = useMemo(() => {
+    const focusStudents = homeroomPriorityStudents.slice(0, 3).map((item) => {
+      const reasonParts: string[] = [];
+      if (item.negativeCount >= 2) {
+        reasonParts.push(`近期待提醒 ${item.negativeCount} 次`);
+      }
+      if (item.currentScore < 20) {
+        reasonParts.push(`当前积分 ${item.currentScore} 分`);
+      }
+      if (item.noPet) {
+        reasonParts.push("未完成萌宠档案");
+      }
+      return {
+        id: item.id,
+        name: item.name,
+        reason: reasonParts.join("，") || "近期需要班主任留意",
+        action:
+          item.negativeCount >= 2
+            ? "先单独沟通，再同步任课老师近期课堂表现。"
+            : item.noPet
+              ? "提醒尽快完善成长档案，避免后续激励链路缺失。"
+              : "结合最近记录和成绩单，给出一个短期改进目标。",
+      };
+    });
+
+    const topTask = homeroomPriorityTasks[0];
+    const headline = topTask
+      ? `今天先处理「${topTask.title}」。`
+      : primaryHomeroomClass
+        ? "今天没有明显堆积事项，可先做日常评价并查看近7天复盘。"
+        : "当前还未绑定主责班级，请先确认班主任负责班级。";
+
+    const actionItems = [
+      topTask?.detail,
+      focusStudents[0]
+        ? `优先看 ${focusStudents[0].name}：${focusStudents[0].action}`
+        : null,
+      homeroomBehaviorStats.negativeCount > homeroomBehaviorStats.positiveCount
+        ? "本周负向提醒偏多，建议先从课堂纪律或作业习惯入手。"
+        : "本周整体状态平稳，可用正向评价稳住班级节奏。",
+    ].filter(Boolean) as string[];
+
+    const communicationDraft = focusStudents[0]
+      ? `请帮我一起关注${focusStudents[0].name}。最近${focusStudents[0].reason}，我这边会先做一次面对面沟通，也请任课老师这两天留意课堂表现，有新情况我们及时同步。`
+      : "本班近期整体比较平稳。我会继续做日常评价记录，如果任课老师发现新的课堂波动，请及时同步，我这边会跟进。";
+
+    return {
+      headline,
+      focusStudents,
+      actionItems: actionItems.slice(0, 3),
+      communicationDraft,
+    };
+  }, [
+    homeroomBehaviorStats.negativeCount,
+    homeroomBehaviorStats.positiveCount,
+    homeroomPriorityStudents,
+    homeroomPriorityTasks,
+    primaryHomeroomClass,
+  ]);
+
+  const homeroomOverviewPreview = useMemo(() => {
+    const trendDelta =
+      homeroomBehaviorStats.positiveCount - homeroomBehaviorStats.negativeCount;
+    const trendLabel =
+      trendDelta >= 3
+        ? "整体在回暖"
+        : trendDelta <= -2
+          ? "需要尽快稳住"
+          : "整体比较平稳";
+    const riskCount = homeroomPriorityStudents.filter(
+      (item) => item.negativeCount >= 2,
+    ).length;
+    const headline = `近7天班级状态${trendLabel}，当前有 ${riskCount} 名学生需要优先处理。`;
+    const bullets = [
+      `正向 ${homeroomBehaviorStats.positiveCount} 次，负向 ${homeroomBehaviorStats.negativeCount} 次。`,
+      homeroomPriorityStudents[0]
+        ? `优先关注 ${homeroomPriorityStudents[0].name}${
+            homeroomPriorityStudents[0].negativeCount > 0
+              ? `，近期待提醒 ${homeroomPriorityStudents[0].negativeCount} 次`
+              : "，建议结合最近记录设短期目标"
+          }。`
+        : "当前没有明显聚集的风险学生，可继续按常规节奏观察。",
+      teacherRewardOrders.length > 0
+        ? `最近有 ${teacherRewardOrders.length} 条兑换待跟进，建议和班级激励反馈一起处理。`
+        : "兑换处理平稳，可把精力放在学生沟通和阶段复盘上。",
+    ];
+    return {
+      headline,
+      bullets,
+      trendTone:
+        trendDelta >= 3 ? "green" : trendDelta <= -2 ? "amber" : "blue",
+      stats: [
+        { key: "trend", label: "近7天走势", value: trendLabel },
+        { key: "risk", label: "优先对象", value: `${riskCount} 人` },
+        { key: "ops", label: "待办事项", value: `${homeroomPriorityTasks.length} 项` },
+      ],
+    };
+  }, [
+    homeroomBehaviorStats.negativeCount,
+    homeroomBehaviorStats.positiveCount,
+    homeroomPriorityStudents,
+    homeroomPriorityTasks.length,
     teacherRewardOrders.length,
   ]);
 
@@ -1353,14 +2444,52 @@ export function DashboardPage({
     return items;
   }, [classes, displayTerminals, students]);
 
+  function openHomeroomOverview(days: 7 | 30) {
+    const endDate = new Date().toISOString().slice(0, 10);
+    const start = new Date();
+    start.setDate(start.getDate() - (days - 1));
+    const params = new URLSearchParams({
+      startDate: start.toISOString().slice(0, 10),
+      endDate,
+    });
+    if (primaryHomeroomClass?.gradeName) {
+      params.set("gradeName", primaryHomeroomClass.gradeName);
+    }
+    if (primaryHomeroomClass?.id) {
+      params.set("classId", String(primaryHomeroomClass.id));
+    }
+    navigate(`/analytics?${params.toString()}`);
+  }
+
+  /** `/me` 返回前 user 为空，否则会短暂按校级驾驶舱渲染 */
+  const awaitingUserProfile = Boolean(token && user === null);
+
+  if (awaitingUserProfile) {
+    return (
+      <Shell
+        title="工作台"
+        subtitle={loading ? "正在同步个人信息与任教范围…" : "即将就绪"}
+        user={null}
+        status={
+          <>
+            <div className="status-card">正在载入工作台，请稍候…</div>
+            {error ? <div className="status-card error">{error}</div> : null}
+          </>
+        }
+      >
+        {null}
+      </Shell>
+    );
+  }
+
   if (isTeacherDashboard) {
     return (
       <Shell
         title={isHomeroomTeacher ? "班级工作台" : "教学工作台"}
         subtitle={
           isHomeroomTeacher
-            ? "面向班主任的本班运营首页，聚合班级管理、学生管理和学生评价。"
-            : "面向任课教师的授课工作台，聚合授课班级、学生查看和学科评价。"
+            ? "今日待办：先处理任务、重点学生和沟通动作；需要看阶段趋势与原因时再去「班级概览」。"
+            : "日常授课办事首页：教务学业快照常驻此处；若要按日期区间复盘积分与 AI，请前往「教学概览」。"
         }
         user={user}
         status={
@@ -1383,49 +2512,118 @@ export function DashboardPage({
           </div>
           <div className="page-actions">
             <button
-              className="ghost-button"
+              className="cq-trigger-btn"
               type="button"
-              onClick={() => navigate("/classes")}
+              onClick={() => openCallQueueModal()}
             >
-              {isHomeroomTeacher ? "进入我的班级" : "查看授课班级"}
-            </button>
-            <button
-              className="present-trigger"
-              type="button"
-              onClick={() =>
-                navigateToEvaluation(
-                  isHomeroomTeacher
-                    ? { classId: primaryHomeroomClass?.id, mode: "single" }
-                    : {
-                        classId: activeTeacherClassId,
-                        subjectCode: activeTeacherSubject,
-                        mode: "single",
-                      },
-                )
-              }
-            >
-              <PresentationGlyph
-                name="summary"
-                className="present-trigger-icon"
-              />
-              {isHomeroomTeacher ? "进入学生评价" : "进入学科评价"}
+              <svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" /></svg>
+              大屏叫号
             </button>
           </div>
         </div>
 
         {isHomeroomTeacher ? (
-          <>
-            <div className="teacher-hero-card">
+          <div className="homeroom-desk">
+            {homeroomClassOpsGaps.needsBanner && primaryHomeroomClass ? (
+              <div
+                className="status-card warn homeroom-ops-banner"
+                role="region"
+                aria-label="班级运营信息待完善"
+                style={{ marginBottom: 18 }}
+              >
+                <div className="homeroom-ops-banner__row">
+                  <div className="homeroom-ops-banner__lead">
+                    <span className="homeroom-ops-banner__icon" aria-hidden>
+                      !
+                    </span>
+                    <div>
+                      <strong className="homeroom-ops-banner__title">
+                        班级运营信息待完善
+                      </strong>
+                      <p className="homeroom-ops-banner__desc">
+                        补全口号、目标积分与有效倒计时后，学生端与展示大屏可呈现班级文化、达标进度和近期节点。
+                      </p>
+                    </div>
+                  </div>
+                  <div
+                    className="homeroom-ops-banner__badges"
+                    aria-label="待补项"
+                  >
+                    {homeroomClassOpsGaps.sloganMissing ? (
+                      <span className="homeroom-ops-chip">待填班级口号</span>
+                    ) : null}
+                    {homeroomClassOpsGaps.targetMissing ? (
+                      <span className="homeroom-ops-chip">待设目标积分</span>
+                    ) : null}
+                    {homeroomClassOpsGaps.countdownMissing ? (
+                      <span className="homeroom-ops-chip">
+                        {primaryHomeroomClass.countdownDeadlineAt ? "倒计时已到期" : "待设班级倒计时"}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="homeroom-ops-banner__actions">
+                    <button
+                      type="button"
+                      className="toolbar-button"
+                      onClick={() => navigateHomeroomClassQuickSetup()}
+                    >
+                      去设定
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      onClick={() =>
+                        navigate(
+                          `/classes?classId=${primaryHomeroomClass.id}&returnTo=${encodeURIComponent("/dashboard")}&returnLabel=${encodeURIComponent("返回工作台")}`,
+                        )
+                      }
+                    >
+                      班级档案
+                    </button>
+                  </div>
+                </div>
+                <details className="homeroom-ops-banner__details">
+                  <summary>影响说明</summary>
+                  <ul className="homeroom-ops-banner__bullets">
+                    {homeroomClassOpsGaps.sloganMissing ? (
+                      <li>
+                        未填班级口号时，本页与大屏以占位文案代替，不利于凝练班级共识。
+                      </li>
+                    ) : null}
+                    {homeroomClassOpsGaps.targetMissing ? (
+                      <li>
+                        未设目标积分时，难以向学生呈现「当前积分相对学期目标」的对照。
+                      </li>
+                    ) : null}
+                    {homeroomClassOpsGaps.countdownMissing ? (
+                      <li>
+                        未设置有效倒计时时，大屏不会在光荣排行榜上方呈现近期班级目标节点。
+                      </li>
+                    ) : null}
+                  </ul>
+                </details>
+              </div>
+            ) : null}
+            <div className="teacher-hero-card homeroom-hero">
               <div className="teacher-hero-main">
-                <span className="teacher-hero-kicker">本班首页</span>
+                <span className="teacher-hero-kicker">今日待办</span>
                 <h3>
                   {primaryHomeroomClass
                     ? `${primaryHomeroomClass.gradeName} ${primaryHomeroomClass.name}`
                     : "当前未绑定班级"}
                 </h3>
-                <p>
-                  {primaryHomeroomClass?.slogan ||
-                    "这里聚合本班运营、学生管理和学生评价，班主任进入后台后先看这一页。"}
+                <p
+                  className={
+                    primaryHomeroomClass && homeroomClassOpsGaps.sloganMissing
+                      ? "teacher-hero-tagline teacher-hero-tagline--muted"
+                      : "teacher-hero-tagline"
+                  }
+                >
+                  {!primaryHomeroomClass
+                    ? "这里聚合本班运营、学生管理和学生评价，班主任进入后台后先看这一页。"
+                    : homeroomClassOpsGaps.sloganMissing
+                      ? "口号完善后将展示在此处；可在「维护班级设置」或班级档案中编辑。"
+                      : primaryHomeroomClass.slogan}
                 </p>
                 <div className="teacher-hero-actions">
                   <button
@@ -1443,16 +2641,23 @@ export function DashboardPage({
                   <button
                     type="button"
                     className="ghost-button"
-                    onClick={() => navigate("/classes")}
+                    onClick={() => openHomeroomOverview(7)}
                   >
-                    维护班级设置
+                    查看近7天复盘
                   </button>
                   <button
                     type="button"
                     className="ghost-button"
-                    onClick={() => navigate("/students")}
+                    onClick={() => openHomeroomOverview(30)}
                   >
-                    进入学生管理
+                    查看近30天复盘
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    onClick={() => navigate("/classes")}
+                  >
+                    维护班级设置
                   </button>
                 </div>
               </div>
@@ -1465,228 +2670,332 @@ export function DashboardPage({
                   <span>当前总积分</span>
                   <strong>{primaryHomeroomClass?.classScore ?? 0}</strong>
                 </div>
-                <div className="teacher-hero-stat">
-                  <span>目标积分</span>
-                  <strong>
-                    {primaryHomeroomClass?.targetScore ?? "未设定"}
-                  </strong>
-                </div>
+                {homeroomClassOpsGaps.targetMissing && primaryHomeroomClass ? (
+                  <button
+                    type="button"
+                    className="teacher-hero-stat teacher-hero-stat--action"
+                    title="点击进入班级档案并设定目标积分"
+                    onClick={() => navigateHomeroomClassQuickSetup()}
+                  >
+                    <span>目标积分</span>
+                    <strong>未设定</strong>
+                    <span className="teacher-hero-stat-cta">点击设定</span>
+                  </button>
+                ) : (
+                  <div className="teacher-hero-stat">
+                    <span>目标积分</span>
+                    <strong>{primaryHomeroomClass?.targetScore ?? "—"}</strong>
+                  </div>
+                )}
               </div>
             </div>
 
-            <div className="metric-row">
-              <div className={`metric-card ${metricThemes[0]}`}>
-                <div className="metric-card-head">
-                  <div className="label">本班学生</div>
-                  <PresentationGlyph
-                    name="student"
-                    className="metric-card-icon"
-                  />
+            <div className="row-2 c50 homeroom-desk-row">
+              <div className="panel homeroom-priority-panel">
+                <div className="panel-title">今天先做什么</div>
+                <div className="homeroom-insight-banner homeroom-insight-banner--soft">
+                  <p>{homeroomActionDesk.headline}</p>
                 </div>
-                <div className="metric-value-line">
-                  <div className="value">{primaryHomeroomStudents.length}</div>
-                </div>
-                <div className="metric-sub">班主任日常管理的核心对象</div>
-              </div>
-              <div className={`metric-card ${metricThemes[1]}`}>
-                <div className="metric-card-head">
-                  <div className="label">班级均分</div>
-                  <PresentationGlyph
-                    name="chart"
-                    className="metric-card-icon"
-                  />
-                </div>
-                <div className="metric-value-line">
-                  <div className="value">
-                    {primaryHomeroomStudents.length
-                      ? Math.round(
-                          primaryHomeroomStudents.reduce(
-                            (sum, item) => sum + item.currentScore,
-                            0,
-                          ) / primaryHomeroomStudents.length,
-                        )
-                      : 0}
-                  </div>
-                </div>
-                <div className="metric-sub">用于判断本班近期整体表现</div>
-              </div>
-              <div className={`metric-card ${metricThemes[2]}`}>
-                <div className="metric-card-head">
-                  <div className="label">待补萌宠档案</div>
-                  <PresentationGlyph name="paw" className="metric-card-icon" />
-                </div>
-                <div className="metric-value-line">
-                  <div className="value">
-                    {primaryHomeroomStudents.filter((item) => !item.pet).length}
-                  </div>
-                </div>
-                <div className="metric-sub">可提示学生完成萌宠领养</div>
-              </div>
-              <div className={`metric-card ${metricThemes[3]}`}>
-                <div className="metric-card-head">
-                  <div className="label">高频规则</div>
-                  <PresentationGlyph name="fire" className="metric-card-icon" />
-                </div>
-                <div className="metric-value-line">
-                  <div className="value">{teacherRules.length}</div>
-                </div>
-                <div className="metric-sub">适合课堂快速使用</div>
-              </div>
-            </div>
-
-            <div className="teacher-quick-actions">
-              <button
-                type="button"
-                className="teacher-quick-action-card"
-                onClick={() =>
-                  navigateToEvaluation({
-                    classId: primaryHomeroomClass?.id,
-                    mode: "single",
-                  })
-                }
-              >
-                <strong>快速评价</strong>
-                <span>直接进入本班单人、批量或按组评价。</span>
-              </button>
-              <button
-                type="button"
-                className="teacher-quick-action-card"
-                onClick={() => navigate("/students")}
-              >
-                <strong>导入学生</strong>
-                <span>进入学生管理，继续补录或导入本班学生。</span>
-              </button>
-              <button
-                type="button"
-                className="teacher-quick-action-card"
-                onClick={() => navigate("/classes")}
-              >
-                <strong>修改口号</strong>
-                <span>维护班级口号、目标积分和展示状态。</span>
-              </button>
-            </div>
-
-            <div className="row-2 c50">
-              <div className="panel">
-                <div className="panel-title">班级运营入口</div>
-                <div className="mini-list">
-                  <button
-                    type="button"
-                    className="mini-list-item mini-list-item-button"
-                    onClick={() => navigate("/classes")}
-                  >
-                    <div>
-                      <strong>班级设置</strong>
-                      <span>修改班级口号、目标积分和展示状态。</span>
+                <div className="mini-list" style={{ marginTop: 12 }}>
+                  {homeroomPriorityTasks.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className="mini-list-item mini-list-item-button"
+                      onClick={() => navigate(item.onClickPath)}
+                    >
+                      <div>
+                        <strong>{item.title}</strong>
+                        <span>{item.detail}</span>
+                      </div>
+                      <b>{item.actionLabel}</b>
+                    </button>
+                  ))}
+                  {homeroomPriorityTasks.length === 0 ? (
+                    <div className="mini-list-item">
+                      <div>
+                        <strong>当前没有堆积待办</strong>
+                        <span>可先完成日常评价，再打开近7天复盘检查班级波动。</span>
+                      </div>
+                      <b>稳定</b>
                     </div>
-                    <b>进入</b>
-                  </button>
-                  <button
-                    type="button"
-                    className="mini-list-item mini-list-item-button"
-                    onClick={() => navigate("/students")}
-                  >
-                    <div>
-                      <strong>学生管理</strong>
-                      <span>导入学生、查看成长档案和宠物状态。</span>
-                    </div>
-                    <b>进入</b>
-                  </button>
-                  <button
-                    type="button"
-                    className="mini-list-item mini-list-item-button"
-                    onClick={() =>
-                      navigateToEvaluation({
-                        classId: primaryHomeroomClass?.id,
-                        mode: "single",
-                      })
-                    }
-                  >
-                    <div>
-                      <strong>学生评价</strong>
-                      <span>支持单人、批量和按组评价。</span>
-                    </div>
-                    <b>进入</b>
-                  </button>
-                  <button
-                    type="button"
-                    className="mini-list-item mini-list-item-button"
-                    onClick={() => navigate("/rewards")}
-                  >
-                    <div>
-                      <strong>兑换处理</strong>
-                      <span>查看本班学生兑换记录，确认领取与后续反馈。</span>
-                    </div>
-                    <b>进入</b>
-                  </button>
+                  ) : null}
                 </div>
               </div>
-              <div className="panel">
-                <div className="panel-title">班级提醒</div>
-                <div className="alert-list">
-                  <div
-                    className={`alert-item ${primaryHomeroomClass ? "ok" : "warn"}`}
-                  >
-                    {primaryHomeroomClass
-                      ? "班级已绑定到工作台。"
-                      : "当前尚未绑定班级，请联系管理员。"}
-                  </div>
-                  <div
-                    className={`alert-item ${teacherMetrics.targetPendingClasses > 0 ? "warn" : "ok"}`}
-                  >
-                    {teacherMetrics.targetPendingClasses > 0
-                      ? `仍有 ${teacherMetrics.targetPendingClasses} 个班级未设置目标积分。`
-                      : "班级目标积分已配置完整。"}
-                  </div>
-                  <div
-                    className={`alert-item ${teacherMetrics.noPetStudents > 0 ? "warn" : "ok"}`}
-                  >
-                    {teacherMetrics.noPetStudents > 0
-                      ? `还有 ${teacherMetrics.noPetStudents} 名学生未绑定萌宠档案。`
-                      : "学生萌宠档案已基本完善。"}
-                  </div>
+              <div className="panel homeroom-overview-preview-panel">
+                <div className="panel-title">班级概览</div>
+                <div className="homeroom-insight-banner">
+                  <p>{homeroomOverviewPreview.headline}</p>
                 </div>
-              </div>
-            </div>
-
-            <div className="row-2 c50">
-              <div className="panel">
-                <div className="panel-title">本班重点学生</div>
-                <div className="rank-list">
-                  {teacherTopStudents.map((item, index) => (
-                    <div className="rank-item" key={item.id}>
-                      <span className={`rank-num r${Math.min(index + 1, 3)}`}>
-                        {index + 1}
-                      </span>
-                      <span className="name">{item.name}</span>
-                      <span className="score">
-                        {item.currentScore} 分 / Lv.{item.currentPetLevel}
-                      </span>
+                <div className="std-metric-grid std-metric-grid--3">
+                  {homeroomOverviewPreview.stats.map((item) => {
+                    const tone =
+                      item.key === "trend"
+                        ? homeroomOverviewPreview.trendTone
+                        : item.key === "risk"
+                          ? "purple"
+                          : "amber";
+                    const iconName =
+                      item.key === "trend"
+                        ? "trend"
+                        : item.key === "risk"
+                          ? "student"
+                          : "check";
+                    const isTextValue = item.key === "trend";
+                    return (
+                      <div
+                        key={item.key}
+                        className={`std-metric-card std-metric-card--${tone}`}
+                      >
+                        <div className="std-metric-card__top">
+                          <div className="std-metric-card__icon">
+                            <PresentationGlyph name={iconName} />
+                          </div>
+                          <span className="std-metric-card__label">
+                            {item.label}
+                          </span>
+                        </div>
+                        <div
+                          className={
+                            isTextValue
+                              ? "std-metric-card__value std-metric-card__value--text"
+                              : "std-metric-card__value"
+                          }
+                        >
+                          {item.value}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="homeroom-tip-list">
+                  {homeroomOverviewPreview.bullets.map((item) => (
+                    <div className="homeroom-tip-item" key={item}>
+                      <span className="homeroom-tip-item__dot" aria-hidden />
+                      <span>{item}</span>
                     </div>
                   ))}
                 </div>
-              </div>
-              <div className="panel">
-                <div className="panel-title">本班推荐规则</div>
-                <div className="insight-grid">
-                  {teacherRules.map((item) => (
-                    <div className="insight-chip" key={item.id}>
-                      <strong>
-                        {item.scoreType === "deduct" ? "-" : "+"}
-                        {item.scoreValue}
-                      </strong>
-                      <span>{item.name}</span>
-                    </div>
-                  ))}
+                <div className="teacher-hero-actions homeroom-overview-preview-actions">
+                  <button
+                    type="button"
+                    className="toolbar-button"
+                    onClick={() => openHomeroomOverview(7)}
+                  >
+                    查看近7天复盘
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    onClick={() => openHomeroomOverview(30)}
+                  >
+                    查看近30天复盘
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    onClick={() => navigate("/analytics")}
+                  >
+                    进入班级概览
+                  </button>
                 </div>
               </div>
             </div>
 
-            <div className="row-2 c50">
-              <div className="panel">
-                <div className="panel-title">最近评价记录</div>
+            <div className="row-2 c50 homeroom-desk-row">
+              <div className="panel homeroom-focus-panel">
+                <div className="panel-title">今天重点关注谁</div>
                 <div className="mini-list">
-                  {teacherRecentRecords.map((item) => {
+                  {homeroomPriorityStudents.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className="mini-list-item mini-list-item-button"
+                      onClick={() =>
+                        navigateWithQuery("/students", {
+                          classId: item.classId,
+                          studentId: item.id,
+                          statsView: "student",
+                        })
+                      }
+                    >
+                      <div>
+                        <strong>{item.name}</strong>
+                        <span>
+                          {item.negativeCount > 0
+                            ? `近期待提醒 ${item.negativeCount} 次`
+                            : `当前积分 ${item.currentScore} 分`}
+                          {item.noPet ? " · 未完成萌宠档案" : ""}
+                        </span>
+                        <span>
+                          {item.negativeCount >= 2
+                            ? "建议先单独沟通，再同步任课老师。"
+                            : item.noPet
+                              ? "建议先提醒补齐成长档案。"
+                              : "建议先结合最近记录设一个短期目标。"}
+                        </span>
+                      </div>
+                      <b>
+                        {item.negativeCount >= 2
+                          ? "先谈"
+                          : item.noPet
+                            ? "补档"
+                            : "去看"}
+                      </b>
+                    </button>
+                  ))}
+                  {homeroomPriorityStudents.length === 0 ? (
+                    <div className="mini-list-item">
+                      <div>
+                        <strong>当前没有明显紧急对象</strong>
+                        <span>本班近期整体平稳，可继续做常规评价并观察趋势变化。</span>
+                      </div>
+                      <b>平稳</b>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+              <div className="panel homeroom-ai-panel">
+                <div className="panel-title">AI 班主任建议</div>
+                <div className="homeroom-ai-stack">
+                  <div className="homeroom-insight-card homeroom-insight-card--priority">
+                    <div className="homeroom-insight-card__head">
+                      <div className="homeroom-insight-card__icon">
+                        <PresentationGlyph name="star" />
+                      </div>
+                      <span>今天最该先处理</span>
+                    </div>
+                    <p>{homeroomActionDesk.headline}</p>
+                  </div>
+                  <div className="homeroom-insight-card">
+                    <div className="homeroom-insight-card__head">
+                      <div className="homeroom-insight-card__icon homeroom-insight-card__icon--green">
+                        <PresentationGlyph name="check" />
+                      </div>
+                      <span>建议动作</span>
+                    </div>
+                    <div className="homeroom-action-list">
+                      {homeroomActionDesk.actionItems.map((item, index) => (
+                        <div className="homeroom-action-item" key={item}>
+                          <span className="homeroom-action-item__step">
+                            {index + 1}
+                          </span>
+                          <span>{item}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="homeroom-insight-card">
+                    <div className="homeroom-insight-card__head">
+                      <div className="homeroom-insight-card__icon homeroom-insight-card__icon--blue">
+                        <PresentationGlyph name="summary" />
+                      </div>
+                      <span>可直接转发给任课老师</span>
+                    </div>
+                    <p>{homeroomActionDesk.communicationDraft}</p>
+                    <div className="summary-panel-actions">
+                      <button
+                        type="button"
+                        className="op-btn"
+                        onClick={async () => {
+                          try {
+                            await copyTextWithFallback(
+                              homeroomActionDesk.communicationDraft,
+                            );
+                            setHomeroomCopyMessage("协同提醒已复制");
+                          } catch {
+                            setHomeroomCopyMessage("复制失败，请手动复制上方内容");
+                          }
+                        }}
+                      >
+                        复制话术
+                      </button>
+                    </div>
+                  </div>
+                  <div className="homeroom-insight-card homeroom-insight-card--compact">
+                    <div className="homeroom-insight-card__head">
+                      <div className="homeroom-insight-card__icon homeroom-insight-card__icon--purple">
+                        <PresentationGlyph name="bell" />
+                      </div>
+                      <span>快捷动作</span>
+                    </div>
+                    <div className="mini-list">
+                      {homeroomQuickActions.map((item) => (
+                        <button
+                          key={item.key}
+                          type="button"
+                          className="mini-list-item mini-list-item-button"
+                          onClick={item.onClick}
+                        >
+                          <div>
+                            <strong>{item.label}</strong>
+                            <span>{item.detail}</span>
+                          </div>
+                          <b>{item.actionLabel}</b>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                {homeroomCopyMessage ? (
+                  <div className="status-card success">{homeroomCopyMessage}</div>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="row-2 c50 homeroom-desk-row">
+              <div className="panel homeroom-status-panel">
+                <div className="panel-title">班级运行状态</div>
+                <div className="std-metric-grid std-metric-grid--4">
+                  {homeroomStatusCards.map((item) => {
+                    const meta: Record<
+                      string,
+                      {
+                        icon: "school" | "chart" | "gift" | "gear";
+                        tone: "blue" | "green" | "amber" | "purple";
+                      }
+                    > = {
+                      students: { icon: "school", tone: "blue" },
+                      behavior: { icon: "chart", tone: "green" },
+                      rewards: { icon: "gift", tone: "amber" },
+                      config: { icon: "gear", tone: "purple" },
+                    };
+                    const cardMeta = meta[item.key] ?? meta.students;
+                    return (
+                      <div
+                        key={item.key}
+                        className={`std-metric-card std-metric-card--${cardMeta.tone}`}
+                      >
+                        <div className="std-metric-card__top">
+                          <div className="std-metric-card__icon">
+                            <PresentationGlyph name={cardMeta.icon} />
+                          </div>
+                          <span className="std-metric-card__label">
+                            {item.label}
+                          </span>
+                        </div>
+                        <div className="std-metric-card__value">{item.value}</div>
+                        <div className="std-metric-card__hint">{item.sub}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="mini-list">
+                  {teacherRewardOrders.slice(0, 2).map((item) => (
+                    <div className="mini-list-item" key={item.id}>
+                      <div>
+                        <strong>
+                          {item.student.name} · {item.reward.name}
+                        </strong>
+                        <span>
+                          消耗 {item.scoreCost} 分 ·{" "}
+                          {new Date(item.createdAt).toLocaleString("zh-CN")}
+                        </span>
+                      </div>
+                      <b>{item.status}</b>
+                    </div>
+                  ))}
+                  {teacherRecentRecords.slice(0, 2).map((item) => {
                     const matchedStudent = students.find(
                       (row) => row.id === item.studentId,
                     );
@@ -1714,192 +3023,47 @@ export function DashboardPage({
                       </div>
                     );
                   })}
-                  {teacherRecentRecords.length === 0 ? (
+                  {teacherRewardOrders.length === 0 &&
+                  teacherRecentRecords.length === 0 ? (
                     <div className="mini-list-item">
                       <div>
-                        <strong>暂无评价记录</strong>
-                        <span>提交一次学生评价后，这里会展示最近动态。</span>
+                        <strong>当前没有最新动态</strong>
+                        <span>完成一次评价或产生一次兑换后，这里会出现最新运行状态。</span>
                       </div>
                       <b>待更新</b>
                     </div>
                   ) : null}
                 </div>
               </div>
-              <div className="panel">
-                <div className="panel-title">待处理兑换</div>
-                <div className="mini-list">
-                  {teacherRewardOrders.map((item) => (
-                    <div className="mini-list-item" key={item.id}>
-                      <div>
-                        <strong>
-                          {item.student.name} · {item.reward.name}
-                        </strong>
-                        <span>
-                          消耗 {item.scoreCost} 分 ·{" "}
-                          {new Date(item.createdAt).toLocaleString("zh-CN")}
-                        </span>
-                      </div>
-                      <b>{item.status}</b>
-                    </div>
-                  ))}
-                  {teacherRewardOrders.length === 0 ? (
-                    <div className="mini-list-item">
-                      <div>
-                        <strong>暂无兑换记录</strong>
-                        <span>
-                          本班学生发生兑换后，这里会显示最近处理情况。
-                        </span>
-                      </div>
-                      <b>正常</b>
-                    </div>
-                  ) : null}
-                </div>
-              </div>
+              {renderTeacherAcademicSnapshotPanel({
+                panelTitle: "学业专题卡",
+                footerNote:
+                  "最近一次考试快照，不随上方日期变化；用于辅助判断学情，不替代周期复盘。",
+              })}
             </div>
-
-            <div className="row-2 c50">
-              <div className="panel">
-                <div className="panel-title">本周行为分布</div>
-                <div className="insight-grid">
-                  <div className="insight-chip">
-                    <strong>{homeroomBehaviorStats.positiveCount}</strong>
-                    <span>正向评价</span>
-                  </div>
-                  <div className="insight-chip">
-                    <strong>{homeroomBehaviorStats.negativeCount}</strong>
-                    <span>负向评价</span>
-                  </div>
-                  {homeroomBehaviorStats.dimensions.map((item) => (
-                    <div className="insight-chip" key={item.name}>
-                      <strong>{item.count}</strong>
-                      <span>{item.name}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div className="panel">
-                <div className="panel-title">正负向趋势</div>
-                <div className="mini-list">
-                  {homeroomBehaviorStats.trend.map((item) => (
-                    <div className="mini-list-item" key={item.date}>
-                      <div>
-                        <strong>{item.date}</strong>
-                        <span>
-                          正向 {item.positive} 次 · 负向 {item.negative} 次
-                        </span>
-                      </div>
-                      <b>
-                        {item.positive - item.negative >= 0
-                          ? `+${item.positive - item.negative}`
-                          : item.positive - item.negative}
-                      </b>
-                    </div>
-                  ))}
-                  {homeroomBehaviorStats.trend.length === 0 ? (
-                    <div className="mini-list-item">
-                      <div>
-                        <strong>暂无趋势数据</strong>
-                        <span>
-                          产生更多评价记录后，这里会显示本周正负向变化。
-                        </span>
-                      </div>
-                      <b>待更新</b>
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-            </div>
-
-            <div className="panel">
-              <div className="panel-title">待关注学生</div>
-              <div className="mini-list">
-                {homeroomWatchStudents.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className="mini-list-item mini-list-item-button"
-                    onClick={() =>
-                      navigateWithQuery("/students", {
-                        classId: item.classId,
-                        studentId: item.id,
-                        statsView: "student",
-                      })
-                    }
-                  >
-                    <div>
-                      <strong>{item.name}</strong>
-                      <span>
-                        当前 {item.currentScore} 分 · Lv.{item.currentPetLevel}
-                        {item.negativeCount > 0
-                          ? ` · 近期待提醒 ${item.negativeCount} 次`
-                          : ""}
-                        {item.noPet ? " · 未领养萌宠" : ""}
-                      </span>
-                    </div>
-                    <b>
-                      {item.negativeCount > 0
-                        ? "关注"
-                        : item.noPet
-                          ? "补档"
-                          : "低分"}
-                    </b>
-                  </button>
-                ))}
-                {homeroomWatchStudents.length === 0 ? (
-                  <div className="mini-list-item">
-                    <div>
-                      <strong>暂无重点关注对象</strong>
-                      <span>
-                        当前本班学生状态较平稳，这里会自动聚合近期需关注学生。
-                      </span>
-                    </div>
-                    <b>稳定</b>
-                  </div>
-                ) : null}
-              </div>
-            </div>
-
-            <div className="panel">
-              <div className="panel-title">本班任务清单</div>
-              <div className="mini-list">
-                {homeroomTaskList.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className="mini-list-item mini-list-item-button"
-                    onClick={() => navigate(item.onClickPath)}
-                  >
-                    <div>
-                      <strong>{item.title}</strong>
-                      <span>{item.detail}</span>
-                    </div>
-                    <b>{item.actionLabel}</b>
-                  </button>
-                ))}
-                {homeroomTaskList.length === 0 ? (
-                  <div className="mini-list-item">
-                    <div>
-                      <strong>当前任务清空</strong>
-                      <span>本班目标积分、萌宠档案和近期关注项都较完整。</span>
-                    </div>
-                    <b>完成</b>
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          </>
+          </div>
         ) : (
-          <>
-            <div className="teacher-hero-card">
+          <div className="subject-teacher-desk">
+            <div className="teacher-hero-card subject-teacher-hero">
               <div className="teacher-hero-main">
-                <span className="teacher-hero-kicker">授课首页</span>
+                <span className="teacher-hero-kicker">当前查看</span>
                 <h3>
-                  {teacherSubjectGroups.length > 0
-                    ? `${teacherSubjectGroups.length} 个学科视角`
-                    : "当前未配置授课学科"}
+                  {subjectTeacherWorkbench ? (
+                    <>
+                      {subjectTeacherWorkbench.contextHeader.gradeName}{" "}
+                      {subjectTeacherWorkbench.contextHeader.className}
+                      <span className="subject-teacher-hero-sep">·</span>
+                      <span className="subject-teacher-hero-subject">
+                        {activeSubjectDisplayLabel}
+                      </span>
+                    </>
+                  ) : (
+                    currentSubjectViewLabel || "请在顶部选择班级与学科"
+                  )}
                 </h3>
                 <p>
-                  任课老师进入后台后，先看自己教哪些学科、覆盖哪些班，再进入学科评价和学生查看。
+                  这一页只看你现在选中的<strong>这个班、这门课</strong>
+                  。你可以在这里快速判断：这节课该先关注谁、先做什么、这班最近学得怎么样。
                 </p>
                 <div className="teacher-hero-actions">
                   <button
@@ -1918,252 +3082,384 @@ export function DashboardPage({
                   <button
                     type="button"
                     className="ghost-button"
-                    onClick={() => navigate("/classes")}
+                    onClick={() =>
+                      navigateWithQuery("/students", {
+                        classId: activeTeacherClassId,
+                        statsView: "class",
+                      })
+                    }
                   >
-                    查看授课班级
+                    查看当前班学生
                   </button>
                   <button
                     type="button"
                     className="ghost-button"
-                    onClick={() => navigate("/rules")}
+                    onClick={() =>
+                      navigateWithQuery("/students", {
+                        classId: activeTeacherClassId,
+                        tab: "scores",
+                      })
+                    }
                   >
-                    查看规则
+                    打开成绩单
                   </button>
                 </div>
               </div>
               <div className="teacher-hero-aside">
                 <div className="teacher-hero-stat">
-                  <span>授课班级</span>
-                  <strong>{teacherMetrics.classCount}</strong>
+                  <span>班里学生</span>
+                  <strong>
+                    {subjectTeacherWorkbench?.contextHeader.studentCount ??
+                      activeTeacherClassSummary.studentCount}
+                  </strong>
                 </div>
                 <div className="teacher-hero-stat">
-                  <span>覆盖学生</span>
-                  <strong>{teacherMetrics.studentCount}</strong>
+                  <span>近 7 天记录</span>
+                  <strong>
+                    {subjectTeacherWorkbench?.contextHeader
+                      .recentEvaluationCount ??
+                      subjectTeacherWeeklyPulse.weekCount}
+                  </strong>
                 </div>
                 <div className="teacher-hero-stat">
-                  <span>学科数</span>
-                  <strong>{teacherSubjectGroups.length}</strong>
+                  <span>成绩导入时间</span>
+                  <strong>
+                    {subjectTeacherWorkbench?.contextHeader
+                      .latestAcademicImportedAt
+                      ? new Date(
+                          subjectTeacherWorkbench.contextHeader
+                            .latestAcademicImportedAt,
+                        ).toLocaleDateString("zh-CN")
+                      : "—"}
+                  </strong>
                 </div>
               </div>
             </div>
 
-            <div className="metric-row">
-              <div className={`metric-card ${metricThemes[0]}`}>
-                <div className="metric-card-head">
-                  <div className="label">授课班级</div>
-                  <PresentationGlyph
-                    name="school"
-                    className="metric-card-icon"
-                  />
-                </div>
-                <div className="metric-value-line">
-                  <div className="value">{teacherMetrics.classCount}</div>
-                </div>
-                <div className="metric-sub">当前有权限的授课范围</div>
+            {subjectTeacherWorkbenchError ? (
+              <div className="status-card error">
+                {subjectTeacherWorkbenchError}
               </div>
-              <div className={`metric-card ${metricThemes[1]}`}>
-                <div className="metric-card-head">
-                  <div className="label">学生人数</div>
-                  <PresentationGlyph
-                    name="student"
-                    className="metric-card-icon"
-                  />
-                </div>
-                <div className="metric-value-line">
-                  <div className="value">{teacherMetrics.studentCount}</div>
-                </div>
-                <div className="metric-sub">当前工作台可见学生总数</div>
+            ) : null}
+            {subjectTeacherCopyMessage ? (
+              <div className="status-card success">
+                {subjectTeacherCopyMessage}
               </div>
-              <div className={`metric-card ${metricThemes[2]}`}>
-                <div className="metric-card-head">
-                  <div className="label">平均积分</div>
-                  <PresentationGlyph
-                    name="chart"
-                    className="metric-card-icon"
-                  />
-                </div>
-                <div className="metric-value-line">
-                  <div className="value">{teacherMetrics.averageScore}</div>
-                </div>
-                <div className="metric-sub">用于感知授课班级整体状态</div>
-              </div>
-              <div className={`metric-card ${metricThemes[3]}`}>
-                <div className="metric-card-head">
-                  <div className="label">高频可用规则</div>
-                  <PresentationGlyph name="fire" className="metric-card-icon" />
-                </div>
-                <div className="metric-value-line">
-                  <div className="value">
-                    {teacherMetrics.highFrequencyRuleCount}
+            ) : null}
+
+            <div className="std-metric-grid">
+              <div className="std-metric-card std-metric-card--blue">
+                <div className="std-metric-card__top">
+                  <div className="std-metric-card__icon">
+                    <PresentationGlyph name="school" />
                   </div>
+                  <span className="std-metric-card__label">当前班级</span>
                 </div>
-                <div className="metric-sub">已按你的学科和权限过滤</div>
+                <div className="std-metric-card__value">
+                  {subjectTeacherWorkbench?.contextHeader.className ??
+                    activeTeacherClass?.name ??
+                    "—"}
+                </div>
+                <div className="std-metric-card__hint">
+                  {subjectTeacherWorkbench
+                    ? `${subjectTeacherWorkbench.contextHeader.gradeName} · 你现在看的就是这个班`
+                    : "请在顶部选择班级"}
+                </div>
               </div>
-            </div>
 
-            <div className="row-2 c50">
-              <div className="panel">
-                <div className="panel-title">学科入口</div>
-                <div className="mini-list">
-                  {teacherSubjectGroups.map((item) => (
-                    <button
-                      type="button"
-                      className="mini-list-item mini-list-item-button"
-                      key={item.subjectCode}
-                      onClick={() =>
-                        navigateToEvaluation({
-                          subjectCode: item.subjectCode,
-                          classId: activeTeacherClassId,
-                          mode: "single",
-                        })
-                      }
-                    >
-                      <div>
-                        <strong>{item.subjectCode}</strong>
-                        <span>
-                          {item.classNames.join("、")} · 覆盖{" "}
-                          {item.studentCount} 名学生
-                        </span>
-                      </div>
-                      <b>{item.classIds.size} 班</b>
-                    </button>
-                  ))}
-                  {teacherSubjectGroups.length === 0 ? (
-                    <div className="mini-list-item">
-                      <div>
-                        <strong>暂未配置学科</strong>
-                        <span>请管理员补齐任课教师的班级-学科范围。</span>
-                      </div>
-                      <b>待处理</b>
-                    </div>
+              <div className="std-metric-card std-metric-card--green">
+                <div className="std-metric-card__top">
+                  <div className="std-metric-card__icon">
+                    <PresentationGlyph name="summary" />
+                  </div>
+                  <span className="std-metric-card__label">当前学科</span>
+                </div>
+                <div className="std-metric-card__value">
+                  {activeSubjectDisplayLabel}
+                </div>
+                <div className="std-metric-card__hint">
+                  下面的提醒和建议，都按这门课来
+                </div>
+              </div>
+
+              <button
+                type="button"
+                className="std-metric-card std-metric-card--purple std-metric-card--action"
+                onClick={scrollToAttentionStudents}
+              >
+                <div className="std-metric-card__top">
+                  <div className="std-metric-card__icon">
+                    <PresentationGlyph name="student" />
+                  </div>
+                  <span className="std-metric-card__label">重点学生</span>
+                  <span className="std-metric-card__arrow" aria-hidden>
+                    →
+                  </span>
+                </div>
+                <div className="std-metric-card__value">
+                  {subjectTeacherWorkbench?.attentionStudents.length ?? 0}
+                  <span className="std-metric-card__unit">人</span>
+                </div>
+                <div className="std-metric-card__hint">
+                  建议先看这几位，点击直达名单
+                </div>
+              </button>
+
+              <div className="std-metric-card std-metric-card--amber std-metric-card--wide">
+                <div className="std-metric-card__top">
+                  <div className="std-metric-card__icon">
+                    <PresentationGlyph name="fire" />
+                  </div>
+                  <span className="std-metric-card__label">最近学业导入</span>
+                  {subjectTeacherWorkbench?.contextHeader
+                    .latestAcademicImportedAt ? (
+                    <span className="std-metric-card__badge">
+                      {new Date(
+                        subjectTeacherWorkbench.contextHeader
+                          .latestAcademicImportedAt,
+                      ).toLocaleDateString("zh-CN")}
+                    </span>
                   ) : null}
                 </div>
-              </div>
-              <div className="panel">
-                <div className="panel-title">教学提醒</div>
-                <div className="alert-list">
-                  <div
-                    className={`alert-item ${teacherMetrics.classCount > 0 ? "ok" : "warn"}`}
-                  >
-                    当前已纳入工作台的班级 {teacherMetrics.classCount} 个。
-                  </div>
-                  <div
-                    className={`alert-item ${teacherSubjectCodes.length > 0 ? "ok" : "warn"}`}
-                  >
-                    {teacherSubjectCodes.length > 0
-                      ? `当前已绑定 ${teacherSubjectCodes.join("、")} 学科规则范围。`
-                      : "当前尚未配置授课学科，请联系管理员补齐权限。"}
-                  </div>
-                  <div
-                    className={`alert-item ${teacherMetrics.noPetStudents > 0 ? "warn" : "ok"}`}
-                  >
-                    {teacherMetrics.noPetStudents > 0
-                      ? `有 ${teacherMetrics.noPetStudents} 名学生未绑定萌宠档案。`
-                      : "学生萌宠档案已基本完善。"}
-                  </div>
+                <div
+                  className="std-metric-card__value std-metric-card__value--text"
+                  title={
+                    subjectTeacherWorkbench?.contextHeader
+                      .latestAcademicExamName ?? undefined
+                  }
+                >
+                  {subjectTeacherWorkbench?.contextHeader
+                    .latestAcademicExamName ?? "暂无"}
+                </div>
+                <div className="std-metric-card__hint">
+                  用最近一次考试，判断这班现在的学情
                 </div>
               </div>
             </div>
 
             <div className="row-2 c50">
               <div className="panel">
-                <div className="panel-title">高分学生</div>
-                <div className="rank-list">
-                  {teacherTopStudents.map((item, index) => (
-                    <div className="rank-item" key={item.id}>
-                      <span className={`rank-num r${Math.min(index + 1, 3)}`}>
-                        {index + 1}
-                      </span>
-                      <span className="name">
-                        {item.name} · {item.className}
-                      </span>
-                      <span className="score">
-                        {item.currentScore} 分 / Lv.{item.currentPetLevel}
-                      </span>
+                <div className="panel-title">今天先这样安排</div>
+                <div className="analytics-ai-card analytics-ai-card-soft">
+                  <p>
+                    {subjectTeacherWorkbenchLoading
+                      ? "正在整理这个班这门课的建议..."
+                      : (subjectTeacherWorkbench?.aiBrief.headline ??
+                        "暂时还没有可用提醒，请先选择班级和学科。")}
+                  </p>
+                </div>
+                <div className="teacher-copy-sections">
+                  <div>
+                    <div className="panel-title compact">为什么这样提醒你</div>
+                    <div className="mini-list">
+                      {(subjectTeacherWorkbench?.aiBrief.evidence ?? []).map(
+                        (item) => (
+                          <div className="mini-list-item" key={item}>
+                            <div>
+                              <strong>判断依据</strong>
+                              <span>{item}</span>
+                            </div>
+                          </div>
+                        ),
+                      )}
+                      {!subjectTeacherWorkbenchLoading &&
+                      (subjectTeacherWorkbench?.aiBrief.evidence.length ??
+                        0) === 0 ? (
+                        <div className="mini-list-item">
+                          <div>
+                            <strong>暂无依据</strong>
+                            <span>
+                              这个班这门课最近记录还不够，暂时没法给出稳妥提醒。
+                            </span>
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
-                  ))}
+                  </div>
+                  <div>
+                    <div className="panel-title compact">建议你先这样做</div>
+                    <div className="mini-list">
+                      {(subjectTeacherWorkbench?.aiBrief.actionItems ?? []).map(
+                        (item, index) => (
+                          <div className="mini-list-item" key={item}>
+                            <div>
+                              <strong>先做第 {index + 1} 步</strong>
+                              <span>{item}</span>
+                            </div>
+                          </div>
+                        ),
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
               <div className="panel">
-                <div className="panel-title">授课班级概览</div>
+                <div className="panel-title">快捷动作</div>
                 <div className="mini-list">
-                  {teacherClassCards.map((item) => (
+                  {(subjectTeacherWorkbench?.quickActions ?? []).map(
+                    (action) => (
+                      <button
+                        key={action.key}
+                        type="button"
+                        className="mini-list-item mini-list-item-button"
+                        onClick={async () => {
+                          if (action.actionType === "copy" && action.copyText) {
+                            try {
+                              await copyTextWithFallback(action.copyText);
+                              setSubjectTeacherCopyMessage(
+                                "发给班主任的话已复制",
+                              );
+                            } catch {
+                              setSubjectTeacherCopyMessage(
+                                "复制失败，请手动复制下方草稿",
+                              );
+                            }
+                            return;
+                          }
+                          if (!action.targetPath) return;
+                          navigateWithQuery(
+                            action.targetPath,
+                            action.query ?? {},
+                          );
+                        }}
+                      >
+                        <div>
+                          <strong>{action.label}</strong>
+                          <span>
+                            {action.key === "evaluation"
+                              ? "马上去记这节课的表现"
+                              : action.key === "students"
+                                ? "看这个班学生名单和个人情况"
+                                : action.key === "scores"
+                                  ? "看最近一次成绩单"
+                                  : (action.copyText ??
+                                    "复制下方可直接转发给班主任的话")}
+                          </span>
+                        </div>
+                        <b>{action.actionType === "copy" ? "复制" : "去办"}</b>
+                      </button>
+                    ),
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="panel" id="teacher-attention-students">
+              <div className="panel-title">重点关注学生</div>
+              <div className="mini-list">
+                {(subjectTeacherWorkbench?.attentionStudents ?? []).map(
+                  (item) => (
                     <button
-                      key={item.id}
+                      key={item.studentId}
                       type="button"
                       className="mini-list-item mini-list-item-button"
                       onClick={() =>
                         navigateWithQuery("/students", {
-                          classId: item.id,
-                          statsView: "class",
+                          classId: activeTeacherClassId,
+                          studentId: item.studentId,
+                          statsView: "student",
                         })
                       }
                     >
                       <div>
                         <strong>
-                          {item.gradeName} {item.name}
+                          {item.studentName}
+                          <span
+                            className={`analytics-inline-badge analytics-inline-badge--${item.priority}`}
+                          >
+                            {item.priority === "high"
+                              ? "先看"
+                              : item.priority === "medium"
+                                ? "留意"
+                                : "顺带看"}
+                          </span>
                         </strong>
-                        <span>
-                          {item.studentCount} 人 · 当前总积分 {item.classScore}
-                        </span>
+                        <span>{item.evidence}</span>
+                        <span>建议：{item.recommendedAction}</span>
+                        <div className="teacher-tag-row">
+                          {item.reasonTags.map((tag) => (
+                            <span className="teacher-tag" key={tag}>
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
                       </div>
-                      <b>
-                        {item.displayStatus === "enabled" ? "展示中" : "未展示"}
-                      </b>
+                      <b>去看</b>
                     </button>
-                  ))}
-                </div>
+                  ),
+                )}
+                {!subjectTeacherWorkbenchLoading &&
+                (subjectTeacherWorkbench?.attentionStudents.length ?? 0) ===
+                  0 ? (
+                  <div className="mini-list-item">
+                    <div>
+                      <strong>当前暂无重点对象</strong>
+                      <span>
+                        这个班最近整体比较平稳，继续按正常节奏上课、记录就可以。
+                      </span>
+                    </div>
+                    <b>稳定</b>
+                  </div>
+                ) : null}
               </div>
+            </div>
+
+            <div className="panel">
+              <div className="panel-title">最近一次考试参考</div>
+              <p className="metric-sub" style={{ marginTop: -6 }}>
+                这里看的是最近一次考试成绩，用来帮你判断这个班现在的学情，不会跟着上面日期变化。
+              </p>
+              <section id="teacher-academic-snapshot">
+                <TeacherAcademicDeskInsights
+                  deskPerspective="subject"
+                  brief={teacherDeskBrief}
+                  hasExam={Boolean(
+                    subjectTeacherWorkbench?.academicBaseline.examTrends.length,
+                  )}
+                  loading={subjectTeacherWorkbenchLoading}
+                  deskClassId={activeTeacherClassId}
+                  linkClassId={activeTeacherClassId}
+                  subjectFocus={
+                    subjectTeacherWorkbench?.academicBaseline.subjectFocus ??
+                    null
+                  }
+                  subjectFocusLoading={subjectTeacherWorkbenchLoading}
+                  subjectLabel={activeSubjectDisplayLabel}
+                  onOpenScores={(q) =>
+                    navigateWithQuery("/students", {
+                      tab: q.tab ?? "scores",
+                      examId: q.examId,
+                      classId: q.classId,
+                      studentId: q.studentId,
+                    })
+                  }
+                  footerNote="这里看的是这个班这门课最近一次考试情况；如果你想看一段时间内的变化，请去「教学复盘」。"
+                />
+              </section>
             </div>
 
             <div className="row-2 c50">
               <div className="panel">
-                <div className="panel-title">学科快捷规则</div>
-                <div className="tabs">
-                  {teacherSubjectGroups.map((item) => (
-                    <button
-                      key={item.subjectCode}
-                      className={`tab${activeTeacherSubject === item.subjectCode ? " active" : ""}`}
-                      type="button"
-                      onClick={() => setActiveTeacherSubject(item.subjectCode)}
-                    >
-                      {item.subjectCode}
-                    </button>
-                  ))}
-                </div>
-                <div className="insight-grid">
-                  {filteredTeacherRules.map((item) => (
-                    <div className="insight-chip" key={item.id}>
-                      <strong>{item.subjectCode || "通用"}</strong>
-                      <span>{item.name}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div className="panel">
-                <div className="panel-title">最近授课评价</div>
+                <div className="panel-title">最近记录</div>
                 <div className="mini-list">
-                  {filteredTeacherRecentRecords.map((item) => {
-                    const matchedStudent = students.find(
-                      (row) => row.id === item.studentId,
-                    );
-                    return (
+                  {(subjectTeacherWorkbench?.recentRecords ?? []).map(
+                    (item) => (
                       <div
                         className="mini-list-item"
                         key={`${item.id}-${item.createdAt}`}
                       >
                         <div>
                           <strong>
-                            {matchedStudent?.name ?? `学生#${item.studentId}`} ·{" "}
-                            {item.subjectCode || "通用"}
-                          </strong>
-                          <span>
+                            {item.studentName} ·{" "}
                             {item.ruleName ||
                               item.tag ||
                               item.dimension ||
-                              item.sceneCode ||
-                              "学科评价"}{" "}
-                            · {new Date(item.createdAt).toLocaleString("zh-CN")}
+                              "学科评价"}
+                          </strong>
+                          <span>
+                            {new Date(item.createdAt).toLocaleString("zh-CN")}
+                            {item.operatorName ? ` · ${item.operatorName}` : ""}
+                            {item.remark ? ` · ${item.remark}` : ""}
                           </span>
                         </div>
                         <b>
@@ -2171,16 +3467,15 @@ export function DashboardPage({
                           {item.scoreDelta} 分
                         </b>
                       </div>
-                    );
-                  })}
-                  {filteredTeacherRecentRecords.length === 0 ? (
+                    ),
+                  )}
+                  {!subjectTeacherWorkbenchLoading &&
+                  (subjectTeacherWorkbench?.recentRecords.length ?? 0) === 0 ? (
                     <div className="mini-list-item">
                       <div>
-                        <strong>暂无授课评价</strong>
+                        <strong>暂无最近记录</strong>
                         <span>
-                          {activeTeacherSubject
-                            ? `${activeTeacherSubject} 学科暂无最近记录。`
-                            : "提交一次学科评价后，这里会显示最近教学记录。"}
+                          你记过一次课堂表现后，这里就会显示最新记录。
                         </span>
                       </div>
                       <b>待更新</b>
@@ -2188,221 +3483,47 @@ export function DashboardPage({
                   ) : null}
                 </div>
               </div>
-            </div>
-
-            <div className="panel">
-              <div className="panel-title">学科榜单</div>
-              <div className="mini-list">
-                {subjectLeaderboard.map((item, index) => (
-                  <button
-                    key={`${item.classId}-${item.classLabel}`}
-                    type="button"
-                    className="mini-list-item mini-list-item-button"
-                    onClick={() => {
-                      setActiveTeacherClassId(item.classId);
-                      navigateWithQuery("/students", {
-                        classId: item.classId,
-                        statsView: "class",
-                      });
-                    }}
-                  >
-                    <div>
-                      <strong>
-                        {index + 1}. {item.classLabel}
-                      </strong>
-                      <span>
-                        班均 {item.averageScore} 分 · 最近评价{" "}
-                        {item.recentCount} 条
-                        {item.topStudent
-                          ? ` · 尖子生 ${item.topStudent.name}`
-                          : ""}
-                      </span>
+              <div className="panel">
+                <div className="panel-title">课后跟进</div>
+                <div className="teacher-copy-sections">
+                  <div className="teacher-draft-card">
+                    <div className="panel-title compact">
+                      给班主任的简短提醒
                     </div>
-                    <b>
-                      {item.topStudent
-                        ? `${item.topStudent.currentScore} 分`
-                        : "查看"}
-                    </b>
-                  </button>
-                ))}
-                {subjectLeaderboard.length === 0 ? (
-                  <div className="mini-list-item">
-                    <div>
-                      <strong>暂无学科榜单</strong>
-                      <span>
-                        切换到有学科和学生数据的账号后，这里会显示各班表现排名。
-                      </span>
-                    </div>
-                    <b>待更新</b>
+                    <p>
+                      {subjectTeacherWorkbench?.followUpDrafts
+                        .homeroomSyncShortDraft ?? "当前暂无协同草稿。"}
+                    </p>
                   </div>
-                ) : null}
-              </div>
-            </div>
-
-            <div className="panel">
-              <div className="panel-title">班级表现摘要</div>
-              <div className="tabs">
-                {classes.map((item) => (
-                  <button
-                    key={item.id}
-                    className={`tab${activeTeacherClassId === item.id ? " active" : ""}`}
-                    type="button"
-                    onClick={() => setActiveTeacherClassId(item.id)}
-                  >
-                    {item.name}
-                  </button>
-                ))}
-              </div>
-              <div className="detail-grid">
-                <div className="detail-card">
-                  <h4>
-                    {activeTeacherClass
-                      ? `${activeTeacherClass.gradeName} ${activeTeacherClass.name}`
-                      : "当前班级"}
-                  </h4>
-                  <div className="detail-list">
-                    <div>
-                      <span>学生人数</span>
-                      <strong>
-                        {activeTeacherClassSummary.studentCount} 人
-                      </strong>
+                  <div className="teacher-draft-card">
+                    <div className="panel-title compact">
+                      可直接转发给班主任
                     </div>
-                    <div>
-                      <span>平均积分</span>
-                      <strong>
-                        {activeTeacherClassSummary.averageScore} 分
-                      </strong>
-                    </div>
-                    <div>
-                      <span>Lv.5+ 学生</span>
-                      <strong>
-                        {activeTeacherClassSummary.highLevelCount} 人
-                      </strong>
-                    </div>
-                    <div>
-                      <span>未领养萌宠</span>
-                      <strong>{activeTeacherClassSummary.noPetCount} 人</strong>
-                    </div>
+                    <p>
+                      {subjectTeacherWorkbench?.followUpDrafts
+                        .homeroomSyncForwardDraft ?? "当前暂无可转发内容。"}
+                    </p>
+                  </div>
+                  <div className="teacher-draft-card">
+                    <div className="panel-title compact">这节课小结</div>
+                    <p>
+                      {subjectTeacherWorkbench?.followUpDrafts
+                        .lessonSummaryDraft ?? "当前暂无教学小结草稿。"}
+                    </p>
+                  </div>
+                  <div className="teacher-draft-card">
+                    <div className="panel-title compact">下次课提醒自己</div>
+                    <p>
+                      {subjectTeacherWorkbench?.followUpDrafts
+                        .nextLessonDraft ?? "当前暂无下次课提醒。"}
+                    </p>
                   </div>
                 </div>
-                <div className="detail-card">
-                  <h4>班级尖子生</h4>
-                  {activeTeacherClassSummary.topStudent ? (
-                    <div className="detail-list">
-                      <div>
-                        <span>姓名</span>
-                        <strong>
-                          {activeTeacherClassSummary.topStudent.name}
-                        </strong>
-                      </div>
-                      <div>
-                        <span>当前积分</span>
-                        <strong>
-                          {activeTeacherClassSummary.topStudent.currentScore} 分
-                        </strong>
-                      </div>
-                      <div>
-                        <span>成长等级</span>
-                        <strong>
-                          Lv.
-                          {activeTeacherClassSummary.topStudent.currentPetLevel}
-                        </strong>
-                      </div>
-                      <div>
-                        <span>萌宠状态</span>
-                        <strong>
-                          {activeTeacherClassSummary.topStudent.pet?.name ??
-                            "未领养"}
-                        </strong>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="table-empty">当前班级暂无学生数据。</div>
-                  )}
-                </div>
-              </div>
-              <div className="mini-list">
-                {activeTeacherClassStudents.slice(0, 5).map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className="mini-list-item mini-list-item-button"
-                    onClick={() =>
-                      navigateWithQuery("/students", {
-                        classId: item.classId,
-                        studentId: item.id,
-                        statsView: "student",
-                      })
-                    }
-                  >
-                    <div>
-                      <strong>{item.name}</strong>
-                      <span>
-                        {item.currentScore} 分 · Lv.{item.currentPetLevel} ·{" "}
-                        {item.pet?.name ?? "未领养萌宠"}
-                      </span>
-                    </div>
-                    <b>查看</b>
-                  </button>
-                ))}
-                {activeTeacherClassStudents.length === 0 ? (
-                  <div className="mini-list-item">
-                    <div>
-                      <strong>暂无学生数据</strong>
-                      <span>
-                        切换到有学生的班级后，这里会展示学生表现摘要。
-                      </span>
-                    </div>
-                    <b>待更新</b>
-                  </div>
-                ) : null}
               </div>
             </div>
-
-            <div className="panel">
-              <div className="panel-title">最近教学热区</div>
-              <div className="mini-list">
-                {teacherHeatZones.map((item) => (
-                  <button
-                    key={item.classId}
-                    type="button"
-                    className="mini-list-item mini-list-item-button"
-                    onClick={() => {
-                      setActiveTeacherClassId(item.classId);
-                      navigateWithQuery("/students", {
-                        classId: item.classId,
-                        statsView: "class",
-                      });
-                    }}
-                  >
-                    <div>
-                      <strong>{item.classLabel}</strong>
-                      <span>
-                        最近评价 {item.totalCount} 条 · 负向{" "}
-                        {item.negativeCount} 条
-                        {item.latestAt
-                          ? ` · 最近一次 ${new Date(item.latestAt).toLocaleString("zh-CN")}`
-                          : ""}
-                      </span>
-                    </div>
-                    <b>{item.totalCount > 0 ? "关注" : "查看"}</b>
-                  </button>
-                ))}
-                {teacherHeatZones.length === 0 ? (
-                  <div className="mini-list-item">
-                    <div>
-                      <strong>暂无教学热区</strong>
-                      <span>
-                        产生更多授课评价后，这里会聚合评价最频繁或需要关注的班级。
-                      </span>
-                    </div>
-                    <b>待更新</b>
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          </>
+          </div>
         )}
+        {renderCallQueueModal()}
       </Shell>
     );
   }
@@ -2440,12 +3561,20 @@ export function DashboardPage({
         </div>
         <div className="ck-header-actions">
           <button
+            className="cq-trigger-btn"
+            type="button"
+            onClick={() => openCallQueueModal()}
+          >
+            <svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" /></svg>
+            大屏叫号
+          </button>
+          <button
             className="ck-action-btn ck-action-secondary"
             type="button"
-            onClick={handleEnterLiveInsight}
+            onClick={handleEnterRealtimeMonitor}
           >
             <PresentationGlyph name="chart" className="present-trigger-icon" />
-            实时数据透视
+            实时运行监控
           </button>
           <button
             className="ck-action-btn ck-action-primary"
@@ -2553,7 +3682,42 @@ export function DashboardPage({
         <section className="panel academic-growth-hero">
           <div className="academic-growth-orbit" />
           <div className="academic-growth-hero-main">
-            <div className="panel-title">学生成长指数</div>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
+                flexWrap: "wrap",
+              }}
+            >
+              <div className="panel-title">学生成长指数</div>
+              <select
+                value={selectedAcademicExamId ?? ""}
+                onChange={(event) =>
+                  setSelectedAcademicExamId(
+                    event.target.value ? Number(event.target.value) : null,
+                  )
+                }
+                style={{
+                  minWidth: 280,
+                  maxWidth: "100%",
+                  borderRadius: 14,
+                  border: "1px solid rgba(147, 197, 253, 0.24)",
+                  background: "rgba(15, 23, 42, 0.24)",
+                  color: "#e2e8f0",
+                  padding: "10px 14px",
+                  fontSize: 14,
+                }}
+              >
+                {academicExams.map((exam) => (
+                  <option key={exam.id} value={exam.id}>
+                    {exam.name}
+                    {exam.gradeName ? ` · ${exam.gradeName}` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div className="academic-growth-score">
               {academicGrowth.growthIndex}
             </div>
@@ -2640,59 +3804,299 @@ export function DashboardPage({
       </div>
 
       <div className="row-2 c50">
-        <div className="panel">
+        <div className="panel academic-trend-panel">
           <div className="panel-title">学业成长趋势</div>
-          <div className="academic-trend-bars">
-            {academicGrowth.trend.map((item) => (
-              <div className="academic-trend-item" key={item.examId}>
-                <span>{item.examName}</span>
-                <div className="academic-trend-track">
-                  <i
-                    style={{
-                      width: `${Math.max(10, Math.min(100, Math.round(item.progressRate)))}%`,
-                    }}
-                  />
-                </div>
-                <b>
-                  {item.averageScore} / {item.progressRate}%
-                </b>
+          {academicGrowth.latestExam ? (
+            <div className="academic-trend-kpis">
+              <div>
+                <span>成长指数</span>
+                <strong>{academicGrowth.growthIndex}</strong>
               </div>
-            ))}
-            {academicGrowth.trend.length === 0 ? (
+              <div>
+                <span>年级均分</span>
+                <strong>{academicGrowth.averageScore}</strong>
+              </div>
+              <div>
+                <span>覆盖率</span>
+                <strong>{academicGrowth.coverageRate}%</strong>
+              </div>
+              <div>
+                <span>参考人数</span>
+                <strong>{academicGrowth.participantCount}</strong>
+              </div>
+            </div>
+          ) : null}
+          <div className="academic-trend-list">
+            {academicTrendPanelItems.map((row) => {
+              if (row.kind === "exam") {
+                const item = row.item;
+                const examDate = item.importedAt
+                  ? new Date(item.importedAt).toLocaleDateString("zh-CN", {
+                      month: "numeric",
+                      day: "numeric",
+                    })
+                  : "";
+                return (
+                  <div className="academic-trend-card" key={row.key}>
+                    <div className="academic-trend-card-head">
+                      <div>
+                        <strong title={item.examName}>{item.examName}</strong>
+                        <span>
+                          {examDate ? `${examDate} · ` : ""}
+                          {item.participantCount} 人参考
+                        </span>
+                      </div>
+                      <b>均分 {item.averageScore}</b>
+                    </div>
+                    <div className="academic-trend-dual">
+                      <div className="academic-trend-metric">
+                        <em>进步率</em>
+                        <div className="academic-trend-track">
+                          <i
+                            style={{
+                              width: `${Math.max(6, Math.min(100, item.progressRate))}%`,
+                            }}
+                          />
+                        </div>
+                        <strong>{item.progressRate}%</strong>
+                      </div>
+                      <div className="academic-trend-metric is-decline">
+                        <em>退步率</em>
+                        <div className="academic-trend-track">
+                          <i
+                            style={{
+                              width: `${Math.max(6, Math.min(100, item.declineRate))}%`,
+                            }}
+                          />
+                        </div>
+                        <strong>{item.declineRate}%</strong>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+              if (row.kind === "class") {
+                const item = row.item;
+                return (
+                  <button
+                    type="button"
+                    className="academic-trend-card academic-trend-card-button"
+                    key={row.key}
+                    onClick={() =>
+                      navigateWithQuery("/classes", { classId: item.classId })
+                    }
+                  >
+                    <div className="academic-trend-card-head">
+                      <div>
+                        <strong>{item.className}</strong>
+                        <span>班级成长亮点 · 成长指数 {item.growthIndex}</span>
+                      </div>
+                      <b>均分 {item.averageScore}</b>
+                    </div>
+                    <div className="academic-trend-card-foot">
+                      进步 {item.progressCount} 人 · 退步 {item.declineCount} 人 ·
+                      参考 {item.participantCount} 人
+                    </div>
+                  </button>
+                );
+              }
+              const item = row.item;
+              return (
+                <button
+                  type="button"
+                  className="academic-trend-card academic-trend-card-button"
+                  key={row.key}
+                  onClick={() =>
+                    navigateWithQuery("/students", {
+                      studentId: item.studentId,
+                      classId: item.classId,
+                      statsView: "student",
+                    })
+                  }
+                >
+                  <div className="academic-trend-card-head">
+                    <div>
+                      <strong>
+                        {item.studentName} · {item.className}
+                      </strong>
+                      <span>进步之星 · 较上次 +{item.rankDelta || item.scoreDelta}</span>
+                    </div>
+                    <b>总分 {item.totalScore}</b>
+                  </div>
+                  <div className="academic-trend-card-foot">{item.reason}</div>
+                </button>
+              );
+            })}
+            {academicTrendPanelItems.length === 0 ? (
               <div className="ck-empty">暂无跨考试趋势</div>
             ) : null}
           </div>
         </div>
-        <div className="panel">
+        <div className="panel academic-risk-panel">
           <div className="panel-title">学业关注名单</div>
-          <div className="mini-list">
-            {academicGrowth.riskStudents.slice(0, 5).map((item) => (
-              <button
-                type="button"
-                className="mini-list-item mini-list-item-button"
-                key={item.studentId}
-                onClick={() =>
-                  navigateWithQuery("/students", {
-                    studentId: item.studentId,
-                    classId: item.classId,
-                    statsView: "student",
-                  })
-                }
-              >
-                <div>
-                  <strong>
-                    {item.studentName} · {item.className}
-                  </strong>
-                  <span>
-                    {item.reason} · 总分 {item.totalScore} · 变化{" "}
-                    {item.rankDelta > 0 ? "+" : ""}
-                    {item.rankDelta}
-                  </span>
-                </div>
-                <b>{item.quadrant === "risk" ? "帮扶" : "跟进"}</b>
-              </button>
-            ))}
-            {academicGrowth.riskStudents.length === 0 ? (
+          {academicGrowth.latestExam ? (
+            <div className="academic-trend-kpis academic-risk-kpis">
+              <div>
+                <span>预警学生</span>
+                <strong>{academicGrowth.riskCount}</strong>
+              </div>
+              <div>
+                <span>退步人数</span>
+                <strong>{academicGrowth.declineCount}</strong>
+              </div>
+              <div>
+                <span>重点帮扶</span>
+                <strong>
+                  {academicGrowth.quadrants.find((item) => item.key === "risk")
+                    ?.count ?? 0}
+                </strong>
+              </div>
+              <div>
+                <span>高分承压</span>
+                <strong>
+                  {academicGrowth.quadrants.find((item) => item.key === "quiet")
+                    ?.count ?? 0}
+                </strong>
+              </div>
+            </div>
+          ) : null}
+          <div className="academic-trend-list">
+            {academicRiskPanelItems.map((row) => {
+              if (row.kind === "class") {
+                const item = row.item;
+                const declineRate = item.participantCount
+                  ? Math.round((item.declineCount / item.participantCount) * 100)
+                  : 0;
+                const progressRate = item.participantCount
+                  ? Math.round((item.progressCount / item.participantCount) * 100)
+                  : 0;
+                return (
+                  <button
+                    type="button"
+                    className="academic-trend-card academic-trend-card-button academic-risk-card"
+                    key={row.key}
+                    onClick={() =>
+                      navigateWithQuery("/classes", { classId: item.classId })
+                    }
+                  >
+                    <div className="academic-trend-card-head">
+                      <div>
+                        <strong>{item.className}</strong>
+                        <span>
+                          学业风险班级 ·{" "}
+                          {item.riskLevel === "high" ? "高风险" : "需关注"}
+                        </span>
+                      </div>
+                      <b>均分 {item.averageScore}</b>
+                    </div>
+                    <div className="academic-trend-dual">
+                      <div className="academic-trend-metric is-decline">
+                        <em>退步率</em>
+                        <div className="academic-trend-track">
+                          <i
+                            style={{
+                              width: `${Math.max(6, Math.min(100, declineRate))}%`,
+                            }}
+                          />
+                        </div>
+                        <strong>{declineRate}%</strong>
+                      </div>
+                      <div className="academic-trend-metric">
+                        <em>进步率</em>
+                        <div className="academic-trend-track">
+                          <i
+                            style={{
+                              width: `${Math.max(6, Math.min(100, progressRate))}%`,
+                            }}
+                          />
+                        </div>
+                        <strong>{progressRate}%</strong>
+                      </div>
+                    </div>
+                    <div className="academic-trend-card-foot academic-risk-card-foot">
+                      退步 {item.declineCount} 人 · 进步 {item.progressCount} 人 ·
+                      参考 {item.participantCount} 人
+                    </div>
+                  </button>
+                );
+              }
+              const item = row.item;
+              const scoreWidth = Math.max(
+                6,
+                Math.min(
+                  100,
+                  Math.round(
+                    (Math.abs(item.scoreDelta) /
+                      academicRiskMetricMax.scoreDelta) *
+                      100,
+                  ),
+                ),
+              );
+              const rankWidth = Math.max(
+                6,
+                Math.min(
+                  100,
+                  Math.round(
+                    (Math.abs(item.rankDelta) /
+                      academicRiskMetricMax.rankDelta) *
+                      100,
+                  ),
+                ),
+              );
+              return (
+                <button
+                  type="button"
+                  className="academic-trend-card academic-trend-card-button academic-risk-card"
+                  key={row.key}
+                  onClick={() =>
+                    navigateWithQuery("/students", {
+                      studentId: item.studentId,
+                      classId: item.classId,
+                      statsView: "student",
+                    })
+                  }
+                >
+                  <div className="academic-trend-card-head">
+                    <div>
+                      <strong>
+                        {item.studentName} · {item.className}
+                      </strong>
+                      <span>
+                        {row.tag} · {item.reason}
+                      </span>
+                    </div>
+                    <b>总分 {item.totalScore}</b>
+                  </div>
+                  <div className="academic-trend-dual">
+                    <div className="academic-trend-metric is-decline">
+                      <em>较上次分差</em>
+                      <div className="academic-trend-track">
+                        <i style={{ width: `${scoreWidth}%` }} />
+                      </div>
+                      <strong>
+                        {item.scoreDelta > 0 ? "+" : ""}
+                        {item.scoreDelta}
+                      </strong>
+                    </div>
+                    <div className="academic-trend-metric is-decline">
+                      <em>名次变化</em>
+                      <div className="academic-trend-track">
+                        <i style={{ width: `${rankWidth}%` }} />
+                      </div>
+                      <strong>
+                        {item.rankDelta > 0 ? "+" : ""}
+                        {item.rankDelta}
+                      </strong>
+                    </div>
+                  </div>
+                  <div className="academic-trend-card-foot academic-risk-card-foot">
+                    <span>点击查看学生学业档案</span>
+                    <b>跟进</b>
+                  </div>
+                </button>
+              );
+            })}
+            {academicRiskPanelItems.length === 0 ? (
               <div className="ck-empty">暂无学业预警学生</div>
             ) : null}
           </div>
@@ -2702,71 +4106,35 @@ export function DashboardPage({
       {/* 第二层：主视觉中心 —— 趋势图 + AI 洞察 */}
       <div className="ck-hero-row">
         <div className="ck-hero-chart panel">
-          <div className="panel-title">班级积分Top8</div>
-          <div className="line-chart-wrap">
-            <svg
-              viewBox="0 0 500 180"
-              className="dashboard-line-chart"
-              aria-hidden="true"
-            >
-              <defs>
-                <linearGradient id="ckTrendArea" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#2980b9" stopOpacity="0.32" />
-                  <stop offset="100%" stopColor="#2980b9" stopOpacity="0" />
-                </linearGradient>
-              </defs>
-              <line x1="50" y1="10" x2="50" y2="150" className="chart-axis" />
-              <line x1="50" y1="150" x2="460" y2="150" className="chart-axis" />
-              {cockpitTrendSvg.points.length > 0 ? (
-                <>
-                  <polyline
-                    points={cockpitTrendSvg.area}
-                    className="chart-area"
-                    style={{ fill: "url(#ckTrendArea)" }}
+          <div className="panel-title">班级积分Top10</div>
+          <div
+            className="ck-top10-chart"
+            role="img"
+            aria-label="全校班级积分排名前10柱状图"
+          >
+            {cockpitTop10Bars.map((item) => (
+              <button
+                type="button"
+                key={item.id}
+                className={`ck-top10-bar-col ${item.rank <= 3 ? "is-top" : ""}`}
+                title={`${item.label} · ${item.value} 分`}
+                onClick={() =>
+                  navigateWithQuery("/classes", { classId: item.id })
+                }
+              >
+                <span className="ck-top10-bar-value">{item.value}</span>
+                <div className="ck-top10-bar-track">
+                  <span
+                    className="ck-top10-bar-fill"
+                    style={{ height: `${item.heightPercent}%` }}
                   />
-                  <polyline
-                    points={cockpitTrendSvg.line}
-                    className="chart-line"
-                  />
-                  {cockpitTrendSvg.points.map((p, i) => (
-                    <g key={`${p.x}-${p.y}-${i}`}>
-                      <circle
-                        cx={p.x}
-                        cy={p.y}
-                        r={i === cockpitTrendSvg.points.length - 1 ? 5 : 3.5}
-                        className="chart-dot"
-                      />
-                      <text
-                        x={p.x}
-                        y={p.y - 10}
-                        textAnchor="middle"
-                        className="chart-value"
-                      >
-                        {p.value}
-                      </text>
-                      <text
-                        x={p.x}
-                        y="168"
-                        textAnchor="middle"
-                        className="chart-label"
-                      >
-                        {p.label}
-                      </text>
-                    </g>
-                  ))}
-                </>
-              ) : (
-                <text
-                  x="250"
-                  y="85"
-                  textAnchor="middle"
-                  fill="#999"
-                  fontSize="13"
-                >
-                  暂无班级积分数据
-                </text>
-              )}
-            </svg>
+                </div>
+                <span className="ck-top10-bar-label">{item.label}</span>
+              </button>
+            ))}
+            {cockpitTop10Bars.length === 0 ? (
+              <div className="ck-empty">暂无班级积分数据</div>
+            ) : null}
           </div>
         </div>
         <div className="ck-hero-insight panel">
@@ -3355,6 +4723,8 @@ export function DashboardPage({
           </div>
         </>
       ) : null}
+
+      {renderCallQueueModal()}
     </Shell>
   );
 }

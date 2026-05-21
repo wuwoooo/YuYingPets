@@ -1,12 +1,14 @@
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Prisma } from '@prisma/client';
+import { ModuleType, Prisma } from '@prisma/client';
 import { PrismaService } from '@/prisma/prisma.service';
+import type { AuthUser } from '@/common/auth/auth-user.interface';
 import { AuthService } from '../auth/auth.service';
 import { OperationLogService } from '../operation-log/operation-log.service';
 import { PetUpsertDto } from './dto/pet-upsert.dto';
 import { toNumber } from '@/common/utils/bigint.util';
+import { normalizePetGrowthThresholds, resolveStageNeedScoreTotal } from '@/common/utils/pet-growth.util';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, extname, resolve } from 'node:path';
 
@@ -21,10 +23,21 @@ type CachedAnalyticsInsight = {
   className: string;
 };
 
+/** 与前台评价一致的学科别名，用于任课筛选积分记录 */
+const ANALYTICS_SUBJECT_COMPATIBILITY: Record<string, readonly string[]> = {
+  computer: ['computer', 'arts_it'],
+  art: ['art', 'arts_it'],
+  music: ['music', 'arts_it'],
+  pe: ['pe', 'arts_it'],
+  mathematics: ['math', 'mathematics'],
+  math: ['math', 'mathematics'],
+};
+
 const PET_CATEGORY_PRIORITY: Record<string, number> = {
   star: 0,
   zodiac: 1,
 };
+const VISIBLE_PET_CATEGORIES = ['star', 'zodiac'];
 
 function normalizePetCategory(category: string | null | undefined): string {
   return (category ?? '').trim().toLowerCase();
@@ -54,6 +67,7 @@ export class AdminInsightsService {
     filters?: {
       gradeName?: string;
       classId?: number;
+      subjectCode?: string;
       regenerateAi?: boolean;
       startDate?: string;
       endDate?: string;
@@ -123,18 +137,26 @@ export class AdminInsightsService {
       }),
     ]);
 
+    const subjectFilterRaw = filters?.subjectCode?.trim();
+    if (subjectFilterRaw) {
+      this.ensureSubjectAnalyticsScope(user, filters?.classId, subjectFilterRaw);
+    }
+    const scopedScoreRecords = subjectFilterRaw
+      ? scoreRecords.filter((record) => this.recordMatchesAnalyticsSubject(record, subjectFilterRaw))
+      : scoreRecords;
+
     const sumStudentScore = (studentsOfClass: Array<{ profile: { currentScore: number } | null }>) =>
       studentsOfClass.reduce((sum, student) => sum + (student.profile?.currentScore ?? 0), 0);
 
     const getClassScore = (classroom: (typeof classes)[number]) => classroom.classScoreProfile?.currentScore ?? 0;
 
     const totalScore = classes.reduce((sum, classroom) => sum + getClassScore(classroom), 0);
-    const positiveRuleCount = scoreRecords.filter((item) => item.sentiment === 'positive').length;
-    const negativeRuleCount = scoreRecords.filter((item) => item.sentiment === 'negative').length;
+    const positiveRuleCount = scopedScoreRecords.filter((item) => item.sentiment === 'positive').length;
+    const negativeRuleCount = scopedScoreRecords.filter((item) => item.sentiment === 'negative').length;
     const averageScore = students.length > 0
       ? Math.round(students.reduce((sum, student) => sum + (student.profile?.currentScore ?? 0), 0) / students.length)
       : 0;
-    const activeDays = new Set(scoreRecords.map((item) => item.createdAt.toISOString().slice(0, 10))).size;
+    const activeDays = new Set(scopedScoreRecords.map((item) => item.createdAt.toISOString().slice(0, 10))).size;
 
     const gradeTrend = Array.from(
       classes.reduce((map, item) => {
@@ -147,7 +169,7 @@ export class AdminInsightsService {
     ).map(([name, value]) => ({ name, value: value.count > 0 ? Math.round(value.score / value.count) : 0 }));
 
     const ruleDistribution = Array.from(
-      scoreRecords.reduce((map, item) => {
+      scopedScoreRecords.reduce((map, item) => {
         const key = item.dimension || item.rule.dimension || item.sceneCode || '未分类';
         map.set(key, (map.get(key) ?? 0) + 1);
         return map;
@@ -158,8 +180,8 @@ export class AdminInsightsService {
       .map(([name, value]) => ({ name, value }));
 
     const subjectDistribution = Array.from(
-      scoreRecords.reduce((map, item) => {
-        const key = item.subjectCode || '通用';
+      scopedScoreRecords.reduce((map, item) => {
+        const key = item.subjectCode || item.rule.subjectCode || '通用';
         map.set(key, (map.get(key) ?? 0) + 1);
         return map;
       }, new Map<string, number>()),
@@ -195,7 +217,7 @@ export class AdminInsightsService {
     const heatMap = heatMapRows.map((rowName, rowIndex) => ({
       row: rowName,
       values: heatMapCols.map((_, colIndex) => {
-        const count = scoreRecords.filter((record) => {
+        const count = scopedScoreRecords.filter((record) => {
           const date = record.createdAt;
           const day = date.getDay();
           const hour = date.getHours();
@@ -207,7 +229,7 @@ export class AdminInsightsService {
       }),
     }));
 
-    const riskStudentMap = scoreRecords.reduce((map, item) => {
+    const riskStudentMap = scopedScoreRecords.reduce((map, item) => {
       const studentId = toNumber(item.studentId) ?? 0;
       const current = map.get(studentId) ?? {
         studentId,
@@ -255,7 +277,14 @@ export class AdminInsightsService {
       ? classes.find((item) => (toNumber(item.id) ?? 0) === filters.classId)
       : null;
 
-    const fallbackSummary = this.buildAnalyticsSummary({
+    const academicDeskContext =
+      scopedClass && !subjectFilterRaw
+        ? await this.loadClassAcademicFactsForInsights(user.schoolId, scopedClass.id)
+        : null;
+    const academicFactsForAi = academicDeskContext?.structured ?? null;
+    const academicHintLine = academicDeskContext?.summaryLine ?? '';
+
+    const fallbackSummary = `${this.buildAnalyticsSummary({
       gradeName: filters?.gradeName,
       className: scopedClass?.name,
       dateRangeLabel: dateRange.label,
@@ -268,14 +297,14 @@ export class AdminInsightsService {
       subjectDistribution,
       topClasses,
       riskStudents,
-    });
-    const fallbackSuggestion = this.buildAnalyticsSuggestion({
+    })}${academicHintLine ? `\n\n【教务最近一次全科导入】${academicHintLine}` : ''}`;
+    const fallbackSuggestion = `${this.buildAnalyticsSuggestion({
       activeDays,
       subjectDistribution,
       ruleDistribution,
       riskStudents,
-    });
-    const fallbackReportSummary = this.buildAnalyticsReportSummary({
+    })}${academicHintLine ? '（若上述摘要含进退步，请安排任课与班主任对名单做归因复核。）' : ''}`;
+    const fallbackReportSummary = `${this.buildAnalyticsReportSummary({
       gradeName: filters?.gradeName,
       className: scopedClass?.name,
       dateRangeLabel: dateRange.label,
@@ -287,7 +316,7 @@ export class AdminInsightsService {
       ruleDistribution,
       subjectDistribution,
       riskStudents,
-    });
+    })}${academicHintLine ? ` ${academicHintLine}` : ''}`;
     const aiInsight = scopedClass
       ? await this.resolveClassAnalyticsInsight({
           schoolId: toNumber(user.schoolId) ?? 0,
@@ -311,6 +340,8 @@ export class AdminInsightsService {
           fallbackSummary,
           fallbackSuggestion,
           fallbackReportSummary,
+          academicFacts: academicFactsForAi,
+          subjectScopeCode: subjectFilterRaw || undefined,
         })
       : await this.resolveGlobalAnalyticsInsight({
           schoolId: toNumber(user.schoolId) ?? 0,
@@ -359,7 +390,14 @@ export class AdminInsightsService {
     };
   }
 
-  async analyticsReportStatus(authorization: string | undefined, classId?: number, gradeName?: string, startDate?: string, endDate?: string) {
+  async analyticsReportStatus(
+    authorization: string | undefined,
+    classId?: number,
+    gradeName?: string,
+    startDate?: string,
+    endDate?: string,
+    subjectCode?: string,
+  ) {
     const user = await this.authService.getAuthUserFromAuthorization(authorization);
     const dateRange = this.resolveAnalyticsDateRange(startDate, endDate);
 
@@ -383,6 +421,8 @@ export class AdminInsightsService {
       };
     }
 
+    const subjectScope = subjectCode?.trim();
+
     const accessibleClassIds = await this.getAccessibleClassIds(user);
     if (accessibleClassIds !== null && !accessibleClassIds.includes(classId)) {
       throw new ForbiddenException('当前角色无权访问该班级');
@@ -405,9 +445,13 @@ export class AdminInsightsService {
       throw new NotFoundException('班级不存在');
     }
 
+    if (subjectScope) {
+      this.ensureSubjectAnalyticsScope(user, classId, subjectScope);
+    }
+
     const cached = await this.readCachedAnalyticsInsight(
       toNumber(user.schoolId) ?? 0,
-      this.buildAnalyticsScopeKey(classId, undefined, dateRange.key),
+      this.buildAnalyticsScopeKey(classId, undefined, dateRange.key, subjectScope),
       dateRange.endDate,
     );
 
@@ -425,27 +469,56 @@ export class AdminInsightsService {
     };
   }
 
+  async getPetGrowthThresholds(authorization: string | undefined) {
+    const user = await this.authService.getAuthUserFromAuthorization(authorization);
+    this.ensureCanManagePets(user.roleCode);
+
+    const school = await this.prisma.school.findUniqueOrThrow({
+      where: { id: user.schoolId },
+      select: { petGrowthThresholds: true },
+    });
+
+    return {
+      code: 0,
+      message: 'ok',
+      data: {
+        thresholds: normalizePetGrowthThresholds(school.petGrowthThresholds),
+      },
+    };
+  }
+
   async listPets(authorization: string | undefined, category?: string) {
     const user = await this.authService.getAuthUserFromAuthorization(authorization);
     const accessibleClassIds = await this.getAccessibleClassIds(user);
 
-    const pets = await this.prisma.pet.findMany({
-      where: {
-        schoolId: user.schoolId,
-        ...(category && category !== 'all' ? { category } : {}),
-      },
-      include: {
-        stages: {
-          orderBy: { stageNo: 'asc' },
+    const [school, pets] = await Promise.all([
+      this.prisma.school.findUniqueOrThrow({
+        where: { id: user.schoolId },
+        select: { petGrowthThresholds: true },
+      }),
+      this.prisma.pet.findMany({
+        where: {
+          schoolId: user.schoolId,
+          status: 'enabled',
+          category:
+            category && category !== 'all' && VISIBLE_PET_CATEGORIES.includes(category)
+              ? category
+              : { in: VISIBLE_PET_CATEGORIES },
         },
-        studentPets: {
-          include: {
-            student: true,
+        include: {
+          stages: {
+            orderBy: { stageNo: 'asc' },
+          },
+          studentPets: {
+            include: {
+              student: true,
+            },
           },
         },
-      },
-      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
-    });
+        orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+      }),
+    ]);
+    const petGrowthThresholds = normalizePetGrowthThresholds(school.petGrowthThresholds);
 
     const filtered = pets
       .map((pet) => {
@@ -471,7 +544,7 @@ export class AdminInsightsService {
             levelNo: stage.levelNo,
             name: stage.name,
             imageUrl: stage.imageUrl,
-            needScoreTotal: stage.needScoreTotal,
+            needScoreTotal: resolveStageNeedScoreTotal(stage.stageNo, stage.needScoreTotal, petGrowthThresholds),
             animationKey: stage.animationKey,
           })),
         };
@@ -487,6 +560,7 @@ export class AdminInsightsService {
     const user = await this.authService.getAuthUserFromAuthorization(authorization);
     this.ensureCanManagePets(user.roleCode);
     const normalizedStages = this.normalizePetStages(body);
+    const category = this.normalizeVisiblePetCategory(body.category);
 
     const created = await this.prisma.$transaction(async (tx) => {
       const pet = await tx.pet.create({
@@ -494,7 +568,7 @@ export class AdminInsightsService {
           schoolId: user.schoolId,
           code: body.code,
           name: body.name,
-          category: body.category,
+          category,
           rarity: body.rarity,
           sourceType: body.sourceType ?? 'custom',
           coverUrl: this.resolveCoverUrl(body, normalizedStages),
@@ -537,6 +611,7 @@ export class AdminInsightsService {
     const user = await this.authService.getAuthUserFromAuthorization(authorization);
     this.ensureCanManagePets(user.roleCode);
     const normalizedStages = this.normalizePetStages(body);
+    const category = this.normalizeVisiblePetCategory(body.category);
 
     const exists = await this.prisma.pet.findFirst({
       where: {
@@ -556,7 +631,7 @@ export class AdminInsightsService {
         data: {
           code: body.code,
           name: body.name,
-          category: body.category,
+          category,
           rarity: body.rarity,
           sourceType: body.sourceType ?? undefined,
           coverUrl: this.resolveCoverUrl(body, normalizedStages),
@@ -844,6 +919,8 @@ export class AdminInsightsService {
     fallbackSummary: string;
     fallbackSuggestion: string;
     fallbackReportSummary: string;
+    academicFacts: Record<string, unknown> | null;
+    subjectScopeCode?: string;
   }) {
     const reportDate = input.reportDate;
     if (input.totalScore === 0 && input.averageScore === 0 && input.activeDays === 0) {
@@ -862,7 +939,11 @@ export class AdminInsightsService {
 
     const cached = input.regenerateAi
       ? null
-      : await this.readCachedAnalyticsInsight(input.schoolId, this.buildAnalyticsScopeKey(input.classId, undefined, input.dateRangeKey), reportDate);
+      : await this.readCachedAnalyticsInsight(
+          input.schoolId,
+          this.buildAnalyticsScopeKey(input.classId, undefined, input.dateRangeKey, input.subjectScopeCode),
+          reportDate,
+        );
 
     if (cached) {
       return {
@@ -896,9 +977,13 @@ export class AdminInsightsService {
       fallbackSummary: input.fallbackSummary,
       fallbackSuggestion: input.fallbackSuggestion,
       fallbackReportSummary: input.fallbackReportSummary,
+      academicFacts: input.academicFacts,
     });
 
-    await this.writeCachedAnalyticsInsight(input.schoolId, this.buildAnalyticsScopeKey(input.classId, undefined, input.dateRangeKey), {
+    await this.writeCachedAnalyticsInsight(
+      input.schoolId,
+      this.buildAnalyticsScopeKey(input.classId, undefined, input.dateRangeKey, input.subjectScopeCode),
+      {
       summary: generated.summary,
       suggestion: generated.suggestion,
       reportSummary: generated.reportSummary,
@@ -1005,6 +1090,7 @@ export class AdminInsightsService {
       fallbackSummary: input.fallbackSummary,
       fallbackSuggestion: input.fallbackSuggestion,
       fallbackReportSummary: input.fallbackReportSummary,
+      academicFacts: null,
     });
 
     await this.writeCachedAnalyticsInsight(input.schoolId, scopeKey, {
@@ -1057,6 +1143,7 @@ export class AdminInsightsService {
     fallbackSummary: string;
     fallbackSuggestion: string;
     fallbackReportSummary: string;
+    academicFacts: Record<string, unknown> | null;
   }) {
     const apiKey = this.configService.get<string>('ARK_API_KEY');
     const apiUrl = this.configService.get<string>('ARK_API_URL') || 'https://ark.cn-beijing.volces.com/api/v3/responses';
@@ -1099,6 +1186,7 @@ export class AdminInsightsService {
                     'summary 必须包含：统计范围、关键数据、主要变化或风险。',
                     'suggestion 必须是可执行动作，至少 2 条动作意图（可写在一句中），并标明优先关注对象。',
                     'reportSummary 需要能直接用于校务汇报：先结论，再依据，再行动建议。',
+                    '若 academicFacts.latestImportedExamLabel 存在：说明最近一次教务全科成绩导入快照；须在 summary/reportSummary/suggestion 中同步提及学业侧的要点，但必须严格遵从 academicFacts 数字，禁止臆造分值或名单。',
                   ].join(' '),
                 },
               ],
@@ -1125,6 +1213,9 @@ export class AdminInsightsService {
                       subjectDistribution: input.subjectDistribution,
                       topClasses: input.topClasses,
                       riskStudents: input.riskStudents,
+                      academicFacts: input.academicFacts ?? {
+                        hint: '无教务最近一次全科快照或尚未聚合',
+                      },
                     },
                     null,
                     2,
@@ -1201,6 +1292,159 @@ export class AdminInsightsService {
     }
   }
 
+  private resolveAcademicInsightRankDelta(
+    classRankDelta: number | null | undefined,
+    schoolRankDelta: number | null | undefined,
+    curr: number | null,
+    prev: number | null,
+  ): number {
+    const explicit = classRankDelta ?? schoolRankDelta;
+    if (explicit !== null && explicit !== undefined && Number.isFinite(Number(explicit))) return Number(explicit);
+    if (curr !== null && prev !== null) return Math.round(Number(curr) - Number(prev));
+    return 0;
+  }
+
+  /** 对齐成绩导入侧的考试名展示格式 */
+  private cleanImportedExamDisplayName(value: string) {
+    const normalized = value.trim();
+    if (!normalized) return normalized;
+    const match = normalized.match(/^(.*?(?:成绩汇总|考生成绩汇总))\s*[-—–:：]+\s*(.+)$/);
+    return match?.[2]?.trim() || normalized;
+  }
+
+  /**
+   * 单机班级最近一次（及上一场同年级）教务全科导入摘要，供 analytics AI 与 fallback 文本拼接。
+   */
+  private async loadClassAcademicFactsForInsights(
+    schoolId: bigint,
+    classId: bigint,
+  ): Promise<{ summaryLine: string; structured: Record<string, unknown> } | null> {
+    const exams = await this.prisma.academicExam.findMany({
+      where: {
+        schoolId,
+        records: {
+          some: {
+            classId,
+            subjectCode: 'total',
+            score: { not: null },
+          },
+        },
+      },
+      orderBy: [{ importedAt: 'desc' }, { id: 'desc' }],
+      take: 8,
+      select: {
+        id: true,
+        name: true,
+        importedAt: true,
+        gradeName: true,
+      },
+    });
+
+    const latestExam = exams[0];
+    if (!latestExam) return null;
+
+    const latestExamGradeLabel = latestExam.gradeName ?? null;
+    const previousExamEntry =
+      exams.slice(1).find((exam) => !latestExamGradeLabel || exam.gradeName === latestExamGradeLabel) ??
+      null;
+
+    const latestTotals = await this.prisma.academicScoreRecord.findMany({
+      where: {
+        schoolId,
+        classId,
+        examId: latestExam.id,
+        subjectCode: 'total',
+        score: { not: null },
+      },
+      select: {
+        studentId: true,
+        score: true,
+        classRankDelta: true,
+        schoolRankDelta: true,
+      },
+    });
+
+    let previousTotals = [] as Array<{
+      studentId: bigint;
+      score: { toString(): string } | null;
+      classRankDelta: number | null;
+      schoolRankDelta: number | null;
+    }>;
+    if (previousExamEntry) {
+      previousTotals = await this.prisma.academicScoreRecord.findMany({
+        where: {
+          schoolId,
+          classId,
+          examId: previousExamEntry.id,
+          subjectCode: 'total',
+          score: { not: null },
+        },
+        select: {
+          studentId: true,
+          score: true,
+          classRankDelta: true,
+          schoolRankDelta: true,
+        },
+      });
+    }
+
+    const prevByStudent = new Map(
+      previousTotals.map((row) => [
+        row.studentId.toString(),
+        {
+          score: row.score !== null ? Number(row.score) : null,
+          classRankDelta: row.classRankDelta,
+          schoolRankDelta: row.schoolRankDelta,
+        },
+      ]),
+    );
+
+    let progressCount = 0;
+    let declineCount = 0;
+
+    let sumScore = 0;
+    for (const row of latestTotals) {
+      const curr = row.score !== null ? Number(row.score) : null;
+      if (curr !== null) sumScore += curr;
+      const prevRow = prevByStudent.get(row.studentId.toString());
+      const prevScore = prevRow?.score ?? null;
+      const delta = this.resolveAcademicInsightRankDelta(
+        row.classRankDelta,
+        row.schoolRankDelta,
+        curr,
+        prevScore,
+      );
+      if (delta > 0) progressCount += 1;
+      if (delta < 0) declineCount += 1;
+    }
+
+    const participantCountLatest = latestTotals.length;
+    const classAvg =
+      participantCountLatest > 0 ? Math.round((sumScore / participantCountLatest) * 10) / 10 : 0;
+
+    const latestImportedExamLabel = this.cleanImportedExamDisplayName(latestExam.name);
+
+    const summaryLine =
+      `${latestImportedExamLabel}，本班参考 ${participantCountLatest} 人，班均总分约 ${classAvg}；` +
+      `配对上一场「${previousExamEntry ? this.cleanImportedExamDisplayName(previousExamEntry.name) : '无'}」粗略计进步 ${progressCount}、退步 ${declineCount} 人次（Δ 取自导入名次/分数差额）。`;
+
+    const structured = {
+      latestImportedExamLabel,
+      latestImportedAt: latestExam.importedAt.toISOString(),
+      previousImportedExamLabel: previousExamEntry
+        ? this.cleanImportedExamDisplayName(previousExamEntry.name)
+        : null,
+      participantCountLatest,
+      classAverageTotalScoreLatest: classAvg,
+      estimatedProgressStudentCount: progressCount,
+      estimatedDeclineStudentCount: declineCount,
+      dataSource:
+        '教务导入的全科总分行（subjectCode=total），与课堂积分、评价记录非同一数据源；不得将人均积分直接等同卷面分。',
+    };
+
+    return { summaryLine, structured };
+  }
+
   private getLocalDateString() {
     const now = new Date();
     const year = now.getFullYear();
@@ -1234,8 +1478,79 @@ export class AdminInsightsService {
     return `${year}-${month}-${day}`;
   }
 
-  private buildAnalyticsScopeKey(classId: number | null, gradeName?: string, dateRangeKey?: string) {
-    if (classId) return `class-${classId}`;
+  private expandAnalyticsSubjectCodes(subjectCodes: string[]): string[] {
+    return Array.from(
+      new Set(
+        subjectCodes
+          .map((code) => code.trim())
+          .filter(Boolean)
+          .flatMap((code) => [...(ANALYTICS_SUBJECT_COMPATIBILITY[code] ?? [code])]),
+      ),
+    );
+  }
+
+  private subjectCodesOverlap(left: string, right: string): boolean {
+    const a = new Set(this.expandAnalyticsSubjectCodes([left]));
+    const b = new Set(this.expandAnalyticsSubjectCodes([right]));
+    for (const code of a) {
+      if (b.has(code)) return true;
+    }
+    return false;
+  }
+
+  private recordMatchesAnalyticsSubject(
+    record: {
+      subjectCode: string | null;
+      rule: { subjectCode: string | null; moduleType: ModuleType };
+    },
+    filterSubject: string,
+  ): boolean {
+    const rule = record.rule;
+    if (rule.moduleType === ModuleType.subject && rule.subjectCode?.trim()) {
+      return this.subjectCodesOverlap(rule.subjectCode, filterSubject);
+    }
+    const explicit = record.subjectCode?.trim();
+    if (explicit) {
+      return this.subjectCodesOverlap(explicit, filterSubject);
+    }
+    return false;
+  }
+
+  private ensureSubjectAnalyticsScope(user: AuthUser, classId: number | undefined, subjectCode: string | undefined): void {
+    const sub = subjectCode?.trim();
+    if (!sub) return;
+    if (!classId) {
+      throw new BadRequestException('单科统计需同时指定班级');
+    }
+    if (user.roleCode !== 'subject_teacher') {
+      return;
+    }
+    const ok = user.classAssignments.some((assignment) => {
+      if (assignment.roleInClass !== 'subject_teacher') return false;
+      if (toNumber(assignment.classId) !== classId) return false;
+      const ac = (assignment.subjectCode ?? '').trim();
+      if (!ac) return false;
+      return this.subjectCodesOverlap(ac, sub);
+    });
+    if (!ok) {
+      throw new ForbiddenException('无权查看该班级该学科的积分分析');
+    }
+  }
+
+  /** 缓存分区键：班级维度必须带上日期区间；任课单科再加 subject 后缀 */
+  private buildAnalyticsScopeKey(
+    classId: number | null,
+    gradeName?: string,
+    dateRangeKey?: string,
+    subjectCode?: string,
+  ) {
+    const sub = subjectCode?.trim();
+    const subjectSuffix = sub ? `-subj-${sub.replace(/[^a-zA-Z0-9_-]/g, '')}` : '';
+    const cid = classId != null ? Number(classId) : NaN;
+    if (Number.isFinite(cid) && cid > 0) {
+      const base = dateRangeKey ? `class-${cid}-${dateRangeKey}` : `class-${cid}`;
+      return `${base}${subjectSuffix}`;
+    }
     const scope = gradeName ? `global-grade-${gradeName}` : 'global-all';
     return dateRangeKey ? `${scope}-${dateRangeKey}` : scope;
   }
@@ -1298,6 +1613,14 @@ export class AdminInsightsService {
     return body.coverUrl?.trim() || stages.find((stage) => stage.stageNo === 1)?.imageUrl || stages[0]?.imageUrl;
   }
 
+  private normalizeVisiblePetCategory(category: string | undefined) {
+    const normalized = normalizePetCategory(category || 'star');
+    if (!VISIBLE_PET_CATEGORIES.includes(normalized)) {
+      throw new BadRequestException('萌宠分类只允许选择星宠或十二生肖');
+    }
+    return normalized;
+  }
+
   private ensureCanManagePets(roleCode: string) {
     if (!['super_admin', 'school_admin', 'moral_admin'].includes(roleCode)) {
       throw new ForbiddenException('当前角色无权维护萌宠图鉴');
@@ -1305,7 +1628,7 @@ export class AdminInsightsService {
   }
 
   private async getAccessibleClassIds(user: Awaited<ReturnType<AuthService['getAuthUserFromAuthorization']>>) {
-    if (['super_admin', 'school_admin', 'moral_admin'].includes(user.roleCode)) {
+    if (['super_admin', 'school_admin', 'academic_admin', 'moral_admin'].includes(user.roleCode)) {
       return null;
     }
     return [...user.scopes.map((scope) => scope.classId), ...user.classAssignments.map((assignment) => assignment.classId)]

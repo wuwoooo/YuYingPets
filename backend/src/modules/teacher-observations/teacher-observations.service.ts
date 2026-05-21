@@ -18,7 +18,7 @@ export class TeacherObservationsService {
 
   async create(authorization: string | undefined, body: TeacherObservationCreateDto) {
     const user = await this.authService.getAuthUserFromAuthorization(authorization);
-    if (!['homeroom_teacher', 'subject_teacher', 'school_admin', 'grade_admin', 'moral_admin', 'super_admin'].includes(user.roleCode)) {
+    if (!['homeroom_teacher', 'subject_teacher', 'school_admin', 'academic_admin', 'grade_admin', 'moral_admin', 'super_admin'].includes(user.roleCode)) {
       throw new ForbiddenException('当前角色无权记录教师观察');
     }
 
@@ -79,7 +79,7 @@ export class TeacherObservationsService {
 
   async aiPolish(authorization: string | undefined, body: TeacherObservationAiPolishDto) {
     const user = await this.authService.getAuthUserFromAuthorization(authorization);
-    if (!['homeroom_teacher', 'subject_teacher', 'school_admin', 'grade_admin', 'moral_admin', 'super_admin'].includes(user.roleCode)) {
+    if (!['homeroom_teacher', 'subject_teacher', 'school_admin', 'academic_admin', 'grade_admin', 'moral_admin', 'super_admin'].includes(user.roleCode)) {
       throw new ForbiddenException('当前角色无权使用观察润色');
     }
 

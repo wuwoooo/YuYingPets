@@ -1,32 +1,15 @@
-const { existsSync } = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { PrismaClient } = require('@prisma/client');
+const { generateRows } = require('./generate-score-rule-sql-from-xls.cjs');
 
 const backendRoot = path.resolve(__dirname, '..');
-const xlsPath = path.resolve(backendRoot, '../doc/加扣分-教务模块（课堂、作业、学业）.xls');
-const generatorPath = path.resolve(__dirname, 'generate_score_rule_sql_from_xls.py');
+const generatorPath = path.resolve(__dirname, 'generate-score-rule-sql-from-xls.cjs');
 const sqlPath = path.resolve(__dirname, '../sql/score_rule_full_from_xls.sql');
 const schemaPath = path.resolve(__dirname, '../prisma/schema.prisma');
-
-function resolvePythonExecutable() {
-  const candidates = [
-    process.env.XLS_IMPORT_PYTHON,
-    '/Users/wuwoo/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3',
-    'python3',
-  ].filter(Boolean);
-
-  for (const candidate of candidates) {
-    if (candidate.includes(path.sep)) {
-      if (existsSync(candidate)) {
-        return candidate;
-      }
-      continue;
-    }
-    return candidate;
-  }
-
-  throw new Error('未找到可用的 Python 解释器，请设置 XLS_IMPORT_PYTHON。');
-}
+const legacyXlsPath = process.env.SCORE_RULES_LEGACY_XLS || path.resolve(backendRoot, '../doc/加扣分-教务模块（课堂、作业、学业）.xls');
+const moralXlsxPath = process.env.SCORE_RULES_MORAL_XLSX || '/Users/wuwoo/Downloads/德育处学生管理加扣分类别.xlsx';
+const classXlsxPath = process.env.SCORE_RULES_CLASS_XLSX || '/Users/wuwoo/Downloads/班级量化管理类别（班级评价）.xlsx';
 
 function runOrThrow(command, args, extraEnv = {}) {
   const result = spawnSync(command, args, {
@@ -40,25 +23,126 @@ function runOrThrow(command, args, extraEnv = {}) {
   }
 }
 
+async function importRowsSafely() {
+  const prisma = new PrismaClient();
+  const rows = generateRows({
+    legacyInput: legacyXlsPath,
+    moralInput: moralXlsxPath,
+    classInput: classXlsxPath,
+  });
+
+  try {
+    const school = await prisma.school.findFirst({
+      where: { code: 'YYXX' },
+      orderBy: { id: 'asc' },
+      select: { id: true },
+    }) || await prisma.school.findFirst({ orderBy: { id: 'asc' }, select: { id: true } });
+    if (!school) throw new Error('未找到 school 数据');
+
+    const semester = await prisma.semester.findFirst({
+      where: { schoolId: school.id, isCurrent: true },
+      orderBy: { id: 'desc' },
+      select: { id: true },
+    }) || await prisma.semester.findFirst({
+      where: { schoolId: school.id },
+      orderBy: { id: 'desc' },
+      select: { id: true },
+    });
+    if (!semester) throw new Error('未找到 semester 数据');
+
+    const operator = await prisma.user.findFirst({
+      where: { schoolId: school.id, username: 'superadmin_demo' },
+      select: { id: true },
+    }) || await prisma.user.findFirst({
+      where: { schoolId: school.id, username: 'teacher_demo' },
+      select: { id: true },
+    }) || await prisma.user.findFirst({
+      where: { schoolId: school.id },
+      orderBy: { id: 'asc' },
+      select: { id: true },
+    });
+    if (!operator) throw new Error('未找到 operator 用户');
+
+    for (const row of rows) {
+      const existing = await prisma.scoreRule.findFirst({
+        where: {
+          schoolId: school.id,
+          semesterId: semester.id,
+          code: row.code,
+        },
+        select: { id: true },
+      });
+
+      const data = {
+        schoolId: school.id,
+        semesterId: semester.id,
+        moduleType: row.module_type,
+        subjectCode: row.subject_code,
+        sceneCode: row.scene_code,
+        code: row.code,
+        name: row.name,
+        scoreType: row.score_type,
+        scoreMode: 'fixed',
+        scoreTarget: row.score_target,
+        scoreValue: row.score_value,
+        dimension: row.dimension,
+        tag: row.tag,
+        sentiment: row.sentiment,
+        aiSummaryText: row.ai_summary_text,
+        description: row.description,
+        allowedRoleCodes: row.allowed_role_codes.length > 0 ? JSON.stringify(row.allowed_role_codes) : null,
+        isHighFrequency: Boolean(row.is_high_frequency),
+        displayEnabled: Boolean(row.display_enabled),
+        adminEnabled: Boolean(row.admin_enabled),
+        status: 'enabled',
+        updatedBy: operator.id,
+        deletedAt: null,
+      };
+
+      if (existing) {
+        await prisma.scoreRule.update({
+          where: { id: existing.id },
+          data,
+        });
+      } else {
+        await prisma.scoreRule.create({
+          data: {
+            ...data,
+            createdBy: operator.id,
+          },
+        });
+      }
+    }
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
 function main() {
   const generateOnly = process.argv.includes('--generate-only');
-  const python = resolvePythonExecutable();
-
   runOrThrow(
-    python,
-    [generatorPath, '--input', xlsPath, '--output', sqlPath],
-    {
-      PYTHONPATH:
-        process.env.PYTHONPATH ||
-        '/Users/wuwoo/.cache/codex-runtimes/codex-primary-runtime/dependencies/python',
-    },
+    process.execPath,
+    [
+      generatorPath,
+      '--legacy-input',
+      legacyXlsPath,
+      '--moral-input',
+      moralXlsxPath,
+      '--class-input',
+      classXlsxPath,
+      '--output',
+      sqlPath,
+    ],
   );
 
   if (generateOnly) {
     return;
   }
 
-  runOrThrow('npx', ['prisma', 'db', 'execute', '--file', sqlPath, '--schema', schemaPath]);
+  return importRowsSafely();
 }
 
-main();
+Promise.resolve(main()).catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

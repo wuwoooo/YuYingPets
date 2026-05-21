@@ -303,6 +303,81 @@ export class ScoreRecordsService {
     return result;
   }
 
+  async createLinkedRecordsForClassEvaluation(
+    tx: Prisma.TransactionClient,
+    params: {
+      schoolId: bigint;
+      semesterId: bigint;
+      classId: bigint;
+      rule: {
+        id: bigint;
+        subjectCode: string | null;
+        sceneCode: string;
+        dimension: string | null;
+        tag: string | null;
+        sentiment: 'positive' | 'negative';
+        scoreType: 'add' | 'deduct';
+        scoreValue: number;
+        scoreTarget?: 'student' | 'class';
+      };
+      operatorId: bigint;
+      operatorName: string;
+      sourceTerminal: TerminalSource;
+      sourceRole: string;
+      remark?: string;
+      linkMultiplier: number;
+    },
+  ) {
+    const multiplier = Math.max(0, Math.trunc(Number(params.linkMultiplier)));
+    if (multiplier <= 0) {
+      return [];
+    }
+
+    const classScoreDelta = this.resolveSignedValue(params.rule.scoreType, params.rule.scoreValue);
+    const linkedStudentScoreDelta = classScoreDelta * multiplier;
+    if (linkedStudentScoreDelta === 0) {
+      return [];
+    }
+
+    const students = await tx.student.findMany({
+      where: {
+        classId: params.classId,
+        deletedAt: null,
+        status: 'enabled',
+      },
+      include: {
+        groupRel: true,
+      },
+      orderBy: [{ studentNo: 'asc' }, { id: 'asc' }],
+    });
+
+    const remark = params.remark?.trim()
+      ? `${params.remark.trim()}（班级评价联动）`
+      : '班级评价联动';
+
+    const items = [];
+    for (const student of students) {
+      const created = await this.createScoreRecordForStudent(tx, {
+        schoolId: params.schoolId,
+        semesterId: params.semesterId,
+        classId: params.classId,
+        studentId: student.id,
+        classGroupId: student.groupRel?.classGroupId ?? null,
+        rule: params.rule,
+        operatorId: params.operatorId,
+        operatorName: params.operatorName,
+        sourceTerminal: params.sourceTerminal,
+        sourceRole: params.sourceRole,
+        remark,
+        allowClassRuleLinkage: true,
+        overrideScoreDelta: linkedStudentScoreDelta,
+      });
+      items.push(created);
+    }
+
+    return items;
+  }
+
   reverse(id: number) {
     return { code: 0, message: 'ok', data: { id } };
   }
@@ -311,7 +386,7 @@ export class ScoreRecordsService {
     if (sourceTerminal === 'display' && roleCode === 'display_account') {
       throw new ForbiddenException('展示端账号不能执行加减分');
     }
-    if (!['homeroom_teacher', 'subject_teacher', 'school_admin', 'grade_admin', 'moral_admin', 'super_admin'].includes(roleCode)) {
+    if (!['homeroom_teacher', 'subject_teacher', 'school_admin', 'academic_admin', 'grade_admin', 'moral_admin', 'super_admin'].includes(roleCode)) {
       throw new ForbiddenException('当前角色无权执行评价');
     }
   }
@@ -384,10 +459,15 @@ export class ScoreRecordsService {
       sourceTerminal: TerminalSource;
       sourceRole: string;
       remark?: string;
+      allowClassRuleLinkage?: boolean;
+      overrideScoreDelta?: number;
     },
   ) {
-    const scoreDelta = this.resolveSignedValue(params.rule.scoreType, params.rule.scoreValue);
-    if (params.rule.scoreTarget === 'class') {
+    const scoreDelta =
+      typeof params.overrideScoreDelta === 'number'
+        ? Math.trunc(params.overrideScoreDelta)
+        : this.resolveSignedValue(params.rule.scoreType, params.rule.scoreValue);
+    if (params.rule.scoreTarget === 'class' && !params.allowClassRuleLinkage) {
       throw new ForbiddenException('班级积分规则不能用于学生评价');
     }
 

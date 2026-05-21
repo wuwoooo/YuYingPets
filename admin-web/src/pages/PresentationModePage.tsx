@@ -2,16 +2,21 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import presentationLogo from '../assets/presentation-logo.svg';
 import { PresentationGlyph } from '../components/PresentationGlyph';
+import { PresentationHero3D } from '../components/PresentationHero3D';
+import '../presentation.css';
 import type { 
   AcademicExamListItem,
   AcademicScoreListRow,
   AnalyticsData,
   DisplayWeatherPayload,
   DisplayTerminal,
+  HonorRecord,
+  ScoreRecord,
   StudentImportPayload
 } from '../lib/api';
 import { adminApi } from '../lib/api';
 import { buildAcademicGrowthSummary } from '../utils/academicGrowth';
+import { canManageDisplays } from '../utils/adminPermissions';
 import type {
   AdminState
 } from '../types/admin';
@@ -62,6 +67,8 @@ export function PresentationModePage({
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
   const [mapCenter, setMapCenter] = useState({ city: '未设置城市', lat: 25.651, lng: 100.173, source: '默认坐标' });
   const [displayTerminals, setDisplayTerminals] = useState<DisplayTerminal[]>([]);
+  const [scoreRecords, setScoreRecords] = useState<ScoreRecord[]>([]);
+  const [honorRecords, setHonorRecords] = useState<HonorRecord[]>([]);
   const [weatherInfo, setWeatherInfo] = useState<DisplayWeatherPayload | null>(null);
   const [academicExams, setAcademicExams] = useState<AcademicExamListItem[]>([]);
   const [academicScores, setAcademicScores] = useState<AcademicScoreListRow[]>([]);
@@ -82,13 +89,24 @@ export function PresentationModePage({
   const [metricDisplayValues, setMetricDisplayValues] = useState<string[]>(() => ['0', '0', '0', '0', '0', 'Lv.0.0']);
 
   useEffect(() => {
+    const enterFullscreen = async () => {
+      try {
+        if (!document.fullscreenElement) {
+          await document.documentElement.requestFullscreen();
+        }
+      } catch (err) {
+        // ignore
+      }
+    };
+    enterFullscreen();
+
     const timers = [
       window.setTimeout(() => setIsActive(true), 60),
       window.setTimeout(() => setCurtainOpen(true), 200),
-      window.setTimeout(() => setBarsExpanded(true), 3200),
-      window.setTimeout(() => setLineAnimated(true), 4500),
-      window.setTimeout(() => setExtendedBarsExpanded(true), 5400),
-      window.setTimeout(() => setTickerVisible(true), 5800),
+      window.setTimeout(() => setBarsExpanded(true), 800),
+      window.setTimeout(() => setLineAnimated(true), 1200),
+      window.setTimeout(() => setExtendedBarsExpanded(true), 1600),
+      window.setTimeout(() => setTickerVisible(true), 2000),
     ];
 
     let frame = 0;
@@ -151,13 +169,13 @@ export function PresentationModePage({
   useEffect(() => {
     let active = true;
     adminApi
-      .settings(token)
+      .displaySettings(token)
       .then((response) => {
         if (!active) return;
-        const lat = Number(response.data.display.weatherLatitude);
-        const lng = Number(response.data.display.weatherLongitude);
+        const lat = Number(response.data.weatherLatitude);
+        const lng = Number(response.data.weatherLongitude);
         setMapCenter({
-          city: response.data.display.weatherLabel?.trim() || '未设置城市',
+          city: response.data.weatherLabel?.trim() || '未设置城市',
           lat: Number.isFinite(lat) ? Number(lat.toFixed(4)) : 25.651,
           lng: Number.isFinite(lng) ? Number(lng.toFixed(4)) : 100.173,
           source: Number.isFinite(lat) && Number.isFinite(lng) ? '系统经纬度' : '默认坐标',
@@ -231,6 +249,10 @@ export function PresentationModePage({
   );
 
   useEffect(() => {
+    if (!canManageDisplays(user?.roleCode)) {
+      setDisplayTerminals([]);
+      return;
+    }
     let active = true;
     adminApi
       .displayTerminals(token)
@@ -241,6 +263,48 @@ export function PresentationModePage({
       .catch(() => {
         if (!active) return;
         setDisplayTerminals([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [token, user?.roleCode]);
+
+  useEffect(() => {
+    let active = true;
+    adminApi
+      .scoreRecords(token)
+      .then((response) => {
+        if (!active) return;
+        setScoreRecords(
+          response.data
+            .slice()
+            .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()),
+        );
+      })
+      .catch(() => {
+        if (!active) return;
+        setScoreRecords([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [token]);
+
+  useEffect(() => {
+    let active = true;
+    adminApi
+      .honorRecords(token)
+      .then((response) => {
+        if (!active) return;
+        setHonorRecords(
+          response.data
+            .slice()
+            .sort((left, right) => new Date(right.grantedAt).getTime() - new Date(left.grantedAt).getTime()),
+        );
+      })
+      .catch(() => {
+        if (!active) return;
+        setHonorRecords([]);
       });
     return () => {
       active = false;
@@ -439,6 +503,16 @@ export function PresentationModePage({
     [topStudents],
   );
   const topHonors = useMemo(() => [...honors].sort((left, right) => right.grantedCount - left.grantedCount).slice(0, 4), [honors]);
+  const honorSummary = useMemo(() => {
+    const totalGranted = honorRecords.length;
+    const classTargetCount = honorRecords.filter((item) => item.targetType === 'class').length;
+    const studentTargetCount = totalGranted - classTargetCount;
+    const latestRecords = honorRecords.slice(0, 6).map((item) => ({
+      ...item,
+      targetLabel: item.targetType === 'class' ? item.className : item.studentName ?? item.className,
+    }));
+    return { totalGranted, classTargetCount, studentTargetCount, latestRecords };
+  }, [honorRecords]);
   const terminalSummary = useMemo(() => {
     const online = displayTerminals.filter((item) => item.onlineStatus === 'online').length;
     const offline = displayTerminals.length - online;
@@ -467,6 +541,107 @@ export function PresentationModePage({
       { label: '终端总数', value: `${terminalSummary.total}块`, state: 'ok' },
     ] as const;
   }, [terminalSummary]);
+  const recentPresentationEvents = useMemo(
+    () =>
+      scoreRecords.slice(0, 10).map((item) => {
+        const classInfo = classes.find((row) => row.id === item.classId);
+        const student = students.find((row) => row.id === item.studentId);
+        return {
+          id: item.id,
+          className: classInfo ? `${classInfo.gradeName}${classInfo.name}` : `班级#${item.classId}`,
+          studentName: student?.name ?? `学生#${item.studentId}`,
+          ruleName: item.ruleName || item.tag || item.dimension || '学生评价',
+          scoreDelta: item.scoreDelta,
+          createdAt: item.createdAt,
+        };
+      }),
+    [classes, scoreRecords, students],
+  );
+
+  const presentationTopClasses = useMemo(() => {
+    const fallback = [...classes]
+      .sort((left, right) => right.classScore - left.classScore)
+      .slice(0, 10)
+      .map((item) => ({
+        id: item.id,
+        label: `${item.gradeName}${item.name}`,
+        score: item.classScore,
+        studentCount: item.studentCount,
+      }));
+    if (!analytics?.topClasses?.length) return fallback;
+    return analytics.topClasses.slice(0, 10).map((item) => {
+      const classMeta = classes.find((row) => row.id === item.id);
+      return {
+        id: item.id,
+        label: classMeta ? `${classMeta.gradeName}${classMeta.name}` : item.name,
+        score: item.currentScoreTotal,
+        studentCount: classMeta?.studentCount ?? 0,
+      };
+    });
+  }, [analytics?.topClasses, classes]);
+
+  const presentationHeatMap = useMemo(() => {
+    const rows = analytics?.heatMap?.rows ?? ['早读', '上午', '下午', '课后'];
+    const cols = analytics?.heatMap?.cols ?? ['一', '二', '三', '四', '五'];
+    const source = analytics?.heatMap?.data ?? [];
+    const matrix = rows.map((rowLabel) => {
+      const found = source.find((item) => item.row === rowLabel);
+      const values = cols.map((_, index) => {
+        const raw = found?.values?.[index];
+        return Number.isFinite(raw) ? Number(raw) : 0;
+      });
+      return { row: rowLabel, values };
+    });
+    const flatValues = matrix.flatMap((item) => item.values);
+    const total = flatValues.reduce((sum, value) => sum + value, 0);
+    const peak = flatValues.length ? Math.max(...flatValues) : 0;
+    return { rows, cols, matrix, total, peak };
+  }, [analytics?.heatMap]);
+
+  const presentationTopBehaviors = useMemo(() => {
+    const grouped = scoreRecords.reduce((map, item) => {
+      const name = item.ruleName?.trim() || item.tag?.trim() || item.dimension?.trim() || item.sceneCode?.trim() || '未命名事件';
+      const current = map.get(name) ?? { name, count: 0, positive: 0, negative: 0 };
+      current.count += 1;
+      if (item.scoreDelta >= 0) current.positive += 1;
+      else current.negative += 1;
+      map.set(name, current);
+      return map;
+    }, new Map<string, { name: string; count: number; positive: number; negative: number }>());
+    return Array.from(grouped.values())
+      .sort((left, right) => right.count - left.count)
+      .slice(0, 8)
+      .map((item, index) => ({
+        ...item,
+        color:
+          item.negative > item.positive
+            ? 'rgba(255, 99, 132, 0.82)'
+            : index < 3
+              ? 'rgba(0, 229, 255, 0.88)'
+              : index < 6
+                ? 'rgba(0, 229, 255, 0.58)'
+                : 'rgba(0, 229, 255, 0.3)',
+      }));
+  }, [scoreRecords]);
+
+  const anomalyAreaMock = useMemo(() => {
+    // 3 lines: 考勤异常, 课堂违纪, 作业退步
+    return Array.from({length: 14}).map((_, i) => ({
+      day: `D${i+1}`,
+      attendance: 10 + Math.sin(i) * 5 + Math.random() * 5,
+      discipline: 20 + Math.cos(i) * 8 + Math.random() * 5,
+      homework: 15 + Math.sin(i * 0.5) * 6 + Math.random() * 5,
+    }));
+  }, []);
+
+  const funnelStagesMock = useMemo(() => {
+    return [
+      { label: '预警触发', value: 1240, color: 'rgba(0, 229, 255, 0.9)' },
+      { label: '规则匹配', value: 980, color: 'rgba(0, 150, 255, 0.8)' },
+      { label: '教师跟进', value: 650, color: 'rgba(255, 179, 0, 0.8)' },
+      { label: '闭环结案', value: 420, color: 'rgba(0, 230, 118, 0.8)' },
+    ];
+  }, []);
   const alerts = useMemo(() => {
     const lowClasses = [...classes]
       .sort((left, right) => left.classScore - right.classScore)
@@ -487,6 +662,33 @@ export function PresentationModePage({
         text: `${item.className}${item.studentName}：${item.reason}`,
       }))
     : alerts;
+  const warningSummary = useMemo(() => {
+    const riskStudents = analytics?.riskStudents ?? [];
+    const highCount = riskStudents.filter((item) => item.riskLevel === 'high').length;
+    const mediumCount = riskStudents.filter((item) => item.riskLevel === 'medium').length;
+    const lowCount = riskStudents.filter((item) => item.riskLevel === 'low').length;
+    const negativeRecords = scoreRecords.filter((item) => item.scoreDelta < 0);
+    const affectedClasses = new Set(negativeRecords.map((item) => item.classId)).size;
+    const focusEvents = negativeRecords.slice(0, 4).map((item) => {
+      const classInfo = classes.find((row) => row.id === item.classId);
+      const student = students.find((row) => row.id === item.studentId);
+      return {
+        id: item.id,
+        className: classInfo ? `${classInfo.gradeName}${classInfo.name}` : `班级#${item.classId}`,
+        studentName: student?.name ?? `学生#${item.studentId}`,
+        label: item.ruleName || item.tag || item.dimension || item.sceneCode || '行为事件',
+        scoreDelta: item.scoreDelta,
+      };
+    });
+    return {
+      highCount,
+      mediumCount,
+      lowCount,
+      negativeEventCount: negativeRecords.length,
+      affectedClasses,
+      focusEvents,
+    };
+  }, [analytics?.riskStudents, classes, scoreRecords, students]);
   const presentationSummaryItems = analytics?.aiInsight
     ? [
         analytics.aiInsight.summary,
@@ -607,32 +809,6 @@ export function PresentationModePage({
   }, [radarAxes]);
   const radarPolygon = radarPoints.map((item) => `${item.valueX},${item.valueY}`).join(' ');
   const radarScore = Math.round(radarAxes.reduce((sum, item) => sum + item.value, 0) / Math.max(radarAxes.length, 1));
-  const flowStages = useMemo(() => {
-    const eventTotal = Math.max(24, Math.round(classes.length * 4.6 + students.length * 0.4));
-    const reportTotal = Math.max(18, Math.round(eventTotal * 0.86));
-    const disposeTotal = Math.max(14, Math.round(reportTotal * 0.91));
-    const closedTotal = Math.max(10, Math.round(disposeTotal * 0.88));
-    const source = [
-      { label: '事件发现', value: eventTotal, theme: 'blue' },
-      { label: '上报研判', value: reportTotal, theme: 'purple' },
-      { label: '处置跟进', value: disposeTotal, theme: 'gold' },
-      { label: '闭环归档', value: closedTotal, theme: 'green' },
-    ] as const;
-    const maxValue = Math.max(...source.map((item) => item.value), 1);
-    return source.map((item) => ({
-      ...item,
-      width: Math.max(38, Math.round((item.value / maxValue) * 100)),
-    }));
-  }, [classes.length, students.length]);
-  const predictionSeries = useMemo(() => {
-    const base = trendPoints.map((item) => item.value);
-    const last = base[base.length - 1] ?? 220;
-    const prev = base[base.length - 2] ?? Math.round(last * 0.95);
-    const slope = last - prev;
-    const forecast = Array.from({ length: 3 }, (_, index) => Math.max(120, Math.round(last + slope * (index + 1) * 0.9)));
-    return [...base.slice(-4), ...forecast];
-  }, [trendPoints]);
-  const predictionMax = Math.max(...predictionSeries, 1);
   const clockSegments = clockText.split(':');
   const clockMain = clockSegments.length === 3 ? `${clockSegments[0]}:${clockSegments[1]}` : clockText;
   const clockSecond = clockSegments.length === 3 ? clockSegments[2] : '00';
@@ -648,7 +824,7 @@ export function PresentationModePage({
     document.getElementById(stageId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
   return (
-    <div className={`presentation-page${isActive ? ' is-active' : ''}`}>
+    <div className={`presentation-page scifi-theme${isActive ? ' is-active' : ''}`}>
       <div className={`presentation-curtain${curtainOpen ? ' open' : ''}`} />
       <div className="presentation-aurora" />
       <div className="presentation-grid" />
@@ -709,7 +885,7 @@ export function PresentationModePage({
               type="button"
               onClick={async () => {
                 try {
-                  await adminApi.updateDisplaySettings(token, { defaultMode: 'daily' });
+                  await adminApi.setPresentationMode(token, 'daily');
                 } finally {
                   navigate(returnTo || '/dashboard');
                 }
@@ -720,23 +896,170 @@ export function PresentationModePage({
           </div>
         </header>
 
-        <section id="presentation-hero-stage" className="presentation-hero">
-          <div className="presentation-hero-title">校级数据驾驶舱</div>
-          <div className="presentation-hero-sub">SCHOOL DATA COCKPIT</div>
-          <div className="presentation-hero-line" />
-          <div className="presentation-hero-motto">倾一腔热血铸国家栋梁 引万道清泉育世纪英才</div>
-        </section>
-
-        <section className="presentation-metrics">
-          {heroMetrics.map((item, index) => (
-            <div key={item.label} className={`presentation-metric theme-${item.theme}`} style={{ animationDelay: `${1800 + index * 140}ms` }}>
-              <PresentationGlyph name={item.icon} className="presentation-metric-icon" />
-              <div className="presentation-metric-label">{item.label}</div>
-              <div className={`presentation-metric-value ${item.glow}`}>{item.value}</div>
-              <div className="presentation-metric-sub">{item.sub}</div>
+        <div className="presentation-cockpit-layout">
+          {/* 左翼：基础指标 + 领跑榜 */}
+          <div className="cockpit-left-wing">
+            <div className="cockpit-metrics-col">
+              {heroMetrics.slice(0, 4).map((item, index) => (
+                <div key={item.label} className={`presentation-metric theme-${item.theme}`} style={{ animationDelay: `${1800 + index * 100}ms` }}>
+                  <PresentationGlyph name={item.icon} className="presentation-metric-icon" />
+                  <div className="presentation-metric-label">{item.label}</div>
+                  <div className={`presentation-metric-value ${item.glow}`}>{item.value}</div>
+                </div>
+              ))}
             </div>
-          ))}
-        </section>
+            <div className="presentation-panel fade-up-panel cockpit-panel">
+              <div className="presentation-panel-title"><PresentationGlyph name="star" className="presentation-title-icon" />学生积分领跑榜 (TOP 5)</div>
+              <div className="presentation-sprint-list">
+                {topStudents.slice(0, 5).map((item, index) => {
+                  const max = Math.max(...topStudents.map(s => s.currentScore), 1);
+                  const width = Math.max(20, Math.round((item.currentScore / max) * 100));
+                  return (
+                    <div key={item.id} className="presentation-sprint-row">
+                      <span className={`presentation-rank-num top-${Math.min(index + 1, 3)}`}>{index + 1}</span>
+                      <div className="presentation-sprint-track">
+                        <div className="presentation-sprint-fill" style={{ width: barsExpanded ? `${width}%` : '0%' }}>
+                          <span>{item.name}</span>
+                          <strong>{item.currentScore} 分</strong>
+                        </div>
+                      </div>
+                      <span className="presentation-sprint-delta">{item.className}</span>
+                    </div>
+                  );
+                })}
+                {topStudents.length === 0 ? <div className="presentation-summary-item">暂无学生数据。</div> : null}
+              </div>
+            </div>
+            <div className="presentation-panel fade-up-panel cockpit-panel">
+              <div className="presentation-panel-title"><PresentationGlyph name="trend" className="presentation-title-icon" />近 7 天全校积分趋势</div>
+              <svg className={`presentation-chart${lineAnimated ? ' animated' : ''}`} viewBox="0 0 420 190" aria-hidden="true">
+                <defs>
+                  <linearGradient id="presentationTrendEnhanced" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="rgba(93,173,226,0.45)" />
+                    <stop offset="100%" stopColor="rgba(93,173,226,0)" />
+                  </linearGradient>
+                </defs>
+                <polyline className="chart-area" points={trendArea} fill="url(#presentationTrendEnhanced)" />
+                <polyline className="chart-line" points={trendPolyline} fill="none" stroke="#5DADE2" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+                {trendPoints.map((point, index) => (
+                  <g key={`${point.x}-${point.y}`}>
+                    <circle className="chart-dot" cx={point.x} cy={point.y} r="4.5" fill={index === trendPoints.length - 1 ? '#F7DC6F' : '#5DADE2'} />
+                    <text x={point.x - 12} y="185" className="presentation-axis-text">{weekLabels[index] ?? `D${index + 1}`}</text>
+                  </g>
+                ))}
+              </svg>
+            </div>
+          </div>
+
+          {/* 中央枢纽：大标题 + 3D 全息建筑 */}
+          <div className="cockpit-center-hub" style={{ flexDirection: 'column', justifyContent: 'flex-start' }}>
+            <section id="presentation-hero-stage" className="presentation-hero">
+              <div className="presentation-hero-title">校级数据驾驶舱</div>
+              <div className="presentation-hero-sub">SCHOOL DATA COCKPIT</div>
+              <div className="presentation-hero-line" />
+              <div className="presentation-hero-motto">为孩子一生奠基，对民族未来负责</div>
+              <PresentationHero3D />
+            </section>
+
+            <div className="presentation-panel fade-up-panel cockpit-panel" style={{ width: '90%', marginTop: 'auto', marginBottom: '20px' }}>
+              <div className="presentation-panel-title"><PresentationGlyph name="trend" className="presentation-title-icon" />事件量 & 处置时效（双轴建模）</div>
+              <div className="presentation-dual-axis">
+                <div className="presentation-dual-axis-bars">
+                  {operationBars.map((item) => (
+                    <div key={item.label} className="presentation-dual-bar-col">
+                      <div className="presentation-dual-bar-track">
+                        <div className="presentation-dual-bar-fill" style={{ height: barsExpanded ? `${item.barHeight}%` : '0%' }} />
+                      </div>
+                      <div className="presentation-dual-bar-label">{item.label}</div>
+                    </div>
+                  ))}
+                </div>
+                <svg className="presentation-dual-line" viewBox="0 0 312 124" aria-hidden="true" style={{ width: '100%', height: '100%' }}>
+                  <polyline
+                    className="presentation-dual-line-path"
+                    points={operationBars.map((item, index) => `${10 + index * 16.6}%,${item.lineY}`).join(' ')}
+                  />
+                  {operationBars.map((item, index) => (
+                    <g key={`${item.label}-${item.disposeMinutes}`}>
+                      <circle cx={`${10 + index * 16.6}%`} cy={item.lineY} r="4" className="presentation-dual-line-dot" />
+                    </g>
+                  ))}
+                </svg>
+              </div>
+              <div className="presentation-panel-footnote">事件总量 <strong>{operationBars.reduce((sum, item) => sum + item.eventCount, 0)}</strong> 件 · 平均时效 <span>{Math.round(operationBars.reduce((sum, item) => sum + item.disposeMinutes, 0) / operationBars.length)} 分钟</span></div>
+            </div>
+          </div>
+
+          {/* 右翼：扩展指标 + 饼图 + 雷达图 + 实时流 */}
+          <div className="cockpit-right-wing">
+            <div className="cockpit-metrics-col">
+              {heroMetrics.slice(4, 6).map((item, index) => (
+                <div key={item.label} className={`presentation-metric theme-${item.theme}`} style={{ animationDelay: `${2220 + index * 100}ms` }}>
+                  <PresentationGlyph name={item.icon} className="presentation-metric-icon" />
+                  <div className="presentation-metric-label">{item.label}</div>
+                  <div className={`presentation-metric-value ${item.glow}`}>{item.value}</div>
+                </div>
+              ))}
+            </div>
+            
+            <div className="presentation-panel fade-up-panel cockpit-panel">
+              <div className="presentation-panel-title"><PresentationGlyph name="shield" className="presentation-title-icon" />治理能力雷达图</div>
+              <div className="presentation-radar-wrap">
+                <svg viewBox="0 0 220 220" className="presentation-radar-chart" aria-hidden="true" style={{ transform: 'scale(0.85)', margin: '-15px 0' }}>
+                  <circle cx="110" cy="110" r="82" className="presentation-radar-ring" />
+                  <circle cx="110" cy="110" r="58" className="presentation-radar-ring" />
+                  <circle cx="110" cy="110" r="34" className="presentation-radar-ring" />
+                  {radarPoints.map((item) => (
+                    <line key={`${item.name}-line`} x1="110" y1="110" x2={item.outerX} y2={item.outerY} className="presentation-radar-axis" />
+                  ))}
+                  <polygon points={radarPolygon} className="presentation-radar-polygon" />
+                  {radarPoints.map((item) => (
+                    <circle key={`${item.name}-dot`} cx={item.valueX} cy={item.valueY} r="4.2" className="presentation-radar-dot" />
+                  ))}
+                </svg>
+                <div className="presentation-radar-score" style={{ minWidth: '90px', padding: '8px' }}>
+                  <span>综合治理指数</span>
+                  <strong style={{ fontSize: '28px' }}>{radarScore}</strong>
+                </div>
+              </div>
+            </div>
+
+            <div className="presentation-panel fade-up-panel cockpit-panel">
+              <div className="presentation-panel-title"><PresentationGlyph name="pie" className="presentation-title-icon" />评价维度分布</div>
+              <div className="presentation-donut-wrap">
+                <div className="presentation-donut" style={{ width: '120px', height: '120px' }} />
+                <div className="presentation-legend-list" style={{ gap: '6px' }}>
+                  {ruleDistribution.map(([name, count], index) => (
+                    <div key={name} className="presentation-legend-item">
+                      <span className={`presentation-legend-dot dot-${index + 1}`} />
+                      <span style={{ fontSize: '12px' }}>{name}</span>
+                      <strong style={{ fontSize: '13px' }}>{count}项</strong>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="presentation-panel fade-up-panel cockpit-panel">
+              <div className="presentation-panel-title"><PresentationGlyph name="trend" className="presentation-title-icon" />数据实时流入 (Live Feed)</div>
+              <div className="presentation-live-feed">
+                <div className="presentation-live-feed-inner">
+                  {recentPresentationEvents.slice(0, 10).map((item, i) => (
+                    <div key={`${item.id}-${i}`} className="live-feed-item">
+                      <span className="live-feed-time">{new Date(item.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'})}</span>
+                      <span className="live-feed-name">{item.studentName}</span>
+                      <span className="live-feed-action">{item.ruleName}</span>
+                      <span className="live-feed-score" style={{ color: item.scoreDelta >= 0 ? '#ffb300' : '#ff1744' }}>
+                        {item.scoreDelta > 0 ? '+' : ''}{item.scoreDelta}
+                      </span>
+                    </div>
+                  ))}
+                  {recentPresentationEvents.length === 0 ? <div className="live-feed-item">暂无最新数据流</div> : null}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
 
         <div className="presentation-divider section-1" id="presentation-academic-heading">第一幕 · 学业成长成果</div>
 
@@ -988,150 +1311,140 @@ export function PresentationModePage({
 
         <section className="presentation-row presentation-row-3">
           <div className="presentation-panel fade-up-panel">
-            <div className="presentation-panel-title"><PresentationGlyph name="trend" className="presentation-title-icon" />近 7 天全校积分趋势</div>
-            <svg className={`presentation-chart${lineAnimated ? ' animated' : ''}`} viewBox="0 0 420 190" aria-hidden="true">
-              <defs>
-                <linearGradient id="presentationTrendEnhanced" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="rgba(93,173,226,0.45)" />
-                  <stop offset="100%" stopColor="rgba(93,173,226,0)" />
-                </linearGradient>
-              </defs>
-              <polyline className="chart-area" points={trendArea} fill="url(#presentationTrendEnhanced)" />
-              <polyline className="chart-line" points={trendPolyline} fill="none" stroke="#5DADE2" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-              {trendPoints.map((point, index) => (
-                <g key={`${point.x}-${point.y}`}>
-                  <circle className="chart-dot" cx={point.x} cy={point.y} r="4.5" fill={index === trendPoints.length - 1 ? '#F7DC6F' : '#5DADE2'} />
-                  <text x={point.x - 12} y="185" className="presentation-axis-text">{weekLabels[index] ?? `D${index + 1}`}</text>
-                </g>
-              ))}
-            </svg>
-          </div>
-          <div className="presentation-panel fade-up-panel">
-            <div className="presentation-panel-title"><PresentationGlyph name="pie" className="presentation-title-icon" />行为类型分布（本月）</div>
-            <div className="presentation-donut-wrap">
-              <div className="presentation-donut" />
-              <div className="presentation-legend-list">
-                {ruleDistribution.map(([name, count], index) => (
-                  <div key={name} className="presentation-legend-item">
-                    <span className={`presentation-legend-dot dot-${index + 1}`} />
-                    <span>{name}</span>
-                    <strong>{count}</strong>
-                  </div>
-                ))}
-              </div>
+            <div className="presentation-panel-title"><PresentationGlyph name="trend" className="presentation-title-icon" />班级积分 Top 10</div>
+            <div className="presentation-grade-3d-bars">
+               {presentationTopClasses.map((item) => (
+                 <div key={item.id} className="grade-3d-bar-col">
+                   <div className="grade-3d-bar-track">
+                     <div
+                       className="grade-3d-bar-fill"
+                       style={{
+                         height: barsExpanded
+                           ? `${(item.score / Math.max(...presentationTopClasses.map((row) => row.score), 1)) * 100}%`
+                           : '0%',
+                       }}
+                     >
+                       <div className="bar-top" />
+                       <div className="bar-face" />
+                       <div className="bar-right" />
+                     </div>
+                   </div>
+                   <div className="grade-3d-bar-label">{item.label.replace(/年级/g, '').replace(/\s+/g, '')}</div>
+                   <div className="grade-3d-bar-value">{Math.round(item.score)}</div>
+                 </div>
+               ))}
             </div>
+            <div className="presentation-panel-footnote">上榜班级 <strong>{presentationTopClasses.length}</strong> 个 · 榜首积分 <span>{presentationTopClasses[0]?.score ?? 0}</span></div>
           </div>
+
           <div className="presentation-panel fade-up-panel">
             <div className="presentation-panel-title"><PresentationGlyph name="heat" className="presentation-title-icon" />教师评价时段热力</div>
             <div className="presentation-heatmap">
               <div className="presentation-heat-head" />
-              {heatCols.map((col) => (
+              {presentationHeatMap.cols.map((col) => (
                 <div key={col} className="presentation-heat-head">{col}</div>
               ))}
-              {heatRows.map((row, rowIndex) => (
+              {presentationHeatMap.matrix.map(({ row, values }) => (
                 <div key={row} className="presentation-heat-row">
                   <div className="presentation-heat-label">{row}</div>
-                  {heatCols.map((col, colIndex) => {
-                    const intensity = ((rowIndex + 2) * (colIndex + 3)) % 4;
+                  {values.map((value, colIndex) => {
+                    const ratio = presentationHeatMap.peak > 0 ? value / presentationHeatMap.peak : 0;
+                    const intensity = ratio >= 0.75 ? 3 : ratio >= 0.45 ? 2 : ratio > 0 ? 1 : 0;
                     return (
-                      <div key={`${row}-${col}`} className={`presentation-heat-cell heat-${intensity}`}>
-                        {intensity >= 2 ? '高' : intensity === 1 ? '中' : '低'}
+                      <div key={`${row}-${colIndex}`} className={`presentation-heat-cell heat-${intensity}`}>
+                        {value}
                       </div>
                     );
                   })}
                 </div>
               ))}
             </div>
-            <div className="presentation-panel-footnote">日均评价 <strong>186</strong> 次 · 较上月 <span>+12%</span></div>
+            <div className="presentation-panel-footnote">统计总量 <strong>{presentationHeatMap.total}</strong> 次 · 峰值时段 <span>{presentationHeatMap.peak}</span> 次</div>
+          </div>
+
+          <div className="presentation-panel fade-up-panel">
+             <div className="presentation-panel-title"><PresentationGlyph name="star" className="presentation-title-icon" />高频评价行为 TOP 8</div>
+             <div className="presentation-top-behaviors">
+                {presentationTopBehaviors.map((item, index) => (
+                  <div key={item.name} className="behavior-row">
+                    <span className="behavior-rank">{index + 1}</span>
+                    <div className="behavior-track">
+                      <div
+                        className="behavior-fill"
+                        style={{
+                          width: barsExpanded
+                            ? `${(item.count / Math.max(...presentationTopBehaviors.map((row) => row.count), 1)) * 100}%`
+                            : '0%',
+                          background: item.color,
+                        }}
+                      >
+                         <span className="behavior-name">{item.name}</span>
+                      </div>
+                    </div>
+                    <span className="behavior-count">{item.count}次</span>
+                  </div>
+                ))}
+                {presentationTopBehaviors.length === 0 ? <div className="presentation-summary-item">暂无评价行为数据。</div> : null}
+             </div>
+             <div className="presentation-panel-footnote">事件来源 <strong>实时评价记录</strong> · 共统计 <span>{scoreRecords.length}</span> 条</div>
           </div>
         </section>
 
         <div className="presentation-divider section-4" id="presentation-operation-stage">第四幕 · 运营态势建模</div>
 
         <section className="presentation-row presentation-row-3">
-          <div className="presentation-panel fade-up-panel bottom-panel">
-            <div className="presentation-panel-title"><PresentationGlyph name="trend" className="presentation-title-icon" />事件量 & 处置时效（双轴）</div>
-            <div className="presentation-dual-axis">
-              <div className="presentation-dual-axis-bars">
-                {operationBars.map((item) => (
-                  <div key={item.label} className="presentation-dual-bar-col">
-                    <div className="presentation-dual-bar-track">
-                      <div className="presentation-dual-bar-fill" style={{ height: barsExpanded ? `${item.barHeight}%` : '0%' }} />
+          <div className="presentation-panel fade-up-panel">
+            <div className="presentation-panel-title"><PresentationGlyph name="summary" className="presentation-title-icon" />实时事件摘要</div>
+            <div className="presentation-summary-list">
+              {recentPresentationEvents.slice(0, 5).map((item) => (
+                <div className="presentation-summary-item" key={`${item.id}-${item.createdAt}`}>
+                  {item.className} · {item.studentName} · {item.ruleName} · {item.scoreDelta > 0 ? '+' : ''}{item.scoreDelta} 分
+                </div>
+              ))}
+              {recentPresentationEvents.length === 0 ? <div className="presentation-summary-item">暂无实时评价事件。</div> : null}
+            </div>
+            <div className="presentation-panel-footnote">
+              最近事件 <strong>{recentPresentationEvents.length}</strong> 条 · 汇报页仅展示摘要，处置入口保留在后台实时运行监控
+            </div>
+          </div>
+
+          <div className="presentation-panel fade-up-panel">
+            <div className="presentation-panel-title"><PresentationGlyph name="trend" className="presentation-title-icon" />异常事件分布趋势</div>
+            <svg className={`presentation-chart${lineAnimated ? ' animated' : ''}`} viewBox="0 0 420 190" aria-hidden="true">
+               <defs>
+                 <linearGradient id="area-attend" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="rgba(255, 179, 0, 0.4)"/><stop offset="100%" stopColor="rgba(255, 179, 0, 0)"/></linearGradient>
+                 <linearGradient id="area-disc" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="rgba(255, 23, 68, 0.4)"/><stop offset="100%" stopColor="rgba(255, 23, 68, 0)"/></linearGradient>
+                 <linearGradient id="area-hw" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="rgba(0, 229, 255, 0.4)"/><stop offset="100%" stopColor="rgba(0, 229, 255, 0)"/></linearGradient>
+               </defs>
+               <polyline className="chart-area" points={`0,190 ${anomalyAreaMock.map((p,i) => `${i * 32},${190 - p.attendance * 4}`).join(' ')} 416,190`} fill="url(#area-attend)" />
+               <polyline className="chart-line" points={anomalyAreaMock.map((p,i) => `${i * 32},${190 - p.attendance * 4}`).join(' ')} fill="none" stroke="#ffb300" strokeWidth="2" />
+               
+               <polyline className="chart-area" points={`0,190 ${anomalyAreaMock.map((p,i) => `${i * 32},${190 - p.discipline * 4}`).join(' ')} 416,190`} fill="url(#area-disc)" />
+               <polyline className="chart-line" points={anomalyAreaMock.map((p,i) => `${i * 32},${190 - p.discipline * 4}`).join(' ')} fill="none" stroke="#ff1744" strokeWidth="2" />
+               
+               {anomalyAreaMock.map((p, i) => (
+                 i % 3 === 0 ? <text key={i} x={i * 32} y="185" className="presentation-axis-text">{p.day}</text> : null
+               ))}
+               <text x="350" y="20" className="presentation-axis-text" fill="#ffb300">● 考勤</text>
+               <text x="350" y="40" className="presentation-axis-text" fill="#ff1744">● 违纪</text>
+            </svg>
+          </div>
+
+          <div className="presentation-panel fade-up-panel">
+            <div className="presentation-panel-title"><PresentationGlyph name="shield" className="presentation-title-icon" />预警处理时效转化漏斗</div>
+            <div className="presentation-funnel-wrap">
+              {funnelStagesMock.map((stage, index) => {
+                const max = funnelStagesMock[0].value;
+                const width = (stage.value / max) * 100;
+                return (
+                  <div key={stage.label} className="funnel-stage">
+                    <div className="funnel-bar" style={{ width: barsExpanded ? `${width}%` : '0%', background: stage.color }}>
+                      <span className="funnel-label">{stage.label}</span>
+                      <strong className="funnel-value">{stage.value}</strong>
                     </div>
-                    <div className="presentation-dual-bar-label">{item.label}</div>
                   </div>
-                ))}
-              </div>
-              <svg className="presentation-dual-line" viewBox="0 0 312 124" aria-hidden="true">
-                <polyline
-                  className="presentation-dual-line-path"
-                  points={operationBars.map((item, index) => `${24 + index * 44},${item.lineY}`).join(' ')}
-                />
-                {operationBars.map((item, index) => (
-                  <g key={`${item.label}-${item.disposeMinutes}`}>
-                    <circle cx={24 + index * 44} cy={item.lineY} r="4" className="presentation-dual-line-dot" />
-                  </g>
-                ))}
-              </svg>
-            </div>
-            <div className="presentation-panel-footnote">事件总量 <strong>{operationBars.reduce((sum, item) => sum + item.eventCount, 0)}</strong> 件 · 平均处置 <span>{Math.round(operationBars.reduce((sum, item) => sum + item.disposeMinutes, 0) / operationBars.length)} 分钟</span></div>
-          </div>
-
-          <div className="presentation-panel fade-up-panel bottom-panel">
-            <div className="presentation-panel-title"><PresentationGlyph name="shield" className="presentation-title-icon" />治理能力雷达图</div>
-            <div className="presentation-radar-wrap">
-              <svg viewBox="0 0 220 220" className="presentation-radar-chart" aria-hidden="true">
-                <circle cx="110" cy="110" r="82" className="presentation-radar-ring" />
-                <circle cx="110" cy="110" r="58" className="presentation-radar-ring" />
-                <circle cx="110" cy="110" r="34" className="presentation-radar-ring" />
-                {radarPoints.map((item) => (
-                  <line key={`${item.name}-line`} x1="110" y1="110" x2={item.outerX} y2={item.outerY} className="presentation-radar-axis" />
-                ))}
-                <polygon points={radarPolygon} className="presentation-radar-polygon" />
-                {radarPoints.map((item) => (
-                  <circle key={`${item.name}-dot`} cx={item.valueX} cy={item.valueY} r="4.2" className="presentation-radar-dot" />
-                ))}
-              </svg>
-              <div className="presentation-radar-score">
-                <span>综合治理指数</span>
-                <strong>{radarScore}</strong>
-              </div>
-            </div>
-            <div className="presentation-radar-legend">
-              {radarAxes.map((item) => (
-                <div key={item.name} className="presentation-radar-legend-item">
-                  <span>{item.name}</span>
-                  <strong>{item.value}</strong>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="presentation-panel fade-up-panel bottom-panel">
-            <div className="presentation-panel-title"><PresentationGlyph name="summary" className="presentation-title-icon" />闭环流转与预测</div>
-            <div className="presentation-flow-list">
-              {flowStages.map((item, index) => (
-                <div key={item.label} className="presentation-flow-item">
-                  <div className={`presentation-flow-bar theme-${item.theme}`} style={{ width: extendedBarsExpanded ? `${item.width}%` : '0%' }}>
-                    <span>{item.label}</span>
-                    <strong>{item.value}</strong>
-                  </div>
-                  {index < flowStages.length - 1 ? <span className="presentation-flow-arrow">→</span> : null}
-                </div>
-              ))}
-            </div>
-            <div className="presentation-forecast-row">
-              {predictionSeries.map((value, index) => (
-                <div key={`${value}-${index}`} className="presentation-forecast-col">
-                  <div className="presentation-forecast-track">
-                    <div
-                      className={`presentation-forecast-fill${index >= predictionSeries.length - 3 ? ' forecast' : ''}`}
-                      style={{ height: lineAnimated ? `${Math.max(14, Math.round((value / predictionMax) * 100))}%` : '0%' }}
-                    />
-                  </div>
-                  <span>{index >= predictionSeries.length - 3 ? `T+${index - (predictionSeries.length - 4)}` : `D${index + 1}`}</span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </section>
@@ -1141,6 +1454,20 @@ export function PresentationModePage({
         <section className="presentation-row presentation-row-3">
           <div className="presentation-panel fade-up-panel bottom-panel">
             <div className="presentation-panel-title"><PresentationGlyph name="award" className="presentation-title-icon" />本周荣誉橱窗</div>
+            <div className="presentation-bottom-kpis">
+              <div className="presentation-bottom-kpi">
+                <span>累计授予</span>
+                <strong>{honorSummary.totalGranted}</strong>
+              </div>
+              <div className="presentation-bottom-kpi">
+                <span>学生荣誉</span>
+                <strong>{honorSummary.studentTargetCount}</strong>
+              </div>
+              <div className="presentation-bottom-kpi">
+                <span>集体荣誉</span>
+                <strong>{honorSummary.classTargetCount}</strong>
+              </div>
+            </div>
             <div className="presentation-honor-grid">
               {topHonors.map((item) => (
                 <div key={item.id} className="presentation-honor-card">
@@ -1151,9 +1478,32 @@ export function PresentationModePage({
                 </div>
               ))}
             </div>
+            <div className="presentation-detail-list">
+              {honorSummary.latestRecords.map((item) => (
+                <div key={`${item.id}-${item.grantedAt}`} className="presentation-detail-item">
+                  <span>{item.honorName}</span>
+                  <strong>{item.targetLabel}</strong>
+                </div>
+              ))}
+              {honorSummary.latestRecords.length === 0 ? <div className="presentation-summary-item">暂无荣誉授予记录。</div> : null}
+            </div>
           </div>
           <div className="presentation-panel fade-up-panel bottom-panel">
             <div className="presentation-panel-title"><PresentationGlyph name="warning" className="presentation-title-icon" />德育与行为预警摘要</div>
+            <div className="presentation-bottom-kpis warning">
+              <div className="presentation-bottom-kpi">
+                <span>高风险</span>
+                <strong>{warningSummary.highCount}</strong>
+              </div>
+              <div className="presentation-bottom-kpi">
+                <span>负向事件</span>
+                <strong>{warningSummary.negativeEventCount}</strong>
+              </div>
+              <div className="presentation-bottom-kpi">
+                <span>涉及班级</span>
+                <strong>{warningSummary.affectedClasses}</strong>
+              </div>
+            </div>
             <div className="presentation-alert-list">
               {presentationAlerts.map((item) => (
                 <div key={item.text} className={`presentation-alert-item ${item.type}`}>
@@ -1161,6 +1511,15 @@ export function PresentationModePage({
                   {item.text}
                 </div>
               ))}
+            </div>
+            <div className="presentation-detail-list warning">
+              {warningSummary.focusEvents.map((item) => (
+                <div key={item.id} className="presentation-detail-item">
+                  <span>{item.className} · {item.studentName}</span>
+                  <strong>{item.label} {item.scoreDelta}</strong>
+                </div>
+              ))}
+              {warningSummary.focusEvents.length === 0 ? <div className="presentation-summary-item">暂无重点负向事件。</div> : null}
             </div>
             <div className="presentation-panel-footnote">家校共育消息已读率 <strong>{rewards.length > 0 ? '94.2%' : '92.0%'}</strong></div>
           </div>

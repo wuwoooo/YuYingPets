@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import './styles.css';
 
 export function DisplayApp() {
@@ -12,21 +12,18 @@ export function DisplayApp() {
       }
     });
     const search = forwarded.toString();
-    return `/display/display.html${search ? `?${search}` : ''}`;
+    const displayPage = new URL('/display/display.html', currentUrl.origin);
+    displayPage.search = search;
+    return displayPage.toString();
   }, []);
 
+  useEffect(() => {
+    window.location.replace(displayUrl);
+  }, [displayUrl]);
+
   return (
-    <div className="prototype-shell">
-      <iframe
-        className="prototype-frame"
-        src={displayUrl}
-        title="育英星宠 Display 端"
-      />
-      <div className="prototype-beian">
-        <a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer">
-          滇ICP备2020007229号-4
-        </a>
-      </div>
-    </div>
+    <main className="prototype-redirect">
+      <a href={displayUrl}>进入育英星宠 Display 端</a>
+    </main>
   );
 }

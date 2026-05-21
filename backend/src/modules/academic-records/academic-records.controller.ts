@@ -22,6 +22,22 @@ export class AcademicRecordsController {
     return this.academicRecordsService.exams(authorization);
   }
 
+  @Get('desk-overview')
+  deskOverview(
+    @Headers('authorization') authorization: string | undefined,
+    @Query() query: Record<string, string>,
+  ) {
+    return this.academicRecordsService.deskOverview(authorization, query);
+  }
+
+  @Get('school-growth')
+  schoolGrowth(
+    @Headers('authorization') authorization: string | undefined,
+    @Query() query: Record<string, string>,
+  ) {
+    return this.academicRecordsService.schoolGrowth(authorization, query);
+  }
+
   @Get('students/:studentId')
   studentRecords(
     @Headers('authorization') authorization: string | undefined,

@@ -228,6 +228,7 @@ CREATE TABLE `score_rule` (
     `weight` DECIMAL(6, 2) NULL,
     `ai_summary_text` VARCHAR(255) NULL,
     `description` VARCHAR(500) NULL,
+    `allowed_role_codes` VARCHAR(255) NULL,
     `is_high_frequency` BOOLEAN NOT NULL DEFAULT false,
     `display_enabled` BOOLEAN NOT NULL DEFAULT false,
     `admin_enabled` BOOLEAN NOT NULL DEFAULT true,

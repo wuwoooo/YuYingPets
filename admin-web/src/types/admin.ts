@@ -43,6 +43,8 @@ export type ClassFormState = {
   homeroomTeacherId: string;
   slogan: string;
   targetScore: string;
+  countdownTitle: string;
+  countdownDeadlineAt: string;
   displayStatus: string;
   sortOrder: string;
 };
@@ -62,6 +64,7 @@ export type RuleFormState = {
   sentiment: 'positive' | 'negative';
   aiSummaryText: string;
   description: string;
+  allowedRoleCodes: string[];
   isHighFrequency: boolean;
   displayEnabled: boolean;
   adminEnabled: boolean;
@@ -97,6 +100,7 @@ export type SchoolFormState = {
 
 export type PetGrowthFormState = {
   thresholds: string[];
+  classScoreStudentLinkMultiplier: string;
 };
 
 export type SemesterFormState = {

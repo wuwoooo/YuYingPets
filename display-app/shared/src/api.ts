@@ -1,6 +1,6 @@
 export const DISPLAY_API_BASE_URL =
   (globalThis as { __DISPLAY_API_BASE_URL__?: string }).__DISPLAY_API_BASE_URL__ ??
-  'http://localhost:3000/api/v1';
+  (typeof window !== 'undefined' ? `${window.location.origin}/api/v1` : 'http://127.0.0.1:3000/api/v1');
 
 export const DISPLAY_REALTIME_URL = DISPLAY_API_BASE_URL.replace(/\/api\/v1$/, '');
 
@@ -43,12 +43,19 @@ export type DisplayLoginResponse = {
       id: number;
       name: string;
       roleCode: string;
+      dutyTags?: string[];
     };
     scopes: Array<{
       scopeType: string;
       classId: number | null;
       gradeCode: string | null;
       subjectCode: string | null;
+    }>;
+    classAssignments: Array<{
+      classId: number;
+      roleInClass: string;
+      subjectCode: string | null;
+      isPrimary: boolean;
     }>;
   };
 };
@@ -135,7 +142,7 @@ export const displayApi = {
     return request(`/classes/${classId}/groups`, { token });
   },
   scoreRules(token: string, classId: number) {
-    return request(`/score-rules?displayEnabled=true&classId=${classId}`, { token });
+    return request(`/score-rules?displayEnabled=true&scoreTarget=student&classId=${classId}`, { token });
   },
   scoreRecords(classId: number) {
     return request(`/score-records?classId=${classId}`);

@@ -78,7 +78,7 @@ export class StudentsService {
     });
 
     const filteredRows =
-      ['super_admin', 'school_admin', 'moral_admin'].includes(user.roleCode)
+      ['super_admin', 'school_admin', 'academic_admin', 'moral_admin'].includes(user.roleCode)
         ? rows
         : rows.filter((row) => this.authService.canAccessClass(user, row.classId));
     const latestAcademicByStudentId = await this.loadLatestAcademicSummaries(filteredRows.map((row) => row.id));
@@ -280,7 +280,7 @@ export class StudentsService {
 
   async import(authorization: string | undefined, body: Record<string, unknown>) {
     const user = await this.authService.getAuthUserFromAuthorization(authorization);
-    if (!['homeroom_teacher', 'school_admin', 'grade_admin', 'moral_admin', 'super_admin'].includes(user.roleCode)) {
+    if (!['homeroom_teacher', 'school_admin', 'academic_admin', 'grade_admin', 'moral_admin', 'super_admin'].includes(user.roleCode)) {
       throw new ForbiddenException('当前角色无权导入学生');
     }
 
@@ -304,8 +304,13 @@ export class StudentsService {
     const result = await this.prisma.$transaction(
       async (tx) => {
         const createdIds: number[] = [];
+        const updatedIds: number[] = [];
         const createdClassIds = new Set<string>();
         let createdClassCount = 0;
+        let updatedCount = 0;
+        let classChangedCount = 0;
+        let unchangedCount = 0;
+        const realtimeEvents: Array<{ classId: number; studentId: number }> = [];
         const classes = await tx.classroom.findMany({
           where: {
             schoolId: user.schoolId,
@@ -355,32 +360,116 @@ export class StudentsService {
             }
           }
 
-          const student = await tx.student.create({
-            data: {
+          const nextGender = item.gender ? String(item.gender) : null;
+          const nextAvatarUrl = item.avatarUrl ? String(item.avatarUrl) : null;
+          const existingStudents = await tx.student.findMany({
+            where: {
               schoolId: user.schoolId,
-              classId: resolvedClass.id,
               studentNo,
+              deletedAt: null,
+            },
+            select: {
+              id: true,
+              classId: true,
+              name: true,
+              gender: true,
+              avatarUrl: true,
+            },
+          });
+          if (existingStudents.length > 1) {
+            throw new BadRequestException(`准考证号重复：${studentNo} 在系统中存在多条记录，请先清理历史数据`);
+          }
+
+          const existingStudent = existingStudents[0] ?? null;
+
+          if (!existingStudent) {
+            const student = await tx.student.create({
+              data: {
+                schoolId: user.schoolId,
+                classId: resolvedClass.id,
+                studentNo,
+                name,
+                gender: nextGender,
+                avatarUrl: nextAvatarUrl,
+                status: 'enabled',
+              },
+            });
+
+            await tx.studentProfile.create({
+              data: {
+                studentId: student.id,
+                classId: resolvedClass.id,
+              },
+            });
+
+            createdIds.push(Number(student.id));
+            realtimeEvents.push({
+              classId: Number(resolvedClass.id),
+              studentId: Number(student.id),
+            });
+            continue;
+          }
+
+          this.authService.ensureCanAccessClass(user, existingStudent.classId);
+          if (user.roleCode === 'homeroom_teacher') {
+            await this.authService.ensureIsHomeroomOfClass(user, existingStudent.classId);
+          }
+
+          const classChanged = existingStudent.classId !== resolvedClass.id;
+          const profileChanged =
+            existingStudent.name !== name ||
+            existingStudent.gender !== nextGender ||
+            existingStudent.avatarUrl !== nextAvatarUrl;
+
+          if (!classChanged && !profileChanged) {
+            unchangedCount += 1;
+            continue;
+          }
+
+          await tx.student.update({
+            where: { id: existingStudent.id },
+            data: {
+              classId: resolvedClass.id,
               name,
-              gender: item.gender ? String(item.gender) : null,
-              avatarUrl: item.avatarUrl ? String(item.avatarUrl) : null,
+              gender: nextGender,
+              avatarUrl: nextAvatarUrl,
               status: 'enabled',
             },
           });
 
-          await tx.studentProfile.create({
-            data: {
-              studentId: student.id,
-              classId: resolvedClass.id,
-            },
+          await tx.studentProfile.updateMany({
+            where: { studentId: existingStudent.id },
+            data: { classId: resolvedClass.id },
           });
 
-          createdIds.push(Number(student.id));
+          if (classChanged) {
+            await tx.studentGroupRel.deleteMany({
+              where: { studentId: existingStudent.id },
+            });
+            classChangedCount += 1;
+            realtimeEvents.push({
+              classId: Number(existingStudent.classId),
+              studentId: Number(existingStudent.id),
+            });
+          }
+
+          updatedCount += 1;
+          updatedIds.push(Number(existingStudent.id));
+          realtimeEvents.push({
+            classId: Number(resolvedClass.id),
+            studentId: Number(existingStudent.id),
+          });
         }
 
         return {
           createdCount: createdIds.length,
+          updatedCount,
+          classChangedCount,
+          unchangedCount,
           createdClassCount,
           studentIds: createdIds,
+          updatedStudentIds: updatedIds,
+          realtimeEvents,
         };
       },
       {
@@ -401,16 +490,28 @@ export class StudentsService {
       detail: {
         classId: needsFallbackClass ? fallbackClassId : null,
         createdCount: result.createdCount,
+        updatedCount: result.updatedCount,
+        classChangedCount: result.classChangedCount,
+        unchangedCount: result.unchangedCount,
         createdClassCount: result.createdClassCount,
       },
     });
 
-    return { code: 0, message: 'ok', data: result };
+    result.realtimeEvents.forEach((event) => {
+      this.realtimeService.emitClassStudentChanged(event.classId, {
+        studentId: event.studentId,
+        type: 'student_updated',
+      });
+    });
+
+    const { realtimeEvents: _realtimeEvents, ...responseData } = result;
+
+    return { code: 0, message: 'ok', data: responseData };
   }
 
   async update(authorization: string | undefined, id: number, body: Record<string, unknown>) {
     const user = await this.authService.getAuthUserFromAuthorization(authorization);
-    if (!['homeroom_teacher', 'school_admin', 'grade_admin', 'moral_admin', 'super_admin'].includes(user.roleCode)) {
+    if (!['homeroom_teacher', 'school_admin', 'academic_admin', 'grade_admin', 'moral_admin', 'super_admin'].includes(user.roleCode)) {
       throw new ForbiddenException('当前角色无权编辑学生');
     }
 
@@ -692,6 +793,7 @@ export class StudentsService {
           schoolId: user.schoolId,
           code: body.petCode,
           status: 'enabled',
+          category: { in: ['star', 'zodiac'] },
         },
         include: {
           stages: {
@@ -784,6 +886,106 @@ export class StudentsService {
       petName: result.petName,
       operatorName: user.name,
       sourceTerminal: body.sourceTerminal ?? 'display',
+    });
+
+    return { code: 0, message: 'ok', data: result };
+  }
+
+  async resetPet(authorization: string | undefined, studentId: number) {
+    const user = await this.authService.getAuthUserFromAuthorization(authorization);
+    if (
+      !['homeroom_teacher', 'school_admin', 'academic_admin', 'grade_admin', 'moral_admin', 'super_admin'].includes(
+        user.roleCode,
+      )
+    ) {
+      throw new ForbiddenException('当前角色无权重置学生萌宠');
+    }
+
+    if (!Number.isInteger(studentId) || studentId <= 0) {
+      throw new BadRequestException('学生 ID 无效');
+    }
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const student = await tx.student.findFirst({
+        where: {
+          id: BigInt(studentId),
+          schoolId: user.schoolId,
+          deletedAt: null,
+          status: 'enabled',
+        },
+        include: {
+          profile: true,
+          studentPet: {
+            include: {
+              pet: true,
+            },
+          },
+        },
+      });
+
+      if (!student) {
+        throw new NotFoundException('学生不存在');
+      }
+
+      this.authService.ensureCanAccessClass(user, student.classId);
+      if (user.roleCode === 'homeroom_teacher') {
+        await this.authService.ensureIsHomeroomOfClass(user, student.classId);
+      }
+
+      if (!student.studentPet) {
+        throw new BadRequestException('该学生尚未领取萌宠');
+      }
+
+      if (student.studentPet.currentLevel !== 1) {
+        throw new BadRequestException('仅萌宠等级为 1 时可重置为未领取');
+      }
+
+      const petName = student.studentPet.pet.name;
+      const petCode = student.studentPet.pet.code;
+
+      await tx.petLevelLog.deleteMany({
+        where: { studentId: BigInt(studentId) },
+      });
+      await tx.studentPet.delete({
+        where: { studentId: BigInt(studentId) },
+      });
+      if (student.profile) {
+        await tx.studentProfile.update({
+          where: { studentId: BigInt(studentId) },
+          data: { currentPetLevel: 1 },
+        });
+      }
+
+      return {
+        studentId,
+        studentName: student.name,
+        classId: Number(student.classId),
+        petName,
+        petCode,
+      };
+    });
+
+    await this.operationLogService.create({
+      schoolId: user.schoolId,
+      userId: user.id,
+      roleCode: user.roleCode,
+      terminalType: 'admin',
+      module: 'student_pet',
+      action: 'reset',
+      targetType: 'student',
+      targetId: BigInt(studentId),
+      detail: {
+        classId: result.classId,
+        petCode: result.petCode,
+        petName: result.petName,
+      },
+    });
+
+    this.realtimeService.emitClassStudentChanged(result.classId, {
+      classId: result.classId,
+      studentId,
+      type: 'student_pet_reset',
+      operatorName: user.name,
     });
 
     return { code: 0, message: 'ok', data: result };

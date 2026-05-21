@@ -230,6 +230,7 @@ CREATE TABLE `score_rule` (
     `weight` DECIMAL(6, 2) NULL,
     `ai_summary_text` VARCHAR(255) NULL,
     `description` VARCHAR(500) NULL,
+    `allowed_role_codes` VARCHAR(255) NULL,
     `is_high_frequency` BOOLEAN NOT NULL DEFAULT false,
     `display_enabled` BOOLEAN NOT NULL DEFAULT false,
     `admin_enabled` BOOLEAN NOT NULL DEFAULT true,
@@ -872,9 +873,10 @@ INSERT INTO `role` (`id`, `school_id`, `code`, `name`, `is_system`, `created_at`
 VALUES
   (1, 1, 'super_admin', '系统管理员', 1, NOW(3), NOW(3)),
   (2, 1, 'school_admin', '学校管理员', 1, NOW(3), NOW(3)),
-  (3, 1, 'moral_admin', '德育管理员', 1, NOW(3), NOW(3)),
-  (4, 1, 'homeroom_teacher', '班主任', 1, NOW(3), NOW(3)),
-  (5, 1, 'subject_teacher', '任课教师', 1, NOW(3), NOW(3))
+  (3, 1, 'academic_admin', '教务管理员', 1, NOW(3), NOW(3)),
+  (4, 1, 'moral_admin', '德育管理员', 1, NOW(3), NOW(3)),
+  (5, 1, 'homeroom_teacher', '班主任', 1, NOW(3), NOW(3)),
+  (6, 1, 'subject_teacher', '任课教师', 1, NOW(3), NOW(3))
 ON DUPLICATE KEY UPDATE
   `school_id` = VALUES(`school_id`),
   `code` = VALUES(`code`),
@@ -900,8 +902,8 @@ ON DUPLICATE KEY UPDATE
 
 INSERT INTO `user` (`id`, `school_id`, `role_id`, `username`, `password_hash`, `name`, `status`, `created_at`, `updated_at`)
 VALUES
-  (1, 1, 4, 'teacher_demo', '$2a$10$r4uaaF7Q/pAcZAng.07HR.jEDspPZUigvr46rIEDAdGsscNMEumbK', '演示班主任', 'enabled', NOW(3), NOW(3)),
-  (2, 1, 5, 'subject_demo', '$2a$10$r4uaaF7Q/pAcZAng.07HR.jEDspPZUigvr46rIEDAdGsscNMEumbK', '演示任课教师', 'enabled', NOW(3), NOW(3))
+  (1, 1, 5, 'teacher_demo', '$2a$10$r4uaaF7Q/pAcZAng.07HR.jEDspPZUigvr46rIEDAdGsscNMEumbK', '演示班主任', 'enabled', NOW(3), NOW(3)),
+  (2, 1, 6, 'subject_demo', '$2a$10$r4uaaF7Q/pAcZAng.07HR.jEDspPZUigvr46rIEDAdGsscNMEumbK', '演示任课教师', 'enabled', NOW(3), NOW(3))
 ON DUPLICATE KEY UPDATE
   `school_id` = VALUES(`school_id`),
   `role_id` = VALUES(`role_id`),

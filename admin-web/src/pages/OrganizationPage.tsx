@@ -1,15 +1,18 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Modal } from '../components/Modal';
+import { OperationAuditPanel } from '../components/OperationAuditPanel';
 import { Shell } from '../components/Shell';
 import { TablePagination } from '../components/TablePagination';
 import { usePagination } from '../hooks/usePagination';
 import type { AdminClass, PermissionUser, PermissionUserUpsertPayload, RoleTemplate, SessionUser } from '../lib/api';
 import { adminApi } from '../lib/api';
 import type { PermissionUserFormState } from '../types/admin';
-import { createPermissionUserForm, formatEnabledStatus, normalizeKeyword } from '../utils/adminForms';
+import { createPermissionUserForm, formatEnabledStatus, formatPermissionScopeDisplay, normalizeKeyword } from '../utils/adminForms';
+import { canViewOperationAudit } from '../utils/adminPermissions';
 
-const adminRoleCodes = ['super_admin', 'school_admin', 'moral_admin'];
+const adminRoleCodes = ['super_admin', 'school_admin', 'academic_admin', 'moral_admin'];
+const subjectActingRoleCodes = ['school_admin', 'academic_admin', 'moral_admin', 'grade_admin', 'homeroom_teacher', 'subject_teacher'];
 const subjectOptions = [
   { code: 'chinese', label: '语文' },
   { code: 'math', label: '数学' },
@@ -25,13 +28,13 @@ const subjectOptions = [
   { code: 'music', label: '音乐' },
   { code: 'pe', label: '体育' },
 ] as const;
-const tabOptions = [
+const coreOrganizationTabs = [
   ['accounts', '账号中心'],
-  ['admins', '管理员管理'],
   ['roles', '角色权限'],
 ] as const;
 
-type OrganizationTab = (typeof tabOptions)[number][0];
+type CoreOrganizationTab = (typeof coreOrganizationTabs)[number][0];
+type OrganizationTab = CoreOrganizationTab | 'audit';
 
 type OrganizationPageProps = {
   token: string;
@@ -45,11 +48,17 @@ function normalizeLoginUsername(value: string) {
   return value.trim().toLowerCase();
 }
 
+function supportsSubjectActingRole(roleCode: string) {
+  return subjectActingRoleCodes.includes(roleCode);
+}
+
 export function OrganizationPage({ token, user, classes, loading, error }: OrganizationPageProps) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState<OrganizationTab>('accounts');
-  const [quickFilter, setQuickFilter] = useState<'all' | 'disabled' | 'never_login' | 'high_privilege' | 'class_bound'>('all');
+  const [quickFilter, setQuickFilter] = useState<
+    'all' | 'disabled' | 'never_login' | 'high_privilege' | 'class_bound' | 'admin_staff'
+  >('all');
   const [users, setUsers] = useState<PermissionUser[]>([]);
   const [roleTemplates, setRoleTemplates] = useState<RoleTemplate[]>([]);
   const [showEditor, setShowEditor] = useState(false);
@@ -67,12 +76,13 @@ export function OrganizationPage({ token, user, classes, loading, error }: Organ
   const returnTo = searchParams.get('returnTo');
   const returnLabel = searchParams.get('returnLabel') || '返回来源页面';
 
-  const adminRoleTemplates = useMemo(
-    () => roleTemplates.filter((item) => adminRoleCodes.includes(item.code)),
-    [roleTemplates],
-  );
-
-  const availableRoleTemplates = activeTab === 'admins' ? adminRoleTemplates : roleTemplates;
+  const visibleTabs = useMemo(() => {
+    const rows: Array<[OrganizationTab, string]> = [...coreOrganizationTabs] as Array<[OrganizationTab, string]>;
+    if (canViewOperationAudit(user?.roleCode)) {
+      rows.push(['audit', '操作审计']);
+    }
+    return rows;
+  }, [user?.roleCode]);
 
   async function loadData() {
     const [usersResponse, rolesResponse] = await Promise.all([adminApi.permissionUsers(token), adminApi.roleTemplates(token)]);
@@ -91,7 +101,7 @@ export function OrganizationPage({ token, user, classes, loading, error }: Organ
       })
       .catch((err) => {
         if (!active) return;
-        setSubmitError(err instanceof Error ? err.message : '组织权限数据加载失败');
+        setSubmitError(err instanceof Error ? err.message : '安全中心数据加载失败');
       })
       .finally(() => {
         if (active) setPageLoading(false);
@@ -103,17 +113,46 @@ export function OrganizationPage({ token, user, classes, loading, error }: Organ
   }, [token]);
 
   useEffect(() => {
-    const nextTab = searchParams.get('activeTab');
+    const nextTabRaw = searchParams.get('activeTab');
     const nextQuickFilter = searchParams.get('quickFilter');
     const nextRoleFilter = searchParams.get('roleFilter');
     const nextSearch = searchParams.get('keyword');
     const targetUserId = searchParams.get('userId');
 
-    if (nextTab === 'accounts' || nextTab === 'admins' || nextTab === 'roles') {
+    if (nextTabRaw === 'admins') {
+      const params = new URLSearchParams(searchParams);
+      params.delete('activeTab');
+      params.set('quickFilter', 'admin_staff');
+      setSearchParams(params, { replace: true });
+    }
+
+    const nextTab = nextTabRaw === 'admins' ? 'accounts' : nextTabRaw;
+
+    if (nextTab === 'audit' && !canViewOperationAudit(user?.roleCode)) {
+      const params = new URLSearchParams(searchParams);
+      params.delete('activeTab');
+      setSearchParams(params, { replace: true });
+      setActiveTab('accounts');
+    } else if (
+      nextTab === 'accounts' ||
+      nextTab === 'roles' ||
+      (nextTab === 'audit' && canViewOperationAudit(user?.roleCode))
+    ) {
       setActiveTab(nextTab);
     }
-    if (nextQuickFilter === 'all' || nextQuickFilter === 'disabled' || nextQuickFilter === 'never_login' || nextQuickFilter === 'high_privilege' || nextQuickFilter === 'class_bound') {
-      setQuickFilter(nextQuickFilter);
+    const resolvedQuickFilter =
+      nextTabRaw === 'admins'
+        ? 'admin_staff'
+        : nextQuickFilter === 'all' ||
+            nextQuickFilter === 'disabled' ||
+            nextQuickFilter === 'never_login' ||
+            nextQuickFilter === 'high_privilege' ||
+            nextQuickFilter === 'class_bound' ||
+            nextQuickFilter === 'admin_staff'
+          ? nextQuickFilter
+          : null;
+    if (resolvedQuickFilter) {
+      setQuickFilter(resolvedQuickFilter);
     }
     if (nextRoleFilter) setRoleFilter(nextRoleFilter);
     if (nextSearch) setSearchKeyword(nextSearch);
@@ -121,7 +160,7 @@ export function OrganizationPage({ token, user, classes, loading, error }: Organ
       const matched = users.find((item) => item.id === Number(targetUserId));
       if (matched) setSelectedUser(matched);
     }
-  }, [searchParams, users]);
+  }, [searchParams, users, user?.roleCode]);
 
   useEffect(() => {
     setRoleFilter('all');
@@ -137,7 +176,7 @@ export function OrganizationPage({ token, user, classes, loading, error }: Organ
     setEditingUser(null);
     setForm({
       ...createPermissionUserForm(),
-      roleCode: activeTab === 'admins' ? adminRoleTemplates[0]?.code ?? 'school_admin' : roleTemplates[0]?.code ?? 'school_admin',
+      roleCode: roleTemplates[0]?.code ?? 'school_admin',
     });
     setSubmitError(null);
     setEditorGradeFilter('all');
@@ -199,9 +238,6 @@ export function OrganizationPage({ token, user, classes, loading, error }: Organ
 
       if (!payload.name || !payload.username) {
         throw new Error('请填写完整的姓名和登录账号');
-      }
-      if (activeTab === 'admins' && !adminRoleCodes.includes(payload.roleCode)) {
-        throw new Error('管理员管理仅支持管理岗位账号');
       }
       if (payload.roleCode === 'subject_teacher' && subjectScopes.length === 0) {
         throw new Error('任课教师至少需要配置一个授课班级和学科');
@@ -300,22 +336,16 @@ export function OrganizationPage({ token, user, classes, loading, error }: Organ
     }).format(date);
   }
 
-  const visibleUsers = useMemo(() => {
-    if (activeTab === 'admins') {
-      return users.filter((row) => adminRoleCodes.includes(row.roleCode));
-    }
-    return users;
-  }, [activeTab, users]);
-
   const filteredUsers = useMemo(() => {
     const keyword = normalizeKeyword(searchKeyword);
-    return visibleUsers.filter((row) => {
+    return users.filter((row) => {
       const matchesQuickFilter =
         quickFilter === 'all' ||
         (quickFilter === 'disabled' && row.status === 'disabled') ||
         (quickFilter === 'never_login' && !row.lastLoginAt) ||
         (quickFilter === 'high_privilege' && ['super_admin', 'school_admin'].includes(row.roleCode)) ||
-        (quickFilter === 'class_bound' && row.classIds.length > 0);
+        (quickFilter === 'class_bound' && row.classIds.length > 0) ||
+        (quickFilter === 'admin_staff' && adminRoleCodes.includes(row.roleCode));
       const matchesKeyword =
         !keyword ||
         normalizeKeyword(row.name).includes(keyword) ||
@@ -324,12 +354,29 @@ export function OrganizationPage({ token, user, classes, loading, error }: Organ
       const matchesRole = roleFilter === 'all' || row.roleCode === roleFilter;
       return matchesQuickFilter && matchesKeyword && matchesRole;
     });
-  }, [quickFilter, roleFilter, searchKeyword, visibleUsers]);
+  }, [quickFilter, roleFilter, searchKeyword, users]);
 
-  const listPagination = usePagination(filteredUsers, `${activeTab}|${searchKeyword}|${roleFilter}|${visibleUsers.length}`);
+  const listPagination = usePagination(filteredUsers, `${quickFilter}|${searchKeyword}|${roleFilter}|${users.length}`);
   const selectedRoleTemplate = roleTemplates.find((item) => item.code === form.roleCode);
   const selectedUserRoleTemplate = roleTemplates.find((item) => item.code === selectedUser?.roleCode);
   const isTeacherRole = form.roleCode === 'homeroom_teacher' || form.roleCode === 'subject_teacher';
+  const showTeachingScopeEditor = supportsSubjectActingRole(form.roleCode);
+  const teachingRoleBadge =
+    form.roleCode === 'homeroom_teacher'
+      ? '班主任主责'
+      : form.roleCode === 'subject_teacher'
+        ? '任课教师'
+        : '管理岗兼职任课';
+  const classSectionTitle =
+    form.roleCode === 'homeroom_teacher'
+      ? '负责班级'
+      : showTeachingScopeEditor
+        ? '授课班级'
+        : '关联班级';
+  const subjectSectionTitle =
+    form.roleCode === 'homeroom_teacher'
+      ? '授课学科（可选）'
+      : '授课学科配置';
   const selectedClasses = useMemo(
     () => classes.filter((item) => form.classIds.includes(String(item.id))),
     [classes, form.classIds],
@@ -385,33 +432,15 @@ export function OrganizationPage({ token, user, classes, loading, error }: Organ
   );
 
   useEffect(() => {
-    if (!showEditor || !isTeacherRole) return;
+    if (!showEditor || !showTeachingScopeEditor) return;
     const nextActiveId = activeEditorClass?.id ?? subjectAssignableClasses[0]?.id ?? null;
     if (nextActiveId !== editorActiveClassId) {
       setEditorActiveClassId(nextActiveId);
     }
-  }, [activeEditorClass?.id, editorActiveClassId, isTeacherRole, showEditor, subjectAssignableClasses]);
+  }, [activeEditorClass?.id, editorActiveClassId, showEditor, showTeachingScopeEditor, subjectAssignableClasses]);
 
   const enabledCount = users.filter((row) => row.status === 'enabled').length;
   const adminCount = users.filter((row) => adminRoleCodes.includes(row.roleCode)).length;
-  const roleCount = roleTemplates.length;
-  const accountAlerts = [
-    {
-      title: '高权限账号',
-      description: '超管与管理员岗位统一在此治理，避免分散到系统设置中。',
-      value: `${adminCount} 个`,
-    },
-    {
-      title: '角色模板',
-      description: '角色模板决定默认能力边界，账号只做绑定，不重复定义权限。',
-      value: `${roleCount} 个`,
-    },
-    {
-      title: '启用率',
-      description: '可用于观察账号是否存在冗余开通或长期未治理的风险。',
-      value: users.length > 0 ? `${Math.round((enabledCount / users.length) * 100)}%` : '0%',
-    },
-  ];
 
   function buildOrganizationLocation(selectedUserId?: number) {
     const params = new URLSearchParams();
@@ -432,24 +461,44 @@ export function OrganizationPage({ token, user, classes, loading, error }: Organ
     navigate(params.size > 0 ? `${path}?${params.toString()}` : path);
   }
 
+  function selectTab(tab: OrganizationTab) {
+    setActiveTab(tab);
+    const params = new URLSearchParams(searchParams);
+    if (tab === 'accounts') {
+      params.delete('activeTab');
+    } else {
+      params.set('activeTab', tab);
+    }
+    setSearchParams(params, { replace: true });
+  }
+
   return (
     <Shell
-      title="组织权限"
-      subtitle="统一承接账号中心、管理员管理和角色权限配置"
+      title="安全中心"
+      subtitle="在同一入口管理账号与角色，并巡查敏感操作记录"
       user={user}
       status={
         <>
-          {loading || pageLoading ? <div className="status-card">组织权限数据整理中...</div> : null}
+          {(loading || pageLoading) && activeTab !== 'audit' ? (
+            <div className="status-card">安全中心数据加载中...</div>
+          ) : null}
           {error ? <div className="status-card error">{error}</div> : null}
           {submitError ? <div className="status-card error">{submitError}</div> : null}
           {submitSuccess ? <div className="status-card success">{submitSuccess}</div> : null}
         </>
       }
     >
-      <div className="page-header">
+      <div className="security-center-desk">
+      <div className="page-header security-page-header">
         <div>
-          <h2>组织权限</h2>
-          <p className="page-desc">把身份底座和岗位授权收拢到一个轻量治理模块中。</p>
+          <h2>安全中心</h2>
+          <p className="page-desc">
+            {activeTab === 'audit'
+              ? '默认展示「重点关注」范围（账号权限、学校与学期配置、批量导入、奖品删除等）。切换「全部记录」可浏览完整日志；展开行可查看系统内部标识与原始明细。'
+              : activeTab === 'roles'
+                ? '查看各岗位的默认能力边界；账号绑定岗位后在「账号中心」列表中生效。'
+                : '维护教师与管理员登录账号、角色授权；敏感与安全相关动作可在「操作审计」页签巡查。'}
+          </p>
         </div>
         <div className="page-actions">
           {returnTo ? (
@@ -457,9 +506,9 @@ export function OrganizationPage({ token, user, classes, loading, error }: Organ
               {returnLabel}
             </button>
           ) : null}
-          {activeTab !== 'roles' ? (
+          {activeTab === 'accounts' ? (
             <>
-              <div className="search-box">
+              <div className="search-box security-search-box">
                 <span className="s-icon">⌕</span>
                 <input
                   placeholder="搜索姓名/账号/负责范围..."
@@ -469,27 +518,27 @@ export function OrganizationPage({ token, user, classes, loading, error }: Organ
               </div>
               <select className="filter-select" value={roleFilter} onChange={(event) => setRoleFilter(event.target.value)}>
                 <option value="all">全部岗位</option>
-                {availableRoleTemplates.map((item) => (
+                {roleTemplates.map((item) => (
                   <option key={item.code} value={item.code}>
                     {item.name}
                   </option>
                 ))}
               </select>
               <button className="btn btn-primary" type="button" onClick={openCreate}>
-                {activeTab === 'admins' ? '新增管理员' : '新增账号'}
+                新增账号
               </button>
             </>
           ) : null}
         </div>
       </div>
 
-      <div className="tabs">
-        {tabOptions.map(([key, label]) => (
+      <div className="sec-nav-tabs">
+        {visibleTabs.map(([key, label]) => (
           <button
             key={key}
-            className={`tab${activeTab === key ? ' active' : ''}`}
+            className={`sec-nav-tab${activeTab === key ? ' active' : ''}`}
             type="button"
-            onClick={() => setActiveTab(key)}
+            onClick={() => selectTab(key)}
           >
             {label}
           </button>
@@ -498,85 +547,67 @@ export function OrganizationPage({ token, user, classes, loading, error }: Organ
 
       {activeTab === 'accounts' ? (
         <>
-          <div className="metric-strip">
-            <div className="metric-card">
-              <span>账号总数</span>
-              <strong>{users.length}</strong>
-              <p>组织范围内可登录账号总量。</p>
+          <div className="std-metric-grid std-metric-grid--3">
+            <div className="std-metric-card std-metric-card--blue">
+              <div className="std-metric-card__top">
+                <div className="std-metric-card__icon">
+                  <span className="sec-metric-glyph">总</span>
+                </div>
+                <span className="std-metric-card__label">账号总数</span>
+              </div>
+              <div className="std-metric-card__value">{users.length}</div>
+              <div className="std-metric-card__hint">当前系统内全部可登录账号</div>
             </div>
-            <div className="metric-card">
-              <span>启用账号</span>
-              <strong>{enabledCount}</strong>
-              <p>当前仍处于可登录状态的账号数量。</p>
+            <div className="std-metric-card std-metric-card--green">
+              <div className="std-metric-card__top">
+                <div className="std-metric-card__icon">
+                  <span className="sec-metric-glyph">启</span>
+                </div>
+                <span className="std-metric-card__label">启用中</span>
+              </div>
+              <div className="std-metric-card__value">{enabledCount}</div>
+              <div className="std-metric-card__hint">可正常登录使用的账号</div>
             </div>
-            <div className="metric-card">
-              <span>管理岗位</span>
-              <strong>{adminCount}</strong>
-              <p>承担系统治理职责的高权限岗位账号。</p>
-            </div>
-            <div className="metric-card">
-              <span>角色模板</span>
-              <strong>{roleCount}</strong>
-              <p>当前系统用于分配默认能力的角色模板数量。</p>
+            <div className="std-metric-card std-metric-card--purple">
+              <div className="std-metric-card__top">
+                <div className="std-metric-card__icon">
+                  <span className="sec-metric-glyph">管</span>
+                </div>
+                <span className="std-metric-card__label">管理岗位</span>
+              </div>
+              <div className="std-metric-card__value">{adminCount}</div>
+              <div className="std-metric-card__hint">系统与校级管理类岗位</div>
             </div>
           </div>
-          <div className="detail-grid">
-            <div className="detail-card">
-              <h4>账号中心</h4>
-              <div className="detail-list">
-                <div><span>账号总数</span><strong>{users.length} 个</strong></div>
-                <div><span>启用账号</span><strong>{enabledCount} 个</strong></div>
-              </div>
-            </div>
-            <div className="detail-card">
-              <h4>岗位分布</h4>
-              <div className="detail-list">
-                <div><span>角色模板</span><strong>{roleCount} 个</strong></div>
-                <div><span>管理岗位</span><strong>{adminCount} 个</strong></div>
-              </div>
-            </div>
-            <div className="detail-card span-2">
-              <h4>治理提醒</h4>
-              <div className="mini-list">
-                {accountAlerts.map((item) => (
-                  <div className="mini-list-item" key={item.title}>
-                    <div>
-                      <strong>{item.title}</strong>
-                      <span>{item.description}</span>
-                    </div>
-                    <b>{item.value}</b>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-          <div className="panel">
-            <div className="page-header">
+
+          <div className="panel security-accounts-panel">
+            <div className="security-panel-head">
               <div>
                 <div className="panel-title">账号列表</div>
-                <p className="page-desc">通过快捷筛选快速定位停用账号、未登录账号和高权限账号。</p>
+                <p className="page-desc">通过快捷筛选定位停用、未登录、高权限与管理岗位账号。</p>
               </div>
             </div>
-            <div className="tabs">
+            <div className="security-chip-row">
               {[
                 ['all', '全部账号'],
                 ['disabled', '停用账号'],
                 ['never_login', '未登录账号'],
                 ['high_privilege', '高权限账号'],
+                ['admin_staff', '管理岗位'],
                 ['class_bound', '已绑班级'],
               ].map(([key, label]) => (
                 <button
                   key={key}
-                  className={`tab${quickFilter === key ? ' active' : ''}`}
                   type="button"
+                  className={`security-chip${quickFilter === key ? ' active' : ''}`}
                   onClick={() => setQuickFilter(key as typeof quickFilter)}
                 >
                   {label}
                 </button>
               ))}
             </div>
-            <div className="data-table-wrap">
-              <table className="data-table">
+            <div className="data-table-wrap security-table-wrap">
+              <table className="data-table security-table">
                 <thead>
                   <tr>
                     <th>姓名</th>
@@ -591,13 +622,13 @@ export function OrganizationPage({ token, user, classes, loading, error }: Organ
                 <tbody>
                   {listPagination.pagedItems.map((row) => (
                     <tr key={row.id}>
-                      <td className="permission-name">{row.name}</td>
-                      <td>{row.username}</td>
-                      <td>{row.roleName}</td>
-                      <td>{row.scopeDisplay}</td>
-                      <td>{formatLastLogin(row.lastLoginAt)}</td>
+                      <td className="permission-name security-name-cell">{row.name}</td>
+                      <td className="security-muted-cell">{row.username}</td>
+                      <td><span className="security-role-pill">{row.roleName}</span></td>
+                      <td className="security-scope-cell">{formatPermissionScopeDisplay(row.scopeDisplay)}</td>
+                      <td className="security-muted-cell">{formatLastLogin(row.lastLoginAt)}</td>
                       <td><span className={row.status === 'enabled' ? 'status-on' : 'status-off'}>{formatEnabledStatus(row.status)}</span></td>
-                      <td>
+                      <td className="security-actions-cell">
                         <button className="op-btn" type="button" onClick={() => openDetail(row)}>查看详情</button>
                         <button className="op-btn" type="button" onClick={() => openEdit(row)}>编辑账号</button>
                         <button className="op-btn" type="button" onClick={() => void handleResetPassword(row.id)}>重置密码</button>
@@ -611,87 +642,6 @@ export function OrganizationPage({ token, user, classes, loading, error }: Organ
                     <tr>
                       <td colSpan={7} className="table-empty">
                         当前筛选条件下没有账号数据
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
-            <TablePagination
-              currentPage={listPagination.currentPage}
-              pageSize={listPagination.pageSize}
-              totalItems={listPagination.totalItems}
-              totalPages={listPagination.totalPages}
-              onPageChange={listPagination.setCurrentPage}
-              onPageSizeChange={listPagination.setPageSize}
-            />
-          </div>
-        </>
-      ) : null}
-
-      {activeTab === 'admins' ? (
-        <>
-          <div className="detail-grid">
-            <div className="detail-card">
-              <h4>管理员管理</h4>
-              <div className="detail-list">
-                <div><span>管理员账号</span><strong>{visibleUsers.length} 个</strong></div>
-                <div><span>角色模板</span><strong>{adminRoleTemplates.length} 个</strong></div>
-              </div>
-            </div>
-            <div className="detail-card span-2">
-              <h4>岗位边界</h4>
-              <div className="mini-list">
-                {adminRoleTemplates.map((role) => (
-                  <div className="mini-list-item" key={role.code}>
-                    <div>
-                      <strong>{role.name}</strong>
-                      <span>{role.summary}</span>
-                    </div>
-                    <b>{role.permissions.length} 项</b>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-          <div className="panel">
-            <div className="panel-title">管理员列表</div>
-            <div className="data-table-wrap">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>姓名</th>
-                    <th>账号</th>
-                    <th>岗位</th>
-                    <th>负责范围</th>
-                    <th>岗位摘要</th>
-                    <th>状态</th>
-                    <th>操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {listPagination.pagedItems.map((row) => (
-                    <tr key={row.id}>
-                      <td className="permission-name">{row.name}</td>
-                      <td>{row.username}</td>
-                      <td>{row.roleName}</td>
-                      <td>{row.scopeDisplay}</td>
-                      <td>{row.permissionSummary}</td>
-                      <td><span className={row.status === 'enabled' ? 'status-on' : 'status-off'}>{formatEnabledStatus(row.status)}</span></td>
-                      <td>
-                        <button className="op-btn" type="button" onClick={() => openDetail(row)}>查看详情</button>
-                        <button className="op-btn" type="button" onClick={() => openEdit(row)}>编辑管理员</button>
-                        <button className="op-btn" type="button" onClick={() => void handleResetPassword(row.id)}>重置密码</button>
-                        <button className="op-btn" type="button" onClick={() => void handleToggleStatus(row)}>
-                          {row.status === 'enabled' ? '停用账号' : '启用账号'}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                  {filteredUsers.length === 0 ? (
-                    <tr>
-                      <td colSpan={7} className="table-empty">
-                        当前筛选条件下没有管理员数据
                       </td>
                     </tr>
                   ) : null}
@@ -729,30 +679,28 @@ export function OrganizationPage({ token, user, classes, loading, error }: Organ
         </div>
       ) : null}
 
+      {activeTab === 'audit' ? <OperationAuditPanel token={token} loading={loading} error={error} /> : null}
+
       {showEditor ? (
         <Modal
-          title={
-            activeTab === 'admins'
-              ? editingUser
-                ? '编辑管理员'
-                : '新增管理员'
-              : editingUser
-                ? '编辑账号'
-                : '新增账号'
-          }
+          title={editingUser ? '编辑账号' : '新增账号'}
           subtitle="统一维护身份信息、岗位角色和负责范围"
           onClose={() => setShowEditor(false)}
         >
-          <form className={`settings-form${isTeacherRole ? ' teacher-editor-form' : ''}`} onSubmit={handleSubmit}>
-            {isTeacherRole ? (
+          <form className={`settings-form${showTeachingScopeEditor ? ' teacher-editor-form' : ''}`} onSubmit={handleSubmit}>
+            {showTeachingScopeEditor ? (
               <div className="teacher-editor-shell">
                 <div className="teacher-editor-hero">
                   <div className="teacher-editor-hero-main">
                     <span className="teacher-editor-kicker">{editingUser ? '编辑账号' : '新增账号'}</span>
-                    <h4>{form.name.trim() || '配置教师身份与任教范围'}</h4>
-                    <p>组织权限页与教师管理页保持同一套教师配置逻辑，避免两个入口口径不一致。</p>
+                    <h4>{form.name.trim() || (isTeacherRole ? '配置教师身份与任教范围' : '配置岗位身份与兼职授课范围')}</h4>
+                    <p>
+                      {isTeacherRole
+                        ? '安全中心的账号管理与教师管理页保持同一套教师配置逻辑，避免两个入口口径不一致。'
+                        : '主角色仍保持管理岗位，授课班级与学科仅用于进入任课老师工作视角。'}
+                    </p>
                     <div className="teacher-editor-meta-row">
-                      <span className="teacher-editor-meta-pill">{form.roleCode === 'homeroom_teacher' ? '班主任主责' : '任课教师'}</span>
+                      <span className="teacher-editor-meta-pill">{teachingRoleBadge}</span>
                       <span className="teacher-editor-meta-pill">已选班级 {form.classIds.length} 个</span>
                       <span className="teacher-editor-meta-pill">已选学科 {selectedSubjectScopeItems.length} 组</span>
                     </div>
@@ -787,7 +735,7 @@ export function OrganizationPage({ token, user, classes, loading, error }: Organ
                       <div className="s-field">
                         <label>岗位类型</label>
                         <select value={form.roleCode} onChange={(event) => setForm((prev) => ({ ...prev, roleCode: event.target.value }))}>
-                          {availableRoleTemplates.map((item) => (
+                          {roleTemplates.map((item) => (
                             <option key={item.code} value={item.code}>
                               {item.name}
                             </option>
@@ -804,8 +752,8 @@ export function OrganizationPage({ token, user, classes, loading, error }: Organ
                   <div className="detail-card span-2">
                     <div className="teacher-editor-section-head">
                       <div>
-                        <h4>{form.roleCode === 'homeroom_teacher' ? '负责班级' : '授课班级'}</h4>
-                        <p>先确定班级范围，再补充学科配置。</p>
+                        <h4>{classSectionTitle}</h4>
+                        <p>{form.roleCode === 'homeroom_teacher' ? '先确定班级范围，再补充学科配置。' : '先选班级，再决定是否补充授课学科。'}</p>
                       </div>
                       <b>{form.classIds.length} 个班级</b>
                     </div>
@@ -831,7 +779,7 @@ export function OrganizationPage({ token, user, classes, loading, error }: Organ
                   <div className="detail-card span-2">
                     <div className="teacher-editor-section-head">
                       <div>
-                        <h4>{form.roleCode === 'homeroom_teacher' ? '授课学科（可选）' : '授课学科配置'}</h4>
+                        <h4>{subjectSectionTitle}</h4>
                         <p>按班级逐个配置学科，支持搜索和年级筛选。</p>
                       </div>
                       <b>{selectedSubjectScopeItems.length} 组班级-学科</b>
@@ -959,7 +907,7 @@ export function OrganizationPage({ token, user, classes, loading, error }: Organ
                   <div className="s-field">
                     <label>岗位类型</label>
                     <select value={form.roleCode} onChange={(event) => setForm((prev) => ({ ...prev, roleCode: event.target.value }))}>
-                      {availableRoleTemplates.map((item) => (
+                      {roleTemplates.map((item) => (
                         <option key={item.code} value={item.code}>
                           {item.name}
                         </option>
@@ -1034,7 +982,7 @@ export function OrganizationPage({ token, user, classes, loading, error }: Organ
               <div className="detail-list">
                 <div><span>岗位</span><strong>{selectedUser.roleName}</strong></div>
                 <div><span>账号状态</span><strong>{formatEnabledStatus(selectedUser.status)}</strong></div>
-                <div><span>负责范围</span><strong>{selectedUser.scopeDisplay}</strong></div>
+                <div><span>负责范围</span><strong>{formatPermissionScopeDisplay(selectedUser.scopeDisplay)}</strong></div>
                 <div><span>岗位摘要</span><strong>{selectedUser.permissionSummary}</strong></div>
               </div>
             </div>
@@ -1057,7 +1005,7 @@ export function OrganizationPage({ token, user, classes, loading, error }: Organ
                       navigateWithQuery('/teachers', {
                         userId: selectedUser.id,
                         returnTo: buildOrganizationLocation(selectedUser.id),
-                        returnLabel: '返回组织权限',
+                        returnLabel: '返回安全中心',
                       })
                     }
                   >
@@ -1071,7 +1019,7 @@ export function OrganizationPage({ token, user, classes, loading, error }: Organ
                     navigateWithQuery('/classes', {
                       keyword: selectedUser.name,
                       returnTo: buildOrganizationLocation(selectedUser.id),
-                      returnLabel: '返回组织权限',
+                      returnLabel: '返回安全中心',
                     })
                   }
                 >
@@ -1082,6 +1030,7 @@ export function OrganizationPage({ token, user, classes, loading, error }: Organ
           </div>
         </Modal>
       ) : null}
+      </div>
     </Shell>
   );
 }

@@ -18,8 +18,11 @@ export class ScoreRulesController {
   }
 
   @Get('tree')
-  tree(@Query() query: Record<string, string>) {
-    return this.scoreRulesService.tree(query);
+  tree(
+    @Headers('authorization') authorization: string | undefined,
+    @Query() query: Record<string, string>,
+  ) {
+    return this.scoreRulesService.tree(authorization, query);
   }
 
   @Post()

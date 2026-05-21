@@ -10,5 +10,6 @@ import { AdminInsightsService } from './admin-insights.service';
   imports: [PrismaModule, AuthModule, OperationLogModule, ConfigModule],
   controllers: [AdminInsightsController],
   providers: [AdminInsightsService],
+  exports: [AdminInsightsService],
 })
 export class AdminInsightsModule {}

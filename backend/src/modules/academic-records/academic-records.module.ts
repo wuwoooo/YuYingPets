@@ -7,5 +7,6 @@ import { AcademicRecordsService } from './academic-records.service';
   imports: [AuthModule],
   controllers: [AcademicRecordsController],
   providers: [AcademicRecordsService],
+  exports: [AcademicRecordsService],
 })
 export class AcademicRecordsModule {}

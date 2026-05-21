@@ -1,6 +1,7 @@
 import { Suspense, lazy, useEffect, useRef } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { ProtectedRoute } from './components/ProtectedRoute';
+import { AdminViewProvider, useAdminView } from './context/AdminViewContext';
 import { useAdminData } from './hooks/useAdminData';
 import './styles.css';
 
@@ -12,8 +13,8 @@ const TeachersPage = lazy(() => import('./pages/TeachersPage').then((module) => 
 const PresentationModePage = lazy(() =>
   import('./pages/PresentationModePage').then((module) => ({ default: module.PresentationModePage })),
 );
-const LiveInsightPage = lazy(() =>
-  import('./pages/LiveInsightPage').then((module) => ({ default: module.LiveInsightPage })),
+const RealtimeMonitorPage = lazy(() =>
+  import('./pages/RealtimeMonitorPage').then((module) => ({ default: module.RealtimeMonitorPage })),
 );
 const StudentsPage = lazy(() => import('./pages/StudentsPage').then((module) => ({ default: module.StudentsPage })));
 const RulesPage = lazy(() => import('./pages/RulesPage').then((module) => ({ default: module.RulesPage })));
@@ -28,7 +29,21 @@ const OrganizationPage = lazy(() =>
 
 export function App() {
   const adminData = useAdminData();
+  return (
+    <AdminViewProvider
+      user={adminData.user}
+      scopes={adminData.scopes}
+      classes={adminData.classes}
+      students={adminData.students}
+    >
+      <AppRoutes adminData={adminData} />
+    </AdminViewProvider>
+  );
+}
+
+function AppRoutes({ adminData }: { adminData: ReturnType<typeof useAdminData> }) {
   const location = useLocation();
+  const { effectiveUser, effectiveScopes, effectiveClasses, effectiveStudents } = useAdminView();
   const lastPathRef = useRef<string | null>(null);
   const token = adminData.token;
 
@@ -59,19 +74,34 @@ export function App() {
           path="/dashboard"
           element={
             <ProtectedRoute token={adminData.token}>
-              <DashboardPage {...adminData} token={adminData.token ?? ''} />
+              <DashboardPage
+                token={adminData.token ?? ''}
+                user={effectiveUser}
+                scopes={effectiveScopes}
+                classes={effectiveClasses}
+                students={effectiveStudents}
+                rules={adminData.rules}
+                honors={adminData.honors}
+                rewards={adminData.rewards}
+                loading={adminData.loading}
+                error={adminData.error}
+              />
             </ProtectedRoute>
           }
         />
         <Route
           path="/presentation"
           element={
-            <ProtectedRoute token={adminData.token}>
+            <ProtectedRoute
+              token={adminData.token}
+              roleCode={effectiveUser?.roleCode}
+              blockTeacherWorkbench
+            >
               <PresentationModePage
                 token={adminData.token ?? ''}
-                user={adminData.user}
-                classes={adminData.classes}
-                students={adminData.students}
+                user={effectiveUser}
+                classes={effectiveClasses}
+                students={effectiveStudents}
                 rules={adminData.rules}
                 honors={adminData.honors}
                 rewards={adminData.rewards}
@@ -80,21 +110,26 @@ export function App() {
           }
         />
         <Route
-          path="/live-insight"
+          path="/realtime-monitor"
           element={
-            <ProtectedRoute token={adminData.token}>
-              <LiveInsightPage token={adminData.token ?? ''} user={adminData.user} />
+            <ProtectedRoute
+              token={adminData.token}
+              roleCode={effectiveUser?.roleCode}
+              blockTeacherWorkbench
+            >
+              <RealtimeMonitorPage token={adminData.token ?? ''} user={effectiveUser} />
             </ProtectedRoute>
           }
         />
+        <Route path="/live-insight" element={<Navigate to="/realtime-monitor" replace />} />
         <Route
           path="/classes"
           element={
-            <ProtectedRoute token={adminData.token} roleCode={adminData.user?.roleCode} navKey="classes">
+            <ProtectedRoute token={adminData.token} roleCode={effectiveUser?.roleCode} navKey="classes">
               <ClassesPage
                 token={adminData.token ?? ''}
-                user={adminData.user}
-                classes={adminData.classes}
+                user={effectiveUser}
+                classes={effectiveClasses}
                 loading={adminData.loading}
                 error={adminData.error}
                 onSaved={handleRefresh}
@@ -105,12 +140,12 @@ export function App() {
         <Route
           path="/students"
           element={
-            <ProtectedRoute token={adminData.token} roleCode={adminData.user?.roleCode} navKey="students">
+            <ProtectedRoute token={adminData.token} roleCode={effectiveUser?.roleCode} navKey="students">
               <StudentsPage
                 token={adminData.token ?? ''}
-                user={adminData.user}
-                classes={adminData.classes}
-                students={adminData.students}
+                user={effectiveUser}
+                classes={effectiveClasses}
+                students={effectiveStudents}
                 loading={adminData.loading}
                 error={adminData.error}
                 onSaved={handleRefresh}
@@ -121,13 +156,13 @@ export function App() {
         <Route
           path="/evaluation"
           element={
-            <ProtectedRoute token={adminData.token} roleCode={adminData.user?.roleCode} navKey="evaluation">
+            <ProtectedRoute token={adminData.token} roleCode={effectiveUser?.roleCode} navKey="evaluation">
               <EvaluationPage
                 token={adminData.token ?? ''}
-                user={adminData.user}
-                scopes={adminData.scopes}
-                classes={adminData.classes}
-                students={adminData.students}
+                user={effectiveUser}
+                scopes={effectiveScopes}
+                classes={effectiveClasses}
+                students={effectiveStudents}
                 rules={adminData.rules}
                 loading={adminData.loading}
                 error={adminData.error}
@@ -139,13 +174,13 @@ export function App() {
         <Route
           path="/class-evaluation"
           element={
-            <ProtectedRoute token={adminData.token} roleCode={adminData.user?.roleCode} navKey="class-evaluation">
+            <ProtectedRoute token={adminData.token} roleCode={effectiveUser?.roleCode} navKey="class-evaluation">
               <EvaluationPage
                 token={adminData.token ?? ''}
-                user={adminData.user}
-                scopes={adminData.scopes}
-                classes={adminData.classes}
-                students={adminData.students}
+                user={effectiveUser}
+                scopes={effectiveScopes}
+                classes={effectiveClasses}
+                students={effectiveStudents}
                 rules={adminData.rules}
                 loading={adminData.loading}
                 error={adminData.error}
@@ -157,11 +192,11 @@ export function App() {
         <Route
           path="/teachers"
           element={
-            <ProtectedRoute token={adminData.token} roleCode={adminData.user?.roleCode} navKey="teachers">
+            <ProtectedRoute token={adminData.token} roleCode={effectiveUser?.roleCode} navKey="teachers">
               <TeachersPage
                 token={adminData.token ?? ''}
-                user={adminData.user}
-                classes={adminData.classes}
+                user={effectiveUser}
+                classes={effectiveClasses}
                 loading={adminData.loading}
                 error={adminData.error}
               />
@@ -171,11 +206,11 @@ export function App() {
         <Route
           path="/rules"
           element={
-            <ProtectedRoute token={adminData.token} roleCode={adminData.user?.roleCode} navKey="rules">
+            <ProtectedRoute token={adminData.token} roleCode={effectiveUser?.roleCode} navKey="rules">
               <RulesPage
                 token={adminData.token ?? ''}
-                user={adminData.user}
-                classes={adminData.classes}
+                user={effectiveUser}
+                classes={effectiveClasses}
                 rules={adminData.rules}
                 loading={adminData.loading}
                 error={adminData.error}
@@ -187,10 +222,10 @@ export function App() {
         <Route
           path="/honors"
           element={
-            <ProtectedRoute token={adminData.token} roleCode={adminData.user?.roleCode} navKey="honors">
+            <ProtectedRoute token={adminData.token} roleCode={effectiveUser?.roleCode} navKey="honors">
               <HonorsPage
                 token={adminData.token ?? ''}
-                user={adminData.user}
+                user={effectiveUser}
                 honors={adminData.honors}
                 loading={adminData.loading}
                 error={adminData.error}
@@ -202,11 +237,12 @@ export function App() {
         <Route
           path="/analytics"
           element={
-            <ProtectedRoute token={adminData.token} roleCode={adminData.user?.roleCode} navKey="analytics">
+            <ProtectedRoute token={adminData.token} roleCode={effectiveUser?.roleCode} navKey="analytics">
               <AnalyticsPage
                 token={adminData.token ?? ''}
-                user={adminData.user}
-                classes={adminData.classes}
+                user={effectiveUser}
+                classes={effectiveClasses}
+                students={effectiveStudents}
                 loading={adminData.loading}
                 error={adminData.error}
               />
@@ -216,12 +252,12 @@ export function App() {
         <Route
           path="/rewards"
           element={
-            <ProtectedRoute token={adminData.token} roleCode={adminData.user?.roleCode} navKey="rewards">
+            <ProtectedRoute token={adminData.token} roleCode={effectiveUser?.roleCode} navKey="rewards">
               <RewardsPage
                 token={adminData.token ?? ''}
-                user={adminData.user}
-                classes={adminData.classes}
-                students={adminData.students}
+                user={effectiveUser}
+                classes={effectiveClasses}
+                students={effectiveStudents}
                 rewards={adminData.rewards}
                 loading={adminData.loading}
                 error={adminData.error}
@@ -233,10 +269,10 @@ export function App() {
         <Route
           path="/pets"
           element={
-            <ProtectedRoute token={adminData.token} roleCode={adminData.user?.roleCode} navKey="pets">
+            <ProtectedRoute token={adminData.token} roleCode={effectiveUser?.roleCode} navKey="pets">
               <PetsPage
                 token={adminData.token ?? ''}
-                user={adminData.user}
+                user={effectiveUser}
                 loading={adminData.loading}
                 error={adminData.error}
               />
@@ -246,10 +282,10 @@ export function App() {
         <Route
           path="/settings"
           element={
-            <ProtectedRoute token={adminData.token} roleCode={adminData.user?.roleCode} navKey="settings">
+            <ProtectedRoute token={adminData.token} roleCode={effectiveUser?.roleCode} navKey="settings">
               <SettingsPage
                 token={adminData.token ?? ''}
-                user={adminData.user}
+                user={effectiveUser}
                 loading={adminData.loading}
                 error={adminData.error}
               />
@@ -259,17 +295,18 @@ export function App() {
         <Route
           path="/organization"
           element={
-            <ProtectedRoute token={adminData.token} roleCode={adminData.user?.roleCode} navKey="organization">
+            <ProtectedRoute token={adminData.token} roleCode={effectiveUser?.roleCode} navKey="organization">
               <OrganizationPage
                 token={adminData.token ?? ''}
-                user={adminData.user}
-                classes={adminData.classes}
+                user={effectiveUser}
+                classes={effectiveClasses}
                 loading={adminData.loading}
                 error={adminData.error}
               />
             </ProtectedRoute>
           }
         />
+        <Route path="/audit" element={<Navigate to="/organization?activeTab=audit" replace />} />
         <Route path="/" element={<Navigate to={adminData.token ? '/dashboard' : '/login'} replace />} />
       </Routes>
     </Suspense>

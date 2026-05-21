@@ -18,10 +18,11 @@ import type {
 } from '../lib/api';
 import { adminApi } from '../lib/api';
 import type { PermissionUserFormState } from '../types/admin';
-import { createPermissionUserForm, formatEnabledStatus, normalizeKeyword } from '../utils/adminForms';
+import { createPermissionUserForm, formatEnabledStatus, formatPermissionScopeDisplay, normalizeKeyword } from '../utils/adminForms';
+import { canManageTeachers } from '../utils/adminPermissions';
 
 const teacherRoleCodes = ['homeroom_teacher', 'subject_teacher'];
-const staffRoleCodes = ['school_admin', 'moral_admin', 'homeroom_teacher', 'subject_teacher'];
+const staffRoleCodes = ['school_admin', 'academic_admin', 'moral_admin', 'homeroom_teacher', 'subject_teacher'];
 const teacherSubjectOptions = [
   { code: 'chinese', label: '语文' },
   { code: 'math', label: '数学' },
@@ -152,6 +153,7 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
   const [liveStatusEnd, setLiveStatusEnd] = useState(getCurrentTimeInputValue);
   const [liveStatusRangeActive, setLiveStatusRangeActive] = useState(false);
   const [liveStatusPeriodKey, setLiveStatusPeriodKey] = useState('custom');
+  const allowManageTeachers = canManageTeachers(user?.roleCode);
 
   const teacherRoleTemplates = useMemo(
     () => roleTemplates.filter((item) => teacherRoleCodes.includes(item.code)),
@@ -251,6 +253,7 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
   }, [searchParams, teachers]);
 
   function openCreate() {
+    if (!allowManageTeachers) return;
     setEditingTeacher(null);
     setForm({ ...createPermissionUserForm(), roleCode: teacherRoleTemplates[0]?.code ?? 'homeroom_teacher' });
     setEditorError(null);
@@ -261,6 +264,7 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
   }
 
   function openEdit(row: PermissionUser) {
+    if (!allowManageTeachers) return;
     setEditingTeacher(row);
     setForm(createPermissionUserForm(row));
     setEditorError(null);
@@ -322,13 +326,13 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
         .map((row) => ({
           name: getImportCell(row, ['姓名', '教师姓名', 'name']),
           phone: getImportCell(row, ['手机', '手机号', '联系电话', 'phone']) || undefined,
-          roles: getImportCell(row, ['角色', '岗位', '职务', 'roles']) || undefined,
+          roles: getImportCell(row, ['职务角色', '角色', '岗位', '职务', 'roles']) || undefined,
           teachingClasses: getImportCell(row, ['任课班级', '授课班级', '负责班级', 'teachingClasses']) || undefined,
         }))
         .filter((row) => row.name);
 
       if (parsedRows.length === 0) {
-        throw new Error('未识别到教师姓名，请确认表头为“姓名 / 手机 / 角色 / 任课班级”');
+        throw new Error('未识别到教师姓名，请确认表头为「姓名 / 手机 / 职务角色 / 任课班级」');
       }
 
       setImportRows(parsedRows);
@@ -353,8 +357,10 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
     try {
       const response = await adminApi.importPermissionUsers(token, { rows: importRows });
       setImportResult(response.data);
+      const warnNote =
+        response.data.warnings.length > 0 ? `另有 ${response.data.warnings.length} 条需在结果中查阅的警告。` : '';
       setSubmitSuccess(
-        `批量导入完成：新增 ${response.data.createdCount} 人，更新 ${response.data.updatedCount} 人，跳过 ${response.data.skippedCount} 人`,
+        `批量导入完成：新增 ${response.data.createdCount} 人，更新 ${response.data.updatedCount} 人，跳过 ${response.data.skippedCount} 人。${warnNote}`,
       );
       await loadTeachers();
     } catch (err) {
@@ -453,7 +459,7 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
       const matchesView =
         teacherView === 'all' ||
         row.roleCode === teacherView ||
-        (teacherView === 'manager' && ['school_admin', 'moral_admin'].includes(row.roleCode));
+        (teacherView === 'manager' && ['school_admin', 'academic_admin', 'moral_admin'].includes(row.roleCode));
       const matchesKeyword =
         !keyword ||
         normalizeKeyword(row.name).includes(keyword) ||
@@ -582,7 +588,7 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
     const classNames = classes
       .filter((item) => row.classIds.includes(item.id))
       .map((item) => item.name);
-    return classNames.join('、') || row.scopeDisplay || '未分配负责范围';
+    return classNames.join('、') || formatPermissionScopeDisplay(row.scopeDisplay) || '未分配负责范围';
   }
 
   function toggleSubjectScope(classId: number, subjectCode: string, checked: boolean) {
@@ -911,7 +917,8 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
         </>
       }
     >
-      <div className="page-header">
+      <div className="admin-list-desk">
+      <div className="page-header admin-list-page-header">
         <div>
           <h2>教师管理</h2>
           <p className="page-desc">聚合查看全校教职工结构、班级覆盖、系统角色和职务标签。</p>
@@ -938,100 +945,132 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
               </option>
             ))}
           </select>
-          <PickerInput
-            wrapperClassName="picker-input-inline"
-            className="filter-select"
-            type="date"
-            value={liveStatusDate}
-            onChange={(event) => {
-              setLiveStatusDate(event.target.value);
-              if (liveStatusRangeActive) {
-                setLiveStatusRangeActive(true);
-              }
-            }}
-          />
-          <select
-            className="filter-select teacher-period-select"
-            value={liveStatusPeriodKey}
-            onChange={(event) => applyLiveStatusPeriod(event.target.value)}
-            disabled={liveStatusPeriodOptions.length === 0}
-          >
-            <option value="custom">按课节时间段</option>
-            {liveStatusPeriodOptions.map((period) => (
-              <option key={period.key} value={period.key}>
-                {period.label}
-              </option>
-            ))}
-          </select>
-          <PickerInput
-            wrapperClassName="picker-input-inline"
-            className="filter-select"
-            type="time"
-            step="60"
-            value={liveStatusStart}
-            onChange={(event) => {
-              setLiveStatusStart(event.target.value);
-              setLiveStatusPeriodKey('custom');
-              setLiveStatusRangeActive(true);
-            }}
-          />
-          <PickerInput
-            wrapperClassName="picker-input-inline"
-            className="filter-select"
-            type="time"
-            step="60"
-            value={liveStatusEnd}
-            onChange={(event) => {
-              setLiveStatusEnd(event.target.value);
-              setLiveStatusPeriodKey('custom');
-              setLiveStatusRangeActive(true);
-            }}
-          />
-          <button className="btn btn-primary" type="button" onClick={openCreate}>
-            新增教师
-          </button>
-          <input
-            ref={importFileInputRef}
-            type="file"
-            accept=".xlsx,.xls"
-            hidden
-            onChange={handleImportFileChange}
-          />
-          <button className="ghost-button" type="button" onClick={() => importFileInputRef.current?.click()}>
-            批量导入
-          </button>
+          {allowManageTeachers ? (
+            <>
+              <button className="btn btn-primary" type="button" onClick={openCreate}>
+                新增教师
+              </button>
+              <input
+                ref={importFileInputRef}
+                type="file"
+                accept=".xlsx,.xls"
+                hidden
+                onChange={handleImportFileChange}
+              />
+              <button className="ghost-button" type="button" onClick={() => importFileInputRef.current?.click()}>
+                批量导入
+              </button>
+            </>
+          ) : null}
         </div>
       </div>
 
-      <div className="metric-strip">
-        <div className={`metric-card${liveStatusFilter === 'all' ? ' active' : ''}`}>
-          <span>教师总数</span>
-          <button
-            className="metric-value-button"
-            type="button"
-            onClick={() => {
-              resetListFilters();
-              void loadTeachers(buildLiveStatusQuery());
-            }}
-          >
-            {teachers.length}
-          </button>
-          <p>当前纳入系统、具备管理或教学身份的账号数量。</p>
+      <div className="security-filter-card admin-live-filter-card">
+        <div className="security-filter-grid admin-live-filter-grid">
+          <label className="security-filter-field">
+            <span className="security-filter-label">忙闲判断日期</span>
+            <PickerInput
+              wrapperClassName="picker-input-inline"
+              className="filter-select security-filter-select"
+              type="date"
+              value={liveStatusDate}
+              onChange={(event) => {
+                setLiveStatusDate(event.target.value);
+                if (liveStatusRangeActive) {
+                  setLiveStatusRangeActive(true);
+                }
+              }}
+            />
+          </label>
+          <label className="security-filter-field">
+            <span className="security-filter-label">课节时间段</span>
+            <select
+              className="filter-select security-filter-select"
+              value={liveStatusPeriodKey}
+              onChange={(event) => applyLiveStatusPeriod(event.target.value)}
+              disabled={liveStatusPeriodOptions.length === 0}
+            >
+              <option value="custom">按课节时间段</option>
+              {liveStatusPeriodOptions.map((period) => (
+                <option key={period.key} value={period.key}>
+                  {period.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="security-filter-field">
+            <span className="security-filter-label">开始时间</span>
+            <PickerInput
+              wrapperClassName="picker-input-inline"
+              className="filter-select security-filter-select"
+              type="time"
+              step="60"
+              value={liveStatusStart}
+              onChange={(event) => {
+                setLiveStatusStart(event.target.value);
+                setLiveStatusPeriodKey('custom');
+                setLiveStatusRangeActive(true);
+              }}
+            />
+          </label>
+          <label className="security-filter-field">
+            <span className="security-filter-label">结束时间</span>
+            <PickerInput
+              wrapperClassName="picker-input-inline"
+              className="filter-select security-filter-select"
+              type="time"
+              step="60"
+              value={liveStatusEnd}
+              onChange={(event) => {
+                setLiveStatusEnd(event.target.value);
+                setLiveStatusPeriodKey('custom');
+                setLiveStatusRangeActive(true);
+              }}
+            />
+          </label>
         </div>
-        <div className={`metric-card${liveStatusFilter === 'busy' ? ' active' : ''}`}>
-          <span>当前有课</span>
-          <button className="metric-value-button" type="button" onClick={() => applyLiveStatusFilter('busy')}>
-            {liveBusyCount}
-          </button>
-          <p>按所选时间段筛选当前有课教师，并同步刷新忙闲状态。</p>
-        </div>
-        <div className={`metric-card${liveStatusFilter === 'free' ? ' active' : ''}`}>
-          <span>当前空闲</span>
-          <button className="metric-value-button" type="button" onClick={() => applyLiveStatusFilter('free')}>
-            {liveFreeCount}
-          </button>
-          <p>按所选时间段筛选当前空闲教师，并同步刷新忙闲状态。</p>
-        </div>
+      </div>
+
+      <div className="std-metric-grid std-metric-grid--3">
+        <button
+          type="button"
+          className={`std-metric-card std-metric-card--blue std-metric-card--action${liveStatusFilter === 'all' ? ' active' : ''}`}
+          onClick={() => {
+            resetListFilters();
+            void loadTeachers(buildLiveStatusQuery());
+          }}
+        >
+          <div className="std-metric-card__top">
+            <div className="std-metric-card__icon"><span className="sec-metric-glyph">总</span></div>
+            <span className="std-metric-card__label">教师总数</span>
+          </div>
+          <div className="std-metric-card__value">{teachers.length}</div>
+          <div className="std-metric-card__hint">纳入系统、具备管理或教学身份的账号</div>
+        </button>
+        <button
+          type="button"
+          className={`std-metric-card std-metric-card--amber std-metric-card--action${liveStatusFilter === 'busy' ? ' active' : ''}`}
+          onClick={() => applyLiveStatusFilter('busy')}
+        >
+          <div className="std-metric-card__top">
+            <div className="std-metric-card__icon"><span className="sec-metric-glyph">课</span></div>
+            <span className="std-metric-card__label">当前有课</span>
+          </div>
+          <div className="std-metric-card__value">{liveBusyCount}</div>
+          <div className="std-metric-card__hint">按所选时间段筛选有课教师</div>
+        </button>
+        <button
+          type="button"
+          className={`std-metric-card std-metric-card--green std-metric-card--action${liveStatusFilter === 'free' ? ' active' : ''}`}
+          onClick={() => applyLiveStatusFilter('free')}
+        >
+          <div className="std-metric-card__top">
+            <div className="std-metric-card__icon"><span className="sec-metric-glyph">闲</span></div>
+            <span className="std-metric-card__label">当前空闲</span>
+          </div>
+          <div className="std-metric-card__value">{liveFreeCount}</div>
+          <div className="std-metric-card__hint">按所选时间段筛选空闲教师</div>
+        </button>
       </div>
 
       {showEditor ? (
@@ -1278,7 +1317,7 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
       {showImportModal ? (
         <Modal
           title="批量导入教师"
-          subtitle="支持“姓名 / 手机 / 角色 / 任课班级”格式，角色列会保存为职务标签"
+          subtitle="支持“姓名 / 手机 / 角色 / 任课班级”格式；角色为空时默认按任课教师导入；若角色写为“班主任（40班）”会按角色列解析班主任负责班级，“教务 / 德育”等标签仍会参与系统角色判断"
           onClose={closeImportModal}
         >
           <div className="settings-form">
@@ -1290,7 +1329,9 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
                   <div><span>识别人数</span><strong>{importRows.length} 人</strong></div>
                   <div><span>默认密码</span><strong>123456</strong></div>
                 </div>
-                <p className="page-desc">同一手机号或同名账号会更新原账号；系统角色用于权限，Excel 角色列会拆成职务标签；新账号按姓名拼音生成。</p>
+                <p className="page-desc">
+                  同一手机号或同名账号会更新原账号。角色列会写入职务标签并用以推断系统角色；其中“班主任（xx班）”会单独解析班主任负责班级，“教务 / 德育 / 考试管理员”等标签仍按管理岗位识别。任课班级列继续用于解析授课班级与学科。新账号用户名按姓名拼音生成。
+                </p>
               </div>
             ) : null}
             {importError ? <div className="status-card error">{importError}</div> : null}
@@ -1301,7 +1342,7 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
                     <tr>
                       <th>姓名</th>
                       <th>手机</th>
-                      <th>角色</th>
+                      <th>职务角色</th>
                       <th>任课班级</th>
                     </tr>
                   </thead>
@@ -1325,7 +1366,10 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
                 <div className="detail-grid">
                   <div><span>新增账号</span><strong>{importResult.createdCount} 个</strong></div>
                   <div><span>更新已有账号</span><strong>{importResult.updatedCount} 个</strong></div>
-                  <div><span>失败</span><strong>{importResult.skippedCount} 个</strong></div>
+                  <div><span>跳过</span><strong>{importResult.skippedCount} 个</strong></div>
+                  {importResult.warnings.length > 0 ? (
+                    <div><span>警告</span><strong>{importResult.warnings.length} 条</strong></div>
+                  ) : null}
                 </div>
                 {importResult.skippedCount > 0 ? (
                   <div className="teacher-editor-empty inline">
@@ -1338,8 +1382,11 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
                 ) : null}
                 {importResult.warnings.length > 0 ? (
                   <div className="teacher-editor-empty inline">
-                    {importResult.warnings.slice(0, 6).map((item) => (
-                      <div key={item}>{item}</div>
+                    <p className="page-desc">
+                      以下含职务为空或任课范围未配置的提示；若该行账号已成功导入或更新，请在教师管理中尽快补全信息。
+                    </p>
+                    {importResult.warnings.map((item, idx) => (
+                      <div key={`${idx}-${item}`}>{item}</div>
                     ))}
                   </div>
                 ) : null}
@@ -1492,34 +1539,31 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
           </div>
         </Modal>
       ) : null}
-      <div className="panel">
-        <div className="page-header">
-          <div>
-            <div className="panel-title">教师列表</div>
-            <p className="page-desc">查看教职工账号、系统角色、职务标签与课程表安排。</p>
+      <div className="panel admin-list-panel security-accounts-panel">
+        <div className="security-panel-head">
+          <div className="sec-nav-tabs">
+            {[
+              ['teachers', '教师信息'],
+              ['schedule', '课程表数据'],
+            ].map(([key, label]) => (
+              <button
+                key={key}
+                className={`sec-nav-tab${teacherPanelTab === key ? ' active' : ''}`}
+                type="button"
+                onClick={() => setTeacherPanelTab(key as TeacherPanelTab)}
+              >
+                {label}
+              </button>
+            ))}
           </div>
-        </div>
-        <div className="tabs">
-          {[
-            ['teachers', '教师信息'],
-            ['schedule', '课程表数据'],
-          ].map(([key, label]) => (
-            <button
-              key={key}
-              className={`tab${teacherPanelTab === key ? ' active' : ''}`}
-              type="button"
-              onClick={() => setTeacherPanelTab(key as TeacherPanelTab)}
-            >
-              {label}
-            </button>
-          ))}
+          <p className="page-desc">查看教职工账号、系统角色、职务标签与课程表安排。</p>
         </div>
         {teacherPanelTab === 'teachers' ? (
           <>
-            <div className="status-card teacher-live-range-card">
+            <div className="admin-list-live-banner">
               当前忙闲判断时间：<strong>{liveStatusRangeLabel}</strong>
             </div>
-            <div className="tabs">
+            <div className="security-chip-row">
           {[
             ['all', '全部教师'],
             ['manager', '管理职务'],
@@ -1528,16 +1572,16 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
           ].map(([key, label]) => (
             <button
               key={key}
-              className={`tab${teacherView === key ? ' active' : ''}`}
               type="button"
+              className={`security-chip${teacherView === key ? ' active' : ''}`}
               onClick={() => setTeacherView(key as typeof teacherView)}
             >
               {label}
             </button>
           ))}
         </div>
-        <div className="data-table-wrap">
-          <table className="data-table">
+        <div className="data-table-wrap security-table-wrap">
+          <table className="data-table security-table">
             <thead>
               <tr>
                 <th>{renderSortHeader('姓名', 'name')}</th>
@@ -1552,7 +1596,7 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
             <tbody>
               {teacherPagination.pagedItems.map((row) => (
                 <tr key={row.id}>
-                  <td className="permission-name">{row.name}</td>
+                  <td className="security-name-cell permission-name">{row.name}</td>
                   <td>{row.username}</td>
                   <td>{row.roleName}</td>
                   <td>
@@ -1562,11 +1606,13 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
                       </div>
                     ) : '-'}
                   </td>
-                  <td>{formatTeacherScopeForTable(row)}</td>
+                  <td className="security-scope-cell">{formatTeacherScopeForTable(row)}</td>
                   <td>{renderLiveStatusCell(row)}</td>
                   <td>
                     <button className="op-btn" type="button" onClick={() => openDetail(row)}>查看详情</button>
-                    <button className="op-btn" type="button" onClick={() => openEdit(row)}>编辑教师</button>
+                    {allowManageTeachers ? (
+                      <button className="op-btn" type="button" onClick={() => openEdit(row)}>编辑教师</button>
+                    ) : null}
                     <button className="op-btn" type="button" onClick={() => setSelectedScheduleTeacher(row)}>查看课程</button>
                   </td>
                 </tr>
@@ -1599,17 +1645,17 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
                 <p className="page-desc">按教师或班级查看已导入课程表，每天课时按节次顺序排列。</p>
               </div>
             </div>
-            <div className="tabs">
+            <div className="security-chip-row">
               <button
                 type="button"
-                className={`tab${scheduleMode === 'teacher' ? ' active' : ''}`}
+                className={`security-chip${scheduleMode === 'teacher' ? ' active' : ''}`}
                 onClick={() => setScheduleMode('teacher')}
               >
                 按教师
               </button>
               <button
                 type="button"
-                className={`tab${scheduleMode === 'class' ? ' active' : ''}`}
+                className={`security-chip${scheduleMode === 'class' ? ' active' : ''}`}
                 onClick={() => setScheduleMode('class')}
               >
                 按班级
@@ -1618,8 +1664,8 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
             <div className="settings-note" style={{ marginTop: 14 }}>
               当前以 {scheduleMode === 'teacher' ? '教师' : '班级'} 为一行展示，每个单元格按节次从前到后排列，便于快速查看忙闲分布。
             </div>
-            <div className="data-table-wrap">
-              <table className="data-table">
+            <div className="data-table-wrap security-table-wrap">
+              <table className="data-table security-table">
                 <thead>
                   <tr>
                     <th>{scheduleMode === 'teacher' ? '教师' : '班级'}</th>
@@ -1670,6 +1716,7 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
         ) : null}
       </div>
 
+      </div>
     </Shell>
   );
 }

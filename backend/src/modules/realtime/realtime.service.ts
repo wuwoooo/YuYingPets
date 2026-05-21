@@ -50,4 +50,9 @@ export class RealtimeService {
   emitAiSummaryGenerated(classId: number, payload: Record<string, unknown>) {
     this.realtimeGateway.server.to(`class:${classId}`).emit('ai.summary.generated', payload);
   }
+
+  emitCallQueueChanged(classId: number, payload: Record<string, unknown> | null) {
+    this.realtimeGateway.server.to(`class:${classId}`).emit('call.queue.changed', payload);
+  }
 }
+

@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useSearchParams } from 'react-router-dom';
+import { useAdminView } from '../context/AdminViewContext';
 import { Modal } from '../components/Modal';
 import { Shell } from '../components/Shell';
-import { ruleSceneOptions } from '../constants/admin';
+import { resolveSubjectLabel, ruleSceneOptions } from '../constants/admin';
 import type {
   AdminClass,
   AdminStudent,
@@ -43,7 +44,7 @@ const roleTitleMap: Record<string, { title: string; subtitle: string }> = {
   },
   subject_teacher: {
     title: '学科评价',
-    subtitle: '只展示你有权限的授课班级与学科规则，适合任课教师快速记录。',
+    subtitle: '班级与学科请在页面右上角切换；本页不再重复班级、年级下拉筛选。',
   },
 };
 
@@ -56,27 +57,6 @@ const sceneLabelMap: Record<string, string> = {
   sports: '体育活动',
   exam: '考试测评',
   activity: '活动',
-};
-
-const subjectLabelMap: Record<string, string> = {
-  chinese: '语文',
-  math: '数学',
-  mathematics: '数学',
-  english: '英语',
-  physics: '物理',
-  chemistry: '化学',
-  biology: '生物',
-  geography: '地理',
-  history: '历史',
-  politics: '政治',
-  pe: '体育',
-  sport: '体育',
-  computer: '计算机',
-  music: '音乐',
-  art: '美术',
-  arts_it: '音美信综合',
-  it: '信息',
-  general: '通用',
 };
 
 const subjectRuleCompatibility: Record<string, string[]> = {
@@ -103,9 +83,15 @@ function subjectFilterMatchesRule(subjectFilter: string, ruleSubjectCode?: strin
   return expandRuleSubjectCodes([subjectFilter]).includes(ruleSubjectCode);
 }
 
-function formatSubjectLabel(value?: string | null) {
-  if (!value) return '通用规则';
-  return subjectLabelMap[value.toLowerCase()] ?? value;
+function getClassRuleMetricLabel(name: string) {
+  return name.replace(/(优秀|待改进)$/u, '').trim();
+}
+
+function formatClassRuleGroupScore(group: { add?: ScoreRule; deduct?: ScoreRule }) {
+  const parts: string[] = [];
+  if (group.add) parts.push(`+${group.add.scoreValue}`);
+  if (group.deduct) parts.push(`-${group.deduct.scoreValue}`);
+  return parts.join(' / ');
 }
 
 function formatDateTime(value: string) {
@@ -161,11 +147,13 @@ export function EvaluationPage({
   const location = useLocation();
   const isClassEvaluationPage = location.pathname === '/class-evaluation';
   const [searchParams] = useSearchParams();
+  const { activeSubjectView } = useAdminView();
+  const isSubjectTeacher = user?.roleCode === 'subject_teacher';
   const rolePresentation = roleTitleMap[user?.roleCode ?? ''] ?? {
     title: '学生评价',
     subtitle: '统一查看学生评价规则、提交评价并回看最近记录。',
   };
-  const canManageClassScore = ['super_admin', 'school_admin', 'moral_admin', 'grade_admin'].includes(user?.roleCode ?? '');
+  const canManageClassScore = ['super_admin', 'school_admin', 'academic_admin', 'moral_admin', 'grade_admin'].includes(user?.roleCode ?? '');
 
   const classIdsInScope = useMemo(() => {
     const rawIds = scopes.map((item) => item.classId).filter((item): item is number => typeof item === 'number');
@@ -184,7 +172,7 @@ export function EvaluationPage({
   }, [scopes]);
 
   const availableClasses = useMemo(() => {
-    if (['super_admin', 'school_admin', 'moral_admin', 'grade_admin'].includes(user?.roleCode ?? '')) {
+    if (['super_admin', 'school_admin', 'academic_admin', 'moral_admin', 'grade_admin'].includes(user?.roleCode ?? '')) {
       return classes;
     }
     return classes.filter((item) => classIdsInScope.includes(item.id));
@@ -194,6 +182,7 @@ export function EvaluationPage({
   const [mode, setMode] = useState<EvaluationMode>('single');
   const [classMode, setClassMode] = useState<ClassEvaluationMode>('single');
   const [rankGradeName, setRankGradeName] = useState<string>('');
+  const [studentEvalGradeName, setStudentEvalGradeName] = useState<string>('');
   const [classSingleGradeName, setClassSingleGradeName] = useState<string>('');
   const [classBatchGradeName, setClassBatchGradeName] = useState<string>('');
   const [selectedClassScoreIds, setSelectedClassScoreIds] = useState<number[]>([]);
@@ -247,7 +236,7 @@ export function EvaluationPage({
         if (!haystack.includes(keyword)) return false;
       }
       if (item.moduleType === 'general') return true;
-      if (['super_admin', 'school_admin', 'moral_admin', 'grade_admin'].includes(user?.roleCode ?? '')) return true;
+      if (['super_admin', 'school_admin', 'academic_admin', 'moral_admin', 'grade_admin'].includes(user?.roleCode ?? '')) return true;
       if (user?.roleCode === 'homeroom_teacher' && currentSubjectCodes.length === 0) return false;
       return canUseSubjectRule(currentSubjectCodes, item.subjectCode);
     });
@@ -310,17 +299,22 @@ export function EvaluationPage({
     : 0;
 
   useEffect(() => {
+    if (isSubjectTeacher && activeSubjectView) {
+      setSelectedClassId(activeSubjectView.classId);
+      setSubjectFilter(activeSubjectView.subjectCode);
+      return;
+    }
     if (!selectedClassId && availableClasses[0]?.id) {
       setSelectedClassId(availableClasses[0].id);
     }
-  }, [availableClasses, selectedClassId]);
+  }, [activeSubjectView, availableClasses, isSubjectTeacher, selectedClassId]);
 
   useEffect(() => {
     const queryClassId = searchParams.get('classId');
     const queryMode = searchParams.get('mode');
     const querySubjectCode = searchParams.get('subjectCode');
 
-    if (queryClassId) {
+    if (queryClassId && !isSubjectTeacher) {
       const parsedClassId = Number(queryClassId);
       if (availableClasses.some((item) => item.id === parsedClassId)) {
         setSelectedClassId(parsedClassId);
@@ -332,11 +326,11 @@ export function EvaluationPage({
     }
 
     if (querySubjectCode && availableSubjectFilters.includes(querySubjectCode)) {
-      setSubjectFilter(querySubjectCode);
+      if (!isSubjectTeacher) setSubjectFilter(querySubjectCode);
     } else if (!querySubjectCode && subjectFilter !== 'all' && !availableSubjectFilters.includes(subjectFilter)) {
       setSubjectFilter('all');
     }
-  }, [availableClasses, availableSubjectFilters, searchParams, subjectFilter]);
+  }, [availableClasses, availableSubjectFilters, isSubjectTeacher, searchParams, subjectFilter]);
 
   useEffect(() => {
     if (!selectedClassId) return;
@@ -595,6 +589,25 @@ export function EvaluationPage({
 
   const moreRules = useMemo(() => availableRules.slice(0, 36), [availableRules]);
   const classRuleCards = useMemo(() => availableClassRules.slice(0, 36), [availableClassRules]);
+  const groupedClassRuleCards = useMemo(() => {
+    const groups = new Map<string, { metric: string; add?: ScoreRule; deduct?: ScoreRule }>();
+    classRuleCards.forEach((item) => {
+      const metric = getClassRuleMetricLabel(item.name);
+      const current = groups.get(metric) ?? { metric };
+      if (item.scoreType === 'add') current.add = item;
+      if (item.scoreType === 'deduct') current.deduct = item;
+      groups.set(metric, current);
+    });
+    return Array.from(groups.values());
+  }, [classRuleCards]);
+  const classRecentRules = useMemo(
+    () =>
+      recentRuleIds
+        .map((id) => availableClassRules.find((item) => item.id === id))
+        .filter((item): item is ScoreRule => Boolean(item))
+        .slice(0, 8),
+    [availableClassRules, recentRuleIds],
+  );
 
   const gradeOptions = useMemo(
     () => Array.from(new Set(availableClasses.map((item) => item.gradeName))).sort(compareGradeName),
@@ -627,6 +640,33 @@ export function EvaluationPage({
       setClassBatchGradeName(gradeOptions[0] ?? '');
     }
   }, [classBatchGradeName, gradeOptions]);
+
+  useEffect(() => {
+    if (isClassEvaluationPage || isSubjectTeacher) return;
+    if (!gradeOptions.includes(studentEvalGradeName)) {
+      setStudentEvalGradeName(selectedClass?.gradeName ?? gradeOptions[0] ?? '');
+    }
+  }, [gradeOptions, isClassEvaluationPage, isSubjectTeacher, selectedClass?.gradeName, studentEvalGradeName]);
+
+  useEffect(() => {
+    if (isClassEvaluationPage || isSubjectTeacher) return;
+    const gradeName = selectedClass?.gradeName;
+    if (gradeName && gradeName !== studentEvalGradeName) {
+      setStudentEvalGradeName(gradeName);
+    }
+  }, [isClassEvaluationPage, isSubjectTeacher, selectedClass?.gradeName, studentEvalGradeName]);
+
+  const studentGradeClasses = useMemo(
+    () => classesSorted.filter((item) => item.gradeName === studentEvalGradeName),
+    [classesSorted, studentEvalGradeName],
+  );
+
+  useEffect(() => {
+    if (isClassEvaluationPage || isSubjectTeacher) return;
+    if (!studentGradeClasses.some((item) => item.id === selectedClassId)) {
+      setSelectedClassId(studentGradeClasses[0]?.id ?? null);
+    }
+  }, [isClassEvaluationPage, isSubjectTeacher, selectedClassId, studentGradeClasses]);
 
   const singleGradeClasses = useMemo(
     () => classesSorted.filter((item) => item.gradeName === classSingleGradeName),
@@ -700,13 +740,21 @@ export function EvaluationPage({
   }, [classStudents, groups, mode, selectedGroupId, selectedStudentId, selectedStudentIds]);
 
   return (
-    <Shell title={rolePresentation.title} subtitle={rolePresentation.subtitle} user={user}>
-      {(loading || pageLoading) && <div className="status-card">评价数据加载中...</div>}
-      {error && <div className="status-card error">{error}</div>}
-      {submitError && <div className="status-card error">{submitError}</div>}
-      {submitSuccess && <div className="status-card success">{submitSuccess}</div>}
-
-      <div className="page-header">
+    <Shell
+      title={rolePresentation.title}
+      subtitle={rolePresentation.subtitle}
+      user={user}
+      status={
+        <>
+          {(loading || pageLoading) ? <div className="status-card">评价数据加载中...</div> : null}
+          {error ? <div className="status-card error">{error}</div> : null}
+          {submitError ? <div className="status-card error">{submitError}</div> : null}
+          {submitSuccess ? <div className="status-card success">{submitSuccess}</div> : null}
+        </>
+      }
+    >
+      <div className="admin-list-desk evaluation-desk">
+      <div className="page-header admin-list-page-header">
         <div>
           <h2>{isClassEvaluationPage ? '班级评价' : rolePresentation.title}</h2>
           <p className="page-desc">
@@ -714,53 +762,91 @@ export function EvaluationPage({
           </p>
         </div>
         <div className="page-actions">
-          {!isClassEvaluationPage ? (
-            <select
-              className="filter-select"
-              value={selectedClassId ?? ''}
-              onChange={(event) => setSelectedClassId(Number(event.target.value))}
-            >
-              {availableClasses.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.gradeName} {item.name}
-                </option>
-              ))}
-            </select>
+          {!isClassEvaluationPage && !isSubjectTeacher ? (
+            <>
+              <select
+                className="filter-select"
+                value={studentEvalGradeName}
+                onChange={(event) => {
+                  const nextGrade = event.target.value;
+                  setStudentEvalGradeName(nextGrade);
+                  const nextClass = classesSorted.find((item) => item.gradeName === nextGrade);
+                  setSelectedClassId(nextClass?.id ?? null);
+                }}
+              >
+                {gradeOptions.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="filter-select"
+                value={selectedClassId ?? ''}
+                onChange={(event) => setSelectedClassId(Number(event.target.value))}
+              >
+                {studentGradeClasses.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            </>
           ) : null}
         </div>
       </div>
 
-      <div className="metric-strip">
-        <div className="metric-card">
-          <span>当前班级</span>
-          <strong>{selectedClass ? `${selectedClass.gradeName} ${selectedClass.name}` : '暂无可用班级'}</strong>
-          <p>{selectedClass?.slogan ?? '班级口号待补充，可由班主任在“我的班级”中维护。'}</p>
-        </div>
-        <div className="metric-card">
-          <span>本班学生</span>
-          <strong>{classStudents.length} 人</strong>
-          <p>当前平均个人积分 {averageScore} 分，便于老师快速掌握学生状态。</p>
-        </div>
-        {isClassEvaluationPage ? (
-          <div className="metric-card">
-            <span>班级积分</span>
-            <strong>{selectedClass?.classScore ?? 0} 分</strong>
-            <p>独立于学生个人积分，仅由管理角色通过班级评价调整。</p>
+      {!(isSubjectTeacher && !isClassEvaluationPage) ? (
+        <div className={`std-metric-grid${isClassEvaluationPage ? ' std-metric-grid--4' : ' std-metric-grid--3'}`}>
+          <div className="std-metric-card std-metric-card--blue">
+            <div className="std-metric-card__top">
+              <div className="std-metric-card__icon"><span className="sec-metric-glyph">班</span></div>
+              <span className="std-metric-card__label">当前班级</span>
+            </div>
+            <div className="std-metric-card__value std-metric-card__value--text">
+              {selectedClass ? `${selectedClass.gradeName} ${selectedClass.name}` : '暂无可用班级'}
+            </div>
+            <div className="std-metric-card__hint">
+              {selectedClass?.slogan ?? '班级口号待补充，可由班主任在「我的班级」中维护。'}
+            </div>
           </div>
-        ) : null}
-        <div className="metric-card">
-          <span>{isClassEvaluationPage ? '最近班级评价' : '最近学生评价'}</span>
-          <strong>{isClassEvaluationPage ? classScoreRecords.length : records.length} 条</strong>
-          <p>
-            {isClassEvaluationPage
-              ? '用于记录班级积分加扣分流水。'
-              : `正向 ${positiveCount} 条，负向 ${negativeCount} 条，已包含兑换扣分记录。`}
-          </p>
+          <div className="std-metric-card std-metric-card--green">
+            <div className="std-metric-card__top">
+              <div className="std-metric-card__icon"><span className="sec-metric-glyph">生</span></div>
+              <span className="std-metric-card__label">本班学生</span>
+            </div>
+            <div className="std-metric-card__value">{classStudents.length}</div>
+            <div className="std-metric-card__hint">平均个人积分 {averageScore} 分</div>
+          </div>
+          {isClassEvaluationPage ? (
+            <div className="std-metric-card std-metric-card--purple">
+              <div className="std-metric-card__top">
+                <div className="std-metric-card__icon"><span className="sec-metric-glyph">分</span></div>
+                <span className="std-metric-card__label">班级积分</span>
+              </div>
+              <div className="std-metric-card__value">{selectedClass?.classScore ?? 0}</div>
+              <div className="std-metric-card__hint">独立于学生个人积分，由班级评价调整</div>
+            </div>
+          ) : null}
+          <div className={`std-metric-card std-metric-card--amber${!isClassEvaluationPage ? '' : ''}`}>
+            <div className="std-metric-card__top">
+              <div className="std-metric-card__icon"><span className="sec-metric-glyph">记</span></div>
+              <span className="std-metric-card__label">{isClassEvaluationPage ? '最近班级评价' : '最近学生评价'}</span>
+            </div>
+            <div className="std-metric-card__value">
+              {isClassEvaluationPage ? classScoreRecords.length : records.length}
+            </div>
+            <div className="std-metric-card__hint">
+              {isClassEvaluationPage
+                ? '班级积分加扣分流水记录'
+                : `正向 ${positiveCount} 条 · 负向 ${negativeCount} 条`}
+            </div>
+          </div>
         </div>
-      </div>
+      ) : null}
 
       <div className="evaluation-layout">
-        <div className="panel evaluation-form-panel">
+        <div className="panel evaluation-form-panel admin-list-panel">
           <div className="panel-title">{isClassEvaluationPage ? '发起班级评价' : '发起学生评价'}</div>
 
           {isClassEvaluationPage ? (
@@ -849,22 +935,150 @@ export function EvaluationPage({
 
                 <div className="detail-card">
                   <h4>班级积分规则</h4>
+                  <div className="evaluation-more-panel class-evaluation-rule-panel">
+                    <div className="evaluation-rule-toolbar">
+                      <div className="security-chip-row">
+                        <button
+                          type="button"
+                          className={`security-chip${scoreTypeFilter === 'add' ? ' active' : ''}`}
+                          onClick={() => setScoreTypeFilter('add')}
+                        >
+                          只看加分
+                        </button>
+                        <button
+                          type="button"
+                          className={`security-chip${scoreTypeFilter === 'deduct' ? ' active' : ''}`}
+                          onClick={() => setScoreTypeFilter('deduct')}
+                        >
+                          只看扣分
+                        </button>
+                        <button
+                          type="button"
+                          className={`security-chip${scoreTypeFilter === 'all' ? ' active' : ''}`}
+                          onClick={() => setScoreTypeFilter('all')}
+                        >
+                          全部规则
+                        </button>
+                      </div>
+                      <input
+                        className="evaluation-rule-search"
+                        value={ruleKeyword}
+                        onChange={(event) => setRuleKeyword(event.target.value)}
+                        placeholder="搜索班级评价规则，例如：卫生、纪律、升旗"
+                      />
+                      <div className="security-chip-row">
+                        <button
+                          type="button"
+                          className={`security-chip${sceneFilter === 'all' ? ' active' : ''}`}
+                          onClick={() => setSceneFilter('all')}
+                        >
+                          全部场景
+                        </button>
+                        {sceneOptions.map((item) => (
+                          <button
+                            key={item.value}
+                            type="button"
+                            className={`security-chip${sceneFilter === item.value ? ' active' : ''}`}
+                            onClick={() => setSceneFilter(item.value)}
+                          >
+                            {item.label}
+                          </button>
+                        ))}
+                      </div>
+                      {classRecentRules.length > 0 ? (
+                        <div className="evaluation-rule-section">
+                          <div className="evaluation-rule-section-title">最近使用</div>
+                          <div className="security-chip-row">
+                            {classRecentRules.map((item) => (
+                              <button
+                                key={item.id}
+                                type="button"
+                                className={`security-chip${selectedRuleId === item.id ? ' active' : ''}`}
+                                onClick={() => openRuleConfirm(item)}
+                              >
+                                {item.name}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                      <div className="evaluation-rule-section-title">
+                        当前共 {groupedClassRuleCards.length} 个评价指标
+                      </div>
+                    </div>
                   <div className="rule-card-list compact">
-                    {classRuleCards.map((item) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        className={`rule-select-card${selectedRuleId === item.id ? ' active' : ''}`}
-                        onClick={() => openRuleConfirm(item)}
-                      >
-                        <span className="rule-select-name">{item.name}</span>
-                        <span className={`rule-select-score ${item.scoreType === 'deduct' ? 'deduct' : 'add'}`}>
-                          {`${item.scoreType === 'deduct' ? '-' : '+'}${item.scoreValue}`}
-                        </span>
-                      </button>
+                    {groupedClassRuleCards.map((group) => (
+                      <div key={group.metric} className="class-rule-pair-card">
+                        <div className="class-rule-pair-head">
+                          <div className="class-rule-pair-title">{group.metric}</div>
+                          <span className="class-rule-pair-score">{formatClassRuleGroupScore(group)}</span>
+                        </div>
+                        <div className="class-rule-pair-actions">
+                          {group.add ? (
+                            <button
+                              type="button"
+                              className={`rule-select-card${selectedRuleId === group.add.id ? ' active' : ''}`}
+                              onClick={() => openRuleConfirm(group.add!)}
+                            >
+                              <span className="rule-select-name">{group.add.name}</span>
+                              <span className="rule-select-score add">{`+${group.add.scoreValue}`}</span>
+                            </button>
+                          ) : null}
+                          {group.deduct ? (
+                            <button
+                              type="button"
+                              className={`rule-select-card${selectedRuleId === group.deduct.id ? ' active' : ''}`}
+                              onClick={() => openRuleConfirm(group.deduct!)}
+                            >
+                              <span className="rule-select-name">{group.deduct.name}</span>
+                              <span className="rule-select-score deduct">{`-${group.deduct.scoreValue}`}</span>
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
                     ))}
-                    {classRuleCards.length === 0 ? <p className="muted-text">暂无可用班级评价规则</p> : null}
+                    {groupedClassRuleCards.length === 0 ? <p className="muted-text">暂无可用班级评价规则</p> : null}
                   </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="detail-card class-evaluation-record-card">
+                <div className="class-evaluation-record-head">
+                  <div>
+                    <h4>班级评价记录</h4>
+                    <p>
+                      {classMode === 'single'
+                        ? selectedClass
+                          ? `${selectedClass.gradeName} ${selectedClass.name} 最近 ${classScoreRecords.length} 条`
+                          : '当前班级暂无记录'
+                        : '班级评价提交后会同步出现在这里，便于核对本次打分结果。'}
+                    </p>
+                  </div>
+                </div>
+                <div className="class-evaluation-record-list">
+                  {classScoreRecords.slice(0, 20).map((item) => (
+                    <div className="class-evaluation-record-item" key={`${item.id}-${item.createdAt}`}>
+                      <div className="class-evaluation-record-main">
+                        <div className="class-evaluation-record-title">
+                          <strong>{item.ruleName || item.tag || item.dimension || '班级评价'}</strong>
+                          <span className={`rule-select-score ${item.scoreDelta < 0 ? 'deduct' : 'add'}`}>
+                            {item.scoreDelta > 0 ? '+' : ''}
+                            {item.scoreDelta}
+                          </span>
+                        </div>
+                        <p>
+                          {item.gradeName} {item.className}
+                          {item.remark ? ` · 备注：${item.remark}` : ''}
+                        </p>
+                      </div>
+                      <div className="class-evaluation-record-meta">
+                        <span>{item.operatorName || item.sourceRole || '系统'}</span>
+                        <span>{formatDateTime(item.createdAt)}</span>
+                      </div>
+                    </div>
+                  ))}
+                  {classScoreRecords.length === 0 ? <div className="table-empty">当前班级还没有班级评价记录。</div> : null}
                 </div>
               </div>
             </>
@@ -1016,24 +1230,24 @@ export function EvaluationPage({
                 {showMoreRules ? (
                   <div className="evaluation-more-panel">
                     <div className="evaluation-rule-toolbar">
-                      <div className="tabs">
+                      <div className="security-chip-row">
                         <button
                           type="button"
-                          className={`tab${scoreTypeFilter === 'add' ? ' active' : ''}`}
+                          className={`security-chip${scoreTypeFilter === 'add' ? ' active' : ''}`}
                           onClick={() => setScoreTypeFilter('add')}
                         >
                           全部加分
                         </button>
                         <button
                           type="button"
-                          className={`tab${scoreTypeFilter === 'deduct' ? ' active' : ''}`}
+                          className={`security-chip${scoreTypeFilter === 'deduct' ? ' active' : ''}`}
                           onClick={() => setScoreTypeFilter('deduct')}
                         >
                           全部扣分
                         </button>
                         <button
                           type="button"
-                          className={`tab${scoreTypeFilter === 'all' ? ' active' : ''}`}
+                          className={`security-chip${scoreTypeFilter === 'all' ? ' active' : ''}`}
                           onClick={() => setScoreTypeFilter('all')}
                         >
                           全部规则
@@ -1045,34 +1259,36 @@ export function EvaluationPage({
                         onChange={(event) => setRuleKeyword(event.target.value)}
                         placeholder="搜索规则名称"
                       />
-                      <div className="evaluation-rule-filters">
-                        <button
-                          type="button"
-                          className={`evaluation-filter-chip${sceneFilter === 'all' ? ' active' : ''}`}
-                          onClick={() => setSceneFilter('all')}
-                        >
-                          全部场景
-                        </button>
-                        {sceneOptions.map((item) => (
+                      {!isSubjectTeacher ? (
+                        <div className="security-chip-row">
                           <button
-                            key={item.value}
                             type="button"
-                            className={`evaluation-filter-chip${sceneFilter === item.value ? ' active' : ''}`}
-                            onClick={() => setSceneFilter(item.value)}
+                            className={`security-chip${sceneFilter === 'all' ? ' active' : ''}`}
+                            onClick={() => setSceneFilter('all')}
                           >
-                            {item.label}
+                            全部场景
                           </button>
-                        ))}
-                      </div>
+                          {sceneOptions.map((item) => (
+                            <button
+                              key={item.value}
+                              type="button"
+                              className={`security-chip${sceneFilter === item.value ? ' active' : ''}`}
+                              onClick={() => setSceneFilter(item.value)}
+                            >
+                              {item.label}
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
                       {recentRules.length > 0 ? (
                         <div className="evaluation-rule-section">
                           <div className="evaluation-rule-section-title">最近使用</div>
-                          <div className="evaluation-rule-chip-row">
+                          <div className="security-chip-row">
                             {recentRules.map((item) => (
                               <button
                                 key={item.id}
                                 type="button"
-                                className={`evaluation-rule-mini${selectedRuleId === item.id ? ' active' : ''}`}
+                                className={`security-chip${selectedRuleId === item.id ? ' active' : ''}`}
                                 onClick={() => openRuleConfirm(item)}
                               >
                                 {item.name}
@@ -1120,8 +1336,8 @@ export function EvaluationPage({
         </div>
 
         <div className="evaluation-side-column">
-          {!isClassEvaluationPage ? (
-          <div className="panel">
+          {!isClassEvaluationPage && !isSubjectTeacher ? (
+          <div className="panel admin-list-panel">
             <div className="panel-title">小组概览</div>
             <div className="mini-list">
               {groups.length > 0 ? (
@@ -1142,16 +1358,19 @@ export function EvaluationPage({
           ) : null}
 
           {isClassEvaluationPage ? (
-            <div className="panel">
+            <div className="panel admin-list-panel">
               <div className="panel-title">各年级班级积分排名</div>
-              <div className="page-actions" style={{ marginBottom: 12 }}>
-                <select className="filter-select" value={rankGradeName} onChange={(event) => setRankGradeName(event.target.value)}>
-                  {gradeOptions.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </select>
+              <div className="security-chip-row">
+                {gradeOptions.map((item) => (
+                  <button
+                    key={item}
+                    type="button"
+                    className={`security-chip${rankGradeName === item ? ' active' : ''}`}
+                    onClick={() => setRankGradeName(item)}
+                  >
+                    {item}
+                  </button>
+                ))}
               </div>
               <div className="mini-list">
                 {classRankRows.map((item) => (
@@ -1168,7 +1387,8 @@ export function EvaluationPage({
             </div>
           ) : null}
 
-          <div className="panel">
+          {!isClassEvaluationPage ? (
+          <div className="panel admin-list-panel">
             <div className="panel-title">{isClassEvaluationPage ? '最近班级评价' : '最近学生评价'}</div>
             <div className="mini-list">
               {isClassEvaluationPage ? (
@@ -1207,6 +1427,7 @@ export function EvaluationPage({
               {!isClassEvaluationPage && records.length === 0 ? <div className="table-empty">当前班级还没有学生评价记录。</div> : null}
             </div>
           </div>
+          ) : null}
         </div>
       </div>
       {confirmRule ? (
@@ -1251,7 +1472,8 @@ export function EvaluationPage({
                   {confirmRule.scoreValue} 分
                 </strong>
                 <p>
-                  {sceneLabelMap[confirmRule.sceneCode] ?? '通用场景'} · {formatSubjectLabel(confirmRule.subjectCode)}
+                  {sceneLabelMap[confirmRule.sceneCode] ?? '通用场景'} ·{' '}
+                  {confirmRule.subjectCode ? resolveSubjectLabel(confirmRule.subjectCode) : '通用规则'}
                 </p>
               </div>
             </div>
@@ -1284,6 +1506,7 @@ export function EvaluationPage({
           </div>
         </Modal>
       ) : null}
+      </div>
     </Shell>
   );
 }

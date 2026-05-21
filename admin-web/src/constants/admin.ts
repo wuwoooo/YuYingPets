@@ -10,7 +10,7 @@ export const navItems = [
   ['honors', '荣誉勋章'],
   ['rewards', '奖励中心'],
   ['pets', '萌宠图鉴'],
-  ['organization', '组织权限'],
+  ['organization', '安全中心'],
   ['settings', '系统设置'],
 ] as const;
 
@@ -21,10 +21,13 @@ export const metricThemes = ['mc-blue', 'mc-green', 'mc-purple', 'mc-red', 'mc-g
 export const roleAccessMap: Record<string, NavKey[]> = {
   super_admin: navItems.map(([key]) => key),
   school_admin: navItems.map(([key]) => key),
-  moral_admin: navItems.map(([key]) => key),
+  academic_admin: ['dashboard', 'analytics', 'students', 'teachers', 'classes', 'evaluation', 'class-evaluation', 'organization'],
+  moral_admin: ['dashboard', 'analytics', 'students', 'evaluation', 'class-evaluation', 'rules', 'honors', 'rewards', 'pets'],
   grade_admin: navItems.map(([key]) => key),
-  homeroom_teacher: ['dashboard', 'classes', 'students', 'evaluation', 'rules', 'rewards', 'pets', 'analytics'],
-  subject_teacher: ['dashboard', 'classes', 'students', 'evaluation', 'rules', 'analytics'],
+  // 侧边栏顺序由 adminPermissions.getAccessibleNavItems 中 TEACHER_NAV_ORDER_* 编排
+  homeroom_teacher: ['dashboard', 'evaluation', 'students', 'classes', 'rules', 'rewards', 'pets', 'analytics'],
+  // 任课教师可通过工作台链到 /rules 查阅规则，侧边栏不显式列出（见 canAccessNav 例外）
+  subject_teacher: ['dashboard', 'evaluation', 'students', 'classes', 'analytics'],
 };
 
 export const roleNavLabelMap: Record<string, Partial<Record<NavKey, string>>> = {
@@ -33,7 +36,7 @@ export const roleNavLabelMap: Record<string, Partial<Record<NavKey, string>>> = 
     classes: '我的班级',
     students: '学生管理',
     evaluation: '学生评价',
-    rules: '规则查询',
+    rules: '积分规则查阅',
     rewards: '兑换处理',
     pets: '萌宠图鉴',
     analytics: '班级概览',
@@ -43,8 +46,19 @@ export const roleNavLabelMap: Record<string, Partial<Record<NavKey, string>>> = 
     classes: '我的授课班级',
     students: '学生查看',
     evaluation: '学科评价',
-    rules: '规则查询',
-    analytics: '教学概览',
+    analytics: '教学复盘',
+  },
+};
+
+/** 教师侧栏：与工作台 / 概览分工配套的简短副标题 */
+export const roleNavHintMap: Record<string, Partial<Record<NavKey, string>>> = {
+  homeroom_teacher: {
+    dashboard: '今日待办',
+    analytics: '周期复盘',
+  },
+  subject_teacher: {
+    dashboard: '日常办事',
+    analytics: '区间分析',
   },
 };
 
@@ -102,6 +116,40 @@ export const ruleSceneLabelMap: Record<string, string> = Object.fromEntries(
 export const ruleSubjectLabelMap: Record<string, string> = Object.fromEntries(
   ruleSubjectOptions.map((item) => [item.value, item.label]),
 );
+
+/** 扩展别名：与后端、成绩单等来源的 code 对齐 */
+const subjectLabelAliasMap: Record<string, string> = {
+  ...ruleSubjectLabelMap,
+  mathematics: '数学',
+  sport: '体育',
+  it: '信息',
+  general: '通用',
+  arts_it: '音美信综合',
+};
+
+/** 将学科 code 或可能为英文的 name 统一解析为中文展示名 */
+export function resolveSubjectLabel(
+  subjectCode?: string | null,
+  subjectName?: string | null,
+): string {
+  const code = String(subjectCode ?? '').trim().toLowerCase();
+  const name = String(subjectName ?? '').trim();
+
+  if (code && subjectLabelAliasMap[code]) {
+    return subjectLabelAliasMap[code];
+  }
+
+  if (name) {
+    const fromName = subjectLabelAliasMap[name.toLowerCase()];
+    if (fromName) return fromName;
+    // 已是中文等非 slug 形式，直接使用
+    if (!/^[a-z][a-z0-9_]*$/i.test(name)) return name;
+    return subjectLabelAliasMap[name.toLowerCase()] ?? name;
+  }
+
+  if (code) return subjectLabelAliasMap[code] ?? code;
+  return '—';
+}
 
 export function resolveRuleDimension(sceneCode?: string, scoreType: 'add' | 'deduct' = 'add') {
   switch (sceneCode) {

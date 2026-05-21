@@ -75,7 +75,7 @@ export class ScoreRulesService {
       orderBy: [{ moduleType: 'asc' }, { subjectCode: 'asc' }, { sceneCode: 'asc' }, { name: 'asc' }],
     });
 
-    const filteredRows = await this.filterRowsForAuthorizedClassContext(authorization, query, rows);
+    const filteredRows = await this.filterRowsForAuthorizedViewerContext(authorization, query, rows);
 
     return {
       code: 0,
@@ -84,13 +84,13 @@ export class ScoreRulesService {
     };
   }
 
-  tree(query: Record<string, string>) {
+  async tree(authorization: string | undefined, query: Record<string, string>) {
     const moduleType =
       query.moduleType === ModuleType.general || query.moduleType === ModuleType.subject
         ? query.moduleType
         : undefined;
 
-    return this.prisma.scoreRule.findMany({
+    const rows = await this.prisma.scoreRule.findMany({
       where: {
         moduleType,
         scoreTarget: query.scoreTarget === 'student' || query.scoreTarget === 'class' ? query.scoreTarget : undefined,
@@ -104,78 +104,79 @@ export class ScoreRulesService {
         deletedAt: null,
       },
       orderBy: [{ moduleType: 'asc' }, { subjectCode: 'asc' }, { sceneCode: 'asc' }, { name: 'asc' }],
-    }).then((rows) => {
-      const moduleMap = new Map<
-        string,
-        {
-          moduleType: string;
-          moduleLabel: string;
+    });
+
+    const filteredRows = await this.filterRowsForAuthorizedViewerContext(authorization, query, rows);
+    const moduleMap = new Map<
+      string,
+      {
+        moduleType: string;
+        moduleLabel: string;
+        count: number;
+        subjects: Array<{
+          subjectCode: string | null;
+          subjectLabel: string;
           count: number;
-          subjects: Array<{
-            subjectCode: string | null;
-            subjectLabel: string;
+          scenes: Array<{
+            sceneCode: string;
+            sceneLabel: string;
             count: number;
-            scenes: Array<{
-              sceneCode: string;
-              sceneLabel: string;
-              count: number;
-              rules: ReturnType<ScoreRulesService['serializeRow']>[];
-            }>;
+            rules: ReturnType<ScoreRulesService['serializeRow']>[];
           }>;
-        }
-      >();
+        }>;
+      }
+    >();
 
-      for (const row of rows) {
-        const moduleKey = row.moduleType;
-        const subjectKey = row.subjectCode ?? '__general__';
-        const sceneKey = row.sceneCode;
+    for (const row of filteredRows) {
+      const moduleKey = row.moduleType;
+      const subjectKey = row.subjectCode ?? '__general__';
+      const sceneKey = row.sceneCode;
 
-        let moduleNode = moduleMap.get(moduleKey);
-        if (!moduleNode) {
-          moduleNode = {
-            moduleType: row.moduleType,
-            moduleLabel: MODULE_LABELS[row.moduleType] ?? row.moduleType,
-            count: 0,
-            subjects: [],
-          };
-          moduleMap.set(moduleKey, moduleNode);
-        }
-
-        let subjectNode = moduleNode.subjects.find((item) => (item.subjectCode ?? '__general__') === subjectKey);
-        if (!subjectNode) {
-          subjectNode = {
-            subjectCode: row.subjectCode,
-            subjectLabel: row.subjectCode ? SUBJECT_LABELS[row.subjectCode] ?? row.subjectCode : '通用',
-            count: 0,
-            scenes: [],
-          };
-          moduleNode.subjects.push(subjectNode);
-        }
-
-        let sceneNode = subjectNode.scenes.find((item) => item.sceneCode === sceneKey);
-        if (!sceneNode) {
-          sceneNode = {
-            sceneCode: row.sceneCode,
-            sceneLabel: SCENE_LABELS[row.sceneCode] ?? row.sceneCode,
-            count: 0,
-            rules: [],
-          };
-          subjectNode.scenes.push(sceneNode);
-        }
-
-        const serialized = this.serializeRow(row);
-        sceneNode.rules.push(serialized);
-        sceneNode.count += 1;
-        subjectNode.count += 1;
-        moduleNode.count += 1;
+      let moduleNode = moduleMap.get(moduleKey);
+      if (!moduleNode) {
+        moduleNode = {
+          moduleType: row.moduleType,
+          moduleLabel: MODULE_LABELS[row.moduleType] ?? row.moduleType,
+          count: 0,
+          subjects: [],
+        };
+        moduleMap.set(moduleKey, moduleNode);
       }
 
-      return {
-        code: 0,
-        message: 'ok',
-        data: Array.from(moduleMap.values()),
-      };
-    });
+      let subjectNode = moduleNode.subjects.find((item) => (item.subjectCode ?? '__general__') === subjectKey);
+      if (!subjectNode) {
+        subjectNode = {
+          subjectCode: row.subjectCode,
+          subjectLabel: row.subjectCode ? SUBJECT_LABELS[row.subjectCode] ?? row.subjectCode : '通用',
+          count: 0,
+          scenes: [],
+        };
+        moduleNode.subjects.push(subjectNode);
+      }
+
+      let sceneNode = subjectNode.scenes.find((item) => item.sceneCode === sceneKey);
+      if (!sceneNode) {
+        sceneNode = {
+          sceneCode: row.sceneCode,
+          sceneLabel: SCENE_LABELS[row.sceneCode] ?? row.sceneCode,
+          count: 0,
+          rules: [],
+        };
+        subjectNode.scenes.push(sceneNode);
+      }
+
+      const serialized = this.serializeRow(row);
+      sceneNode.rules.push(serialized);
+      sceneNode.count += 1;
+      subjectNode.count += 1;
+      moduleNode.count += 1;
+    }
+
+    return {
+      code: 0,
+      message: 'ok',
+      data: Array.from(moduleMap.values()),
+    };
   }
 
   async create(authorization: string | undefined, body: ScoreRuleUpsertDto) {
@@ -202,6 +203,7 @@ export class ScoreRulesService {
         sentiment: payload.sentiment,
         aiSummaryText: payload.aiSummaryText,
         description: payload.description,
+        allowedRoleCodes: this.serializeAllowedRoleCodes(payload.allowedRoleCodes),
         isHighFrequency: payload.isHighFrequency,
         displayEnabled: payload.displayEnabled,
         adminEnabled: payload.adminEnabled,
@@ -277,6 +279,7 @@ export class ScoreRulesService {
         sentiment: payload.sentiment,
         aiSummaryText: payload.aiSummaryText,
         description: payload.description,
+        allowedRoleCodes: this.serializeAllowedRoleCodes(payload.allowedRoleCodes),
         isHighFrequency: payload.isHighFrequency,
         displayEnabled: payload.displayEnabled,
         adminEnabled: payload.adminEnabled,
@@ -301,26 +304,31 @@ export class ScoreRulesService {
       semesterId: toNumber(row.semesterId),
       createdBy: toNumber(row.createdBy),
       updatedBy: toNumber(row.updatedBy),
+      allowedRoleCodes: this.authService.normalizeAllowedRoleCodes(row.allowedRoleCodes),
     };
   }
 
-  private async filterRowsForAuthorizedClassContext<T extends { moduleType: ModuleType; subjectCode: string | null }>(
+  private async filterRowsForAuthorizedViewerContext<
+    T extends { moduleType: ModuleType; subjectCode: string | null; allowedRoleCodes?: unknown },
+  >(
     authorization: string | undefined,
     query: Record<string, string>,
     rows: T[],
   ) {
-    if (!authorization || !query.classId) {
+    if (!authorization) {
       return rows;
     }
 
     const user = await this.authService.getAuthUserFromAuthorization(authorization);
-    this.authService.ensureCanAccessClass(user, Number(query.classId));
+    const roleFilteredRows = rows.filter((row) => this.authService.canUseRuleByRole(user, row));
 
-    if (['super_admin', 'school_admin', 'moral_admin'].includes(user.roleCode)) {
-      return rows;
+    if (!query.classId) {
+      return roleFilteredRows;
     }
 
-    return rows.filter((row) => this.authService.canUseRuleForClass(user, Number(query.classId), row));
+    this.authService.ensureCanAccessClass(user, Number(query.classId));
+
+    return roleFilteredRows.filter((row) => this.authService.canUseRuleForClass(user, Number(query.classId), row));
   }
 
   private buildFallbackSuggestion(body: ScoreRuleAiSuggestDto) {
@@ -346,6 +354,9 @@ export class ScoreRulesService {
     const tag = body.tag?.trim() || undefined;
     const aiSummaryText = body.aiSummaryText?.trim() || undefined;
     const description = body.description?.trim() || undefined;
+    const allowedRoleCodes = Array.from(
+      new Set((body.allowedRoleCodes ?? []).map((item) => String(item).trim()).filter(Boolean)),
+    );
     const scoreValue = Number(body.scoreValue);
     const sentiment = body.scoreType === 'deduct' ? Sentiment.negative : Sentiment.positive;
     const displayEnabled = body.displayEnabled ?? false;
@@ -388,10 +399,15 @@ export class ScoreRulesService {
       sentiment,
       aiSummaryText,
       description,
+      allowedRoleCodes,
       isHighFrequency: body.isHighFrequency ?? false,
       displayEnabled,
       adminEnabled,
     };
+  }
+
+  private serializeAllowedRoleCodes(allowedRoleCodes: string[]) {
+    return allowedRoleCodes.length > 0 ? JSON.stringify(allowedRoleCodes) : null;
   }
 
   private resolveFallbackDimension(sceneCode?: string, isPositive?: boolean) {

@@ -1,95 +1,16 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>育英星宠 - 产品原型</title>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
-<style>
-  * { margin:0; padding:0; box-sizing:border-box; }
-  body {
-    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
-    background: #0A2F4B;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    color: #fff;
-  }
-  .logo-area { text-align: center; margin-bottom: 48px; }
-  .logo-area .logo-mark {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 132px;
-    height: 132px;
-    margin: 0 auto 20px;
-    border-radius: 28px;
-    background: rgba(255,255,255,.96);
-    box-shadow: 0 8px 32px rgba(0,0,0,.2);
-    border: 1px solid rgba(255,255,255,.35);
-    padding: 14px;
-    box-sizing: border-box;
-  }
-  .logo-area .logo-mark img { width: 100%; height: 100%; object-fit: contain; display: block; }
-  .logo-area h1 { font-size: 42px; letter-spacing: 8px; font-weight: 700; }
-  .logo-area .sub { font-size: 16px; color: #88A3B7; margin-top: 8px; letter-spacing: 4px; }
-  .cards { display: flex; gap: 40px; margin-top: 20px; }
-  .card {
-    width: 360px; padding: 48px 32px; border-radius: 12px; text-align: center;
-    cursor: pointer; transition: all .3s; text-decoration: none; color: #fff;
-    position: relative; overflow: hidden;
-  }
-  .card-display {
-    background: linear-gradient(135deg, #0F3D63 0%, #163e5c 100%);
-    border: 1px solid rgba(255,255,255,.12);
-  }
-  .card-admin {
-    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-    border: 1px solid rgba(255,255,255,.12);
-  }
-  .card:hover { transform: translateY(-6px); box-shadow: 0 12px 40px rgba(0,0,0,.4); }
-  .card-icon { font-size: 56px; margin-bottom: 20px; display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,.95); }
-  .card h2 { font-size: 24px; margin-bottom: 12px; }
-  .card p { font-size: 14px; color: #88A3B7; line-height: 1.8; }
-  .card .tag {
-    display: inline-block; margin-top: 20px; padding: 6px 20px;
-    border-radius: 20px; font-size: 13px; font-weight: 600;
-  }
-  .card-display .tag { background: #E64626; }
-  .card-admin .tag { background: #0F3D63; border: 1px solid #88A3B7; }
-  .footer { margin-top: 60px; color: #88A3B7; font-size: 13px; letter-spacing: 2px; }
-  .motto {
-    position: absolute; top: 40px; text-align: center; width: 100%;
-    font-size: 14px; color: rgba(255,255,255,.35); letter-spacing: 6px;
-    font-style: italic;
-  }
-</style>
-</head>
-<body>
-  <div class="motto">倾一腔热血铸国家栋梁 &nbsp; 引万道清泉育世纪英才</div>
-  <div class="logo-area">
-    <div class="logo-mark">
-      <img src="images/logo.svg" alt="育英校徽">
-    </div>
-    <h1>育英星宠</h1>
-    <div class="sub">YUYING STARPET · 产品原型导航</div>
-  </div>
-  <div class="cards">
-    <a class="card card-display" href="display.html">
-      <span class="card-icon"><i class="fa-solid fa-display" aria-hidden="true"></i></span>
-      <h2>Display 班级展示端</h2>
-      <p>全屏展示型 SPA<br>运行于白板 / 触控一体机 / 大屏浏览器<br>包含进入页、班级主页、榜单页</p>
-      <span class="tag">进入展示端原型 →</span>
-    </a>
-    <a class="card card-admin" href="admin.html">
-      <span class="card-icon"><i class="fa-solid fa-gear" aria-hidden="true"></i></span>
-      <h2>Admin 管理后台</h2>
-      <p>学校管理员 / 德育负责人 / 班主任使用<br>包含校级驾驶舱、班级管理、学生管理<br>积分规则、萌宠图鉴</p>
-      <span class="tag">进入管理端原型 →</span>
-    </a>
-  </div>
-  <div class="footer">大理海东育英实验学校 · 班级成长激励系统 · 原型 V1.0</div>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>育英星宠 · Display端</title>
+    <script>
+      const target = new URL("./display.html", window.location.href);
+      target.search = window.location.search;
+      window.location.replace(target.toString());
+    </script>
+  </head>
+  <body>
+    <a href="./display.html">进入 Display 端</a>
+  </body>
 </html>

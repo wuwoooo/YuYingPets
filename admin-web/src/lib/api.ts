@@ -1,5 +1,6 @@
 const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000/api/v1';
+  import.meta.env.VITE_API_BASE_URL ??
+  (typeof window !== 'undefined' ? `${window.location.origin}/api/v1` : 'http://127.0.0.1:3000/api/v1');
 
 type RequestOptions = {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
@@ -79,11 +80,13 @@ export type ApiObjectResponse<T> = {
 
 export type SessionUser = {
   id: number;
+  schoolId?: number;
   username?: string;
   name: string;
   roleCode: string;
   roleName?: string;
   dutyTags?: string[];
+  classAssignments?: SessionClassAssignment[];
 };
 
 export type SessionScope = {
@@ -93,12 +96,20 @@ export type SessionScope = {
   subjectCode: string | null;
 };
 
+export type SessionClassAssignment = {
+  classId: number;
+  roleInClass: string;
+  subjectCode: string | null;
+  isPrimary: boolean;
+};
+
 export type SessionMeResponse = {
   code: number;
   message: string;
   data: {
     user: SessionUser;
     scopes: SessionScope[];
+    classAssignments: SessionClassAssignment[];
   };
 };
 
@@ -118,6 +129,8 @@ export type AdminClass = {
   name: string;
   slogan: string | null;
   targetScore: number | null;
+  countdownTitle: string | null;
+  countdownDeadlineAt: string | null;
   sortOrder?: number | null;
   displayStatus: string;
   studentCount: number;
@@ -358,6 +371,121 @@ export type AcademicScoreListRow = {
   classRankDelta: number | null;
 };
 
+export type AcademicDeskExamTrend = {
+  examId: number;
+  examName: string;
+  importedAt: string;
+  classAverageScore: number;
+  participantCount: number;
+};
+
+export type AcademicDeskSubjectSample = {
+  studentId: number;
+  studentName: string;
+  score: number;
+  classRank: number | null;
+  classRankDelta: number | null;
+};
+
+export type AcademicDeskOverviewPayload = {
+  examTrends: AcademicDeskExamTrend[];
+  subjectFocus: {
+    examId: number;
+    examName: string;
+    subjectCode: string;
+    subjectName: string | null;
+    averageScore: number;
+    participantCount: number;
+    sampleLow: AcademicDeskSubjectSample[];
+    sampleHigh: AcademicDeskSubjectSample[];
+  } | null;
+  /** 本场考试本校同学籍年级的全体参评加权均（服务端聚合，不因列表分页/裁剪改变） */
+  gradeExamBenchmark: {
+    examId: number;
+    gradeName: string;
+    participantAverageScore: number;
+    participantCount: number;
+    distinctClassCount: number;
+  } | null;
+};
+
+export type SchoolAcademicGrowthPayload = {
+  latestExam: AcademicExamListItem | null;
+  previousExam: AcademicExamListItem | null;
+  coverageRate: number;
+  participantCount: number;
+  averageScore: number;
+  progressCount: number;
+  declineCount: number;
+  riskCount: number;
+  growthIndex: number;
+  classSummaries: Array<{
+    classId: number;
+    className: string;
+    gradeName: string;
+    averageScore: number;
+    participantCount: number;
+    progressCount: number;
+    declineCount: number;
+    behaviorAverage: number;
+    growthIndex: number;
+    riskLevel: 'high' | 'medium' | 'low';
+  }>;
+  studentSignals: Array<{
+    studentId: number;
+    studentName: string;
+    classId: number;
+    className: string;
+    totalScore: number;
+    scoreDelta: number;
+    rankDelta: number;
+    quadrant: 'star' | 'potential' | 'quiet' | 'risk';
+    reason: string;
+  }>;
+  progressLeaders: Array<{
+    studentId: number;
+    studentName: string;
+    classId: number;
+    className: string;
+    totalScore: number;
+    scoreDelta: number;
+    rankDelta: number;
+    quadrant: 'star' | 'potential' | 'quiet' | 'risk';
+    reason: string;
+  }>;
+  riskStudents: Array<{
+    studentId: number;
+    studentName: string;
+    classId: number;
+    className: string;
+    totalScore: number;
+    scoreDelta: number;
+    rankDelta: number;
+    quadrant: 'star' | 'potential' | 'quiet' | 'risk';
+    reason: string;
+  }>;
+  quadrants: Array<{
+    key: string;
+    label: string;
+    count: number;
+    tone: 'good' | 'potential' | 'watch' | 'risk';
+  }>;
+  trend: Array<{
+    examId: number;
+    examName: string;
+    importedAt: string;
+    averageScore: number;
+    progressRate: number;
+    declineRate: number;
+    participantCount: number;
+  }>;
+  insight: {
+    headline: string;
+    suggestion: string;
+    report: string;
+  };
+};
+
 export type StudentAcademicExam = {
   examId: number;
   examName: string;
@@ -408,6 +536,7 @@ export type ScoreRule = {
   sentiment: 'positive' | 'negative';
   aiSummaryText: string | null;
   description: string | null;
+  allowedRoleCodes: string[];
   isHighFrequency: boolean;
   displayEnabled: boolean;
   adminEnabled: boolean;
@@ -553,6 +682,7 @@ export type SystemSettings = {
     motto: string | null;
     phone: string | null;
     address: string | null;
+    classScoreStudentLinkMultiplier: number;
     petGrowth: {
       thresholds: number[];
     };
@@ -724,6 +854,8 @@ export type AnalyticsData = {
 export type AnalyticsQuery = {
   gradeName?: string;
   classId?: number;
+  /** 任课教师单科维度：仅统计该学科相关积分记录 */
+  subjectCode?: string;
   regenerateAi?: boolean;
   startDate?: string;
   endDate?: string;
@@ -736,6 +868,120 @@ export type AnalyticsReportStatus = {
   reportDate: string;
   generatedAt: string | null;
   source: 'ark' | 'fallback' | null;
+};
+
+export type TeacherWorkbenchContext = {
+  contextHeader: {
+    classId: number;
+    className: string;
+    gradeName: string;
+    subjectCode: string;
+    subjectLabel: string;
+    studentCount: number;
+    recentEvaluationCount: number;
+    latestAcademicImportedAt: string | null;
+    latestAcademicExamName: string | null;
+  };
+  aiBrief: {
+    headline: string;
+    evidence: string[];
+    actionItems: string[];
+    homeroomSyncDraft: string;
+  };
+  attentionStudents: Array<{
+    studentId: number;
+    studentName: string;
+    priority: 'high' | 'medium' | 'low';
+    reasonTags: string[];
+    evidence: string;
+    recommendedAction: string;
+    currentScore: number;
+    currentPetLevel: number;
+  }>;
+  quickActions: Array<{
+    key: string;
+    label: string;
+    targetPath?: string;
+    actionType?: 'copy';
+    copyText?: string;
+    query?: Record<string, string | number>;
+  }>;
+  academicBaseline: AcademicDeskOverviewPayload;
+  recentRecords: Array<{
+    id: number;
+    studentId: number;
+    studentName: string;
+    scoreDelta: number;
+    subjectCode: string | null;
+    dimension: string | null;
+    tag: string | null;
+    ruleName: string | null;
+    remark: string | null;
+    createdAt: string;
+    operatorName: string | null;
+    sentiment: 'positive' | 'negative';
+  }>;
+  followUpDrafts: {
+    homeroomSyncDraft: string;
+    homeroomSyncShortDraft: string;
+    homeroomSyncForwardDraft: string;
+    lessonSummaryDraft: string;
+    nextLessonDraft: string;
+  };
+};
+
+export type TeacherReviewContext = {
+  contextHeader: {
+    classId: number;
+    className: string;
+    gradeName: string;
+    subjectCode: string;
+    studentCount: number;
+    dateRangeLabel: string;
+  };
+  summaryKpis: {
+    totalEvents: number;
+    positiveCount: number;
+    negativeCount: number;
+    activeDays: number;
+    coveredStudents: number;
+    riskStudentCount: number;
+  };
+  trendSlices: {
+    dailyTrend: Array<{
+      date: string;
+      positive: number;
+      negative: number;
+      total: number;
+    }>;
+    dimensionDistribution: Array<{ name: string; value: number }>;
+    sceneDistribution: Array<{ name: string; value: number }>;
+    heatMap: {
+      rows: string[];
+      cols: string[];
+      data: Array<{ row: string; values: number[] }>;
+    };
+  };
+  riskStudents: Array<{
+    studentId: number;
+    studentName: string;
+    className: string;
+    positiveCount: number;
+    negativeCount: number;
+    scoreDelta: number;
+    riskLevel: 'high' | 'medium' | 'low';
+    reason: string;
+  }>;
+  aiRetrospective: {
+    conclusion: string;
+    basis: string[];
+    problemAnalysis: string;
+    nextSteps: string[];
+    generatedAt: string | null;
+    reportDate: string | null;
+    isCached: boolean;
+  };
+  recommendedAdjustments: string[];
 };
 
 export type PetCatalogItem = {
@@ -805,6 +1051,8 @@ export type ClassUpsertPayload = {
   homeroomTeacherId?: number | null;
   slogan?: string | null;
   targetScore?: number | null;
+  countdownTitle?: string | null;
+  countdownDeadlineAt?: string | null;
   displayStatus?: string;
   sortOrder?: number | null;
 };
@@ -882,6 +1130,7 @@ export type ScoreRuleUpsertPayload = {
   sentiment: 'positive' | 'negative';
   aiSummaryText?: string;
   description?: string;
+  allowedRoleCodes?: string[];
   isHighFrequency?: boolean;
   displayEnabled?: boolean;
   adminEnabled?: boolean;
@@ -964,6 +1213,7 @@ export type GradeSettingsUpdatePayload = {
 
 export type PetGrowthSettingsUpdatePayload = {
   thresholds: number[];
+  classScoreStudentLinkMultiplier: number;
 };
 
 export type PermissionUserUpsertPayload = {
@@ -1034,6 +1284,34 @@ export type AssetUploadResponse = {
   originalName: string;
   mimeType: string;
   size: number;
+};
+
+/** 业务审计日志条目（operation_log），含服务端生成的中文可读字段 */
+export type OperationAuditLogItem = {
+  id: number;
+  schoolId: number;
+  userId: number | null;
+  roleCode: string | null;
+  terminalType: string;
+  module: string;
+  action: string;
+  targetType: string | null;
+  targetId: number | null;
+  detail: unknown;
+  createdAt: string;
+  operatorName: string | null;
+  operatorUsername: string | null;
+  moduleLabel: string;
+  actionLabel: string;
+  summary: string;
+  sensitivity: 'high' | 'medium' | 'normal';
+};
+
+export type OperationAuditLogsPayload = {
+  items: OperationAuditLogItem[];
+  total: number;
+  page: number;
+  limit: number;
 };
 
 export const adminApi = {
@@ -1110,6 +1388,28 @@ export const adminApi = {
     if (query?.includeSubjects) params.set('includeSubjects', 'true');
     const suffix = params.size > 0 ? `?${params.toString()}` : '';
     return request<ApiListResponse<AcademicScoreListRow>>(`/academic-records${suffix}`, { token });
+  },
+  academicDeskOverview(
+    token: string,
+    query: { classId: number; examId?: number; subjectCode?: string },
+  ) {
+    const params = new URLSearchParams();
+    params.set('classId', String(query.classId));
+    if (query.examId) params.set('examId', String(query.examId));
+    if (query.subjectCode) params.set('subjectCode', query.subjectCode);
+    return request<ApiObjectResponse<AcademicDeskOverviewPayload>>(
+      `/academic-records/desk-overview?${params.toString()}`,
+      { token },
+    );
+  },
+  academicSchoolGrowth(token: string, query?: { examId?: number }) {
+    const params = new URLSearchParams();
+    if (query?.examId) params.set('examId', String(query.examId));
+    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    return request<ApiObjectResponse<SchoolAcademicGrowthPayload>>(
+      `/academic-records/school-growth${suffix}`,
+      { token },
+    );
   },
   studentAiSummary(token: string, studentId: number, periodType: 'weekly' | 'monthly' = 'weekly') {
     return request<ApiObjectResponse<AiStudentSummary | null>>(`/ai/students/${studentId}/summary?periodType=${periodType}`, { token });
@@ -1303,6 +1603,16 @@ export const adminApi = {
   settings(token: string) {
     return request<ApiObjectResponse<SystemSettings>>('/admin/settings', { token });
   },
+  displaySettings(token: string) {
+    return request<ApiObjectResponse<SystemSettings['display']>>('/admin/settings/display', { token });
+  },
+  setPresentationMode(token: string, mode: 'report' | 'daily') {
+    return request<ApiObjectResponse<{ id: number; defaultMode: string }>>('/admin/settings/presentation-mode', {
+      method: 'PUT',
+      token,
+      body: { mode },
+    });
+  },
   updateSchoolSettings(token: string, body: SchoolSettingsUpdatePayload) {
     return request<ApiObjectResponse<{ id: number }>>('/admin/settings/school', {
       method: 'PUT',
@@ -1463,28 +1773,74 @@ export const adminApi = {
       body,
     });
   },
+  operationAuditLogs(
+    token: string,
+    query?: {
+      page?: number;
+      limit?: number;
+      module?: string;
+      action?: string;
+      terminalType?: 'admin' | 'display';
+      scope?: 'all' | 'sensitive';
+    },
+  ) {
+    const params = new URLSearchParams();
+    if (query?.page !== undefined) params.set('page', String(query.page));
+    if (query?.limit !== undefined) params.set('limit', String(query.limit));
+    if (query?.module) params.set('module', query.module);
+    if (query?.action) params.set('action', query.action);
+    if (query?.terminalType) params.set('terminalType', query.terminalType);
+    if (query?.scope) params.set('scope', query.scope);
+    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    return request<ApiObjectResponse<OperationAuditLogsPayload>>(`/admin/audit/operation-logs${suffix}`, {
+      token,
+    });
+  },
   analytics(token: string, query?: AnalyticsQuery) {
     const params = new URLSearchParams();
     if (query?.gradeName) params.set('gradeName', query.gradeName);
     if (query?.classId) params.set('classId', String(query.classId));
+    if (query?.subjectCode) params.set('subjectCode', query.subjectCode);
     if (query?.regenerateAi) params.set('regenerateAi', 'true');
     if (query?.startDate) params.set('startDate', query.startDate);
     if (query?.endDate) params.set('endDate', query.endDate);
     const suffix = params.size > 0 ? `?${params.toString()}` : '';
     return request<ApiObjectResponse<AnalyticsData>>(`/admin/analytics${suffix}`, { token });
   },
-  analyticsReportStatus(token: string, query?: { classId?: number; gradeName?: string; startDate?: string; endDate?: string }) {
+  analyticsReportStatus(token: string, query?: { classId?: number; gradeName?: string; startDate?: string; endDate?: string; subjectCode?: string }) {
     const params = new URLSearchParams();
     if (query?.classId) params.set('classId', String(query.classId));
     if (query?.gradeName) params.set('gradeName', query.gradeName);
     if (query?.startDate) params.set('startDate', query.startDate);
     if (query?.endDate) params.set('endDate', query.endDate);
+    if (query?.subjectCode) params.set('subjectCode', query.subjectCode);
     const suffix = params.size > 0 ? `?${params.toString()}` : '';
     return request<ApiObjectResponse<AnalyticsReportStatus>>(`/admin/analytics/report-status${suffix}`, { token });
+  },
+  teacherWorkbenchContext(token: string, query: { classId: number; subjectCode: string }) {
+    const params = new URLSearchParams();
+    params.set('classId', String(query.classId));
+    params.set('subjectCode', query.subjectCode);
+    return request<ApiObjectResponse<TeacherWorkbenchContext>>(`/teacher/workbench/context?${params.toString()}`, { token });
+  },
+  teacherReviewContext(
+    token: string,
+    query: { classId: number; subjectCode: string; startDate?: string; endDate?: string; regenerateAi?: boolean },
+  ) {
+    const params = new URLSearchParams();
+    params.set('classId', String(query.classId));
+    params.set('subjectCode', query.subjectCode);
+    if (query.startDate) params.set('startDate', query.startDate);
+    if (query.endDate) params.set('endDate', query.endDate);
+    if (query.regenerateAi) params.set('regenerateAi', 'true');
+    return request<ApiObjectResponse<TeacherReviewContext>>(`/teacher/review/context?${params.toString()}`, { token });
   },
   pets(token: string, category?: string) {
     const suffix = category ? `?category=${encodeURIComponent(category)}` : '';
     return request<ApiListResponse<PetCatalogItem>>(`/admin/pets${suffix}`, { token });
+  },
+  petGrowthThresholds(token: string) {
+    return request<ApiObjectResponse<{ thresholds: number[] }>>('/admin/pets/growth-thresholds', { token });
   },
   createPet(token: string, body: PetUpsertPayload) {
     return request<ApiObjectResponse<{ id: number }>>('/admin/pets', {
@@ -1537,7 +1893,15 @@ export const adminApi = {
     });
   },
   importStudents(token: string, body: StudentImportPayload) {
-    return request<ApiObjectResponse<{ createdCount: number; createdClassCount?: number; studentIds: number[] }>>('/students/import', {
+    return request<ApiObjectResponse<{
+      createdCount: number;
+      updatedCount: number;
+      classChangedCount: number;
+      unchangedCount: number;
+      createdClassCount?: number;
+      studentIds: number[];
+      updatedStudentIds: number[];
+    }>>('/students/import', {
       method: 'POST',
       token,
       body,
@@ -1548,6 +1912,12 @@ export const adminApi = {
       method: 'PUT',
       token,
       body,
+    });
+  },
+  resetStudentPet(token: string, id: number) {
+    return request<ApiObjectResponse<{ studentId: number; studentName: string }>>(`/students/${id}/reset-pet`, {
+      method: 'POST',
+      token,
     });
   },
   createScoreRule(token: string, body: ScoreRuleUpsertPayload) {
@@ -1570,5 +1940,30 @@ export const adminApi = {
       token,
       body,
     });
+  },
+  createCallQueue(token: string, body: { classId?: number; studentIds: number[]; location: string }) {
+    return request<ApiObjectResponse<any>>('/call-queue', {
+      method: 'POST',
+      token,
+      body,
+    });
+  },
+  confirmCallQueue(token: string, id: number) {
+    return request<ApiObjectResponse<null>>(`/call-queue/${id}/confirm`, {
+      method: 'POST',
+      token,
+    });
+  },
+  cancelCallQueue(token: string, id: number) {
+    return request<ApiObjectResponse<null>>(`/call-queue/${id}/cancel`, {
+      method: 'POST',
+      token,
+    });
+  },
+  activeCallQueue(token: string, classId: number) {
+    return request<ApiObjectResponse<any>>(`/call-queue/active/${classId}`, { token });
+  },
+  callQueueList(token: string, classId: number) {
+    return request<ApiListResponse<any>>(`/call-queue/list?classId=${classId}`, { token });
   },
 };

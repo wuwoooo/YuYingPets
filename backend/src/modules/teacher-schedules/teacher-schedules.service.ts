@@ -402,20 +402,51 @@ export class TeacherSchedulesService {
     const weekday = hasRange ? this.toWeekday(rangeStart!) : this.toWeekday(now);
     const hhmm = hasRange ? this.toHHmm(rangeStart!) : this.toHHmm(now);
 
+    const weekdays = hasRange ? this.collectWeekdaysInRange(rangeStart!, rangeEnd!) : [weekday];
+    const [candidateScheduleTeacherIds, candidateAssignmentTeacherIds, candidateScopeTeacherIds, slots] = await Promise.all([
+      this.prisma.teacherScheduleSlot.findMany({
+        where: { schoolId: user.schoolId },
+        select: { teacherId: true },
+        distinct: ['teacherId'],
+      }),
+      this.prisma.teacherClassAssignment.findMany({
+        where: { schoolId: user.schoolId, status: 'enabled' },
+        select: { teacherId: true },
+        distinct: ['teacherId'],
+      }),
+      this.prisma.userScope.findMany({
+        where: {
+          user: {
+            schoolId: user.schoolId,
+            deletedAt: null,
+          },
+          scopeType: { in: ['class_scope', 'subject_class'] },
+        },
+        select: { userId: true },
+        distinct: ['userId'],
+      }),
+      this.prisma.teacherScheduleSlot.findMany({
+        where: { schoolId: user.schoolId, weekday: { in: weekdays } },
+        orderBy: [{ weekday: 'asc' }, { periodNo: 'asc' }],
+      }),
+    ]);
+
+    const candidateTeacherIds = new Set<bigint>();
+    candidateScheduleTeacherIds.forEach((item) => candidateTeacherIds.add(item.teacherId));
+    candidateAssignmentTeacherIds.forEach((item) => candidateTeacherIds.add(item.teacherId));
+    candidateScopeTeacherIds.forEach((item) => candidateTeacherIds.add(item.userId));
+
     const teachers = await this.prisma.user.findMany({
       where: {
         schoolId: user.schoolId,
         deletedAt: null,
-        role: { code: { in: TEACHER_ROLE_CODES } },
+        OR: [
+          { role: { code: { in: TEACHER_ROLE_CODES } } },
+          ...(candidateTeacherIds.size > 0 ? [{ id: { in: Array.from(candidateTeacherIds) } }] : []),
+        ],
       },
       include: { role: true, scopes: true },
       orderBy: [{ name: 'asc' }],
-    });
-
-    const weekdays = hasRange ? this.collectWeekdaysInRange(rangeStart!, rangeEnd!) : [weekday];
-    const slots = await this.prisma.teacherScheduleSlot.findMany({
-      where: { schoolId: user.schoolId, weekday: { in: weekdays } },
-      orderBy: [{ weekday: 'asc' }, { periodNo: 'asc' }],
     });
 
     const currentSlotsByTeacher = new Map<string, (typeof slots)[number]>();
@@ -1112,7 +1143,7 @@ export class TeacherSchedulesService {
   }
 
   private ensureManagePermission(roleCode: string) {
-    if (!['super_admin', 'school_admin', 'moral_admin'].includes(roleCode)) {
+    if (!['super_admin', 'school_admin', 'academic_admin'].includes(roleCode)) {
       throw new ForbiddenException('无权访问教师课表管理');
     }
   }

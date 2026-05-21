@@ -1,0 +1,43 @@
+            <div className="presentation-eco-summary">
+              <div><span>累计颁发</span><strong>{honorShowcase.totalGranted}</strong></div>
+              {honorShowcase.categoryStats.map(([label, count]) => (
+                <div key={label}><span>{label}</span><strong>{count}</strong></div>
+              ))}
+            </div>
+            <div className="presentation-honor-grid">
+              {honorShowcase.topCards.map((item) => (
+                <div key={item.id} className="presentation-honor-card">
+                  <PresentationGlyph name={item.category === 'collective' ? 'medal' : item.category === 'personal' ? 'star' : item.category === 'phase' ? 'award' : 'trend'} className="presentation-honor-icon" />
+                  <div className="presentation-honor-name">{item.name}</div>
+                  <div className="presentation-honor-holder">颁发 {item.grantedCount} 人次</div>
+                  <div className="presentation-honor-count">{item.sharePercent}%</div>
+                </div>
+              ))}
+            </div>
+            <div className="presentation-eco-subtitle">最新荣誉授予</div>
+            <div className="presentation-eco-flow">
+              {honorShowcase.recentHonors.length > 0 ? (
+                honorShowcase.recentHonors.map((item) => (
+                  <div key={item.id} className="presentation-eco-flow-item">
+                    <strong>{item.studentName ?? item.className} · {item.honorName}</strong>
+                    <span>{new Date(item.grantedAt).toLocaleDateString('zh-CN')}</span>
+                  </div>
+                ))
+              ) : (
+                <div className="presentation-eco-flow-item muted">暂无荣誉授予记录</div>
+              )}
+            </div>
+            <div className="presentation-eco-subtitle">荣誉之星</div>
+            <div className="presentation-eco-rank-list">
+              {honorShowcase.topHonorStudents.map((item, index) => (
+                <div key={item.studentId} className="presentation-eco-rank-row">
+                  <span className={`presentation-rank-num top-${Math.min(index + 1, 3)}`}>{index + 1}</span>
+                  <strong>{item.studentName}</strong>
+                  <span>{item.className}</span>
+                  <b>{item.honorCount} 枚</b>
+                </div>
+              ))}
+              {honorShowcase.topHonorStudents.length === 0 ? (
+                <div className="presentation-eco-flow-item muted">暂无学生荣誉统计</div>
+              ) : null}
+            </div>

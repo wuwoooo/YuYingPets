@@ -1,12 +1,17 @@
 import argparse
+import json
 import re
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Iterable
+from xml.etree import ElementTree as ET
 
 import xlrd
 
 
-SHEET_CONFIG = {
+SPREADSHEET_NS = {"a": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+LEGACY_SHEET_CONFIG = {
     "教务": {"module_type": "general", "subject_code": None, "sheet_code": "GENERAL"},
     "语文组": {"module_type": "subject", "subject_code": "chinese", "sheet_code": "CHINESE"},
     "数学组": {"module_type": "subject", "subject_code": "math", "sheet_code": "MATH"},
@@ -19,12 +24,6 @@ SHEET_CONFIG = {
     "政治组": {"module_type": "subject", "subject_code": "politics", "sheet_code": "POLITICS"},
     "音美信综合组": {"module_type": "subject", "subject_code": "arts_it", "sheet_code": "ARTS_IT"},
     "体育组": {"module_type": "subject", "subject_code": "pe", "sheet_code": "PE"},
-}
-
-CLASS_SCORE_RULE_NAMES = {
-    "学生工具单收纳混乱",
-    "学生工具单收纳整齐",
-    "课间学生纪律",
 }
 
 
@@ -125,6 +124,7 @@ def infer_scene_code(text: str) -> str:
         ("改错", "homework"),
         ("课堂", "classroom"),
         ("上课", "classroom"),
+        ("学风", "classroom"),
         ("自习", "self_study"),
         ("展讲", "presentation"),
         ("答疑", "qa"),
@@ -138,6 +138,14 @@ def infer_scene_code(text: str) -> str:
         ("合作", "group"),
         ("活动", "activity"),
         ("展示", "activity"),
+        ("升旗", "activity"),
+        ("早操", "activity"),
+        ("课间操", "activity"),
+        ("团队会", "activity"),
+        ("文化", "activity"),
+        ("宿舍", "behavior"),
+        ("礼仪", "behavior"),
+        ("卫生", "behavior"),
         ("整理", "behavior"),
         ("收纳", "behavior"),
         ("坐姿", "behavior"),
@@ -149,7 +157,7 @@ def infer_scene_code(text: str) -> str:
     return "classroom"
 
 
-def infer_dimension_and_tag(text: str, score_type: str) -> tuple[str, str]:
+def infer_dimension_and_tag(text: str, sentiment: str) -> tuple[str, str]:
     mapping = [
         (("迟到", "早退", "旷课"), ("出勤管理", "时间纪律")),
         (("作业", "改错"), ("作业管理", "任务完成")),
@@ -161,11 +169,15 @@ def infer_dimension_and_tag(text: str, score_type: str) -> tuple[str, str]:
         (("小组", "合作", "互助"), ("合作表现", "协作互助")),
         (("坐姿", "桌面", "收纳", "工具单"), ("行为规范", "习惯养成")),
         (("答疑", "问问题", "讲解", "回答问题"), ("课堂学习", "互动表达")),
+        (("礼仪", "仪容", "红领巾"), ("文明礼仪", "形象规范")),
+        (("卫生", "垃圾", "整洁"), ("劳动实践", "卫生维护")),
+        (("班委", "委员", "总裁团"), ("班级建设", "岗位履责")),
+        (("就餐", "光盘", "粮食"), ("文明礼仪", "用餐规范")),
     ]
     for keywords, result in mapping:
         if any(keyword in text for keyword in keywords):
             return result
-    if score_type == "negative":
+    if sentiment == "negative":
         return ("课堂管理", "负向行为")
     return ("课堂学习", "综合表现")
 
@@ -184,11 +196,19 @@ def is_high_frequency(text: str) -> bool:
         "收纳",
         "坐姿",
         "纪律",
+        "仪容",
+        "卫生",
+        "就餐",
+        "升旗",
+        "早操",
+        "课间操",
     )
     return any(keyword in text for keyword in keywords)
 
 
-def should_display(text: str, score_value: int, score_type: str) -> bool:
+def should_display(text: str, score_value: int, score_type: str, score_target: str) -> bool:
+    if score_target == "class":
+        return False
     if any(keyword in text for keyword in ("作弊", "顶撞", "损坏", "伪造", "抄袭")):
         return False
     if score_type == "deduct" and score_value >= 5:
@@ -204,12 +224,85 @@ def signed_label(score_type: str, score_value: int) -> str:
     return f"{'+' if score_type == 'add' else '-'}{score_value}分"
 
 
-def build_rows(workbook_path: Path):
+def iter_xlsx_rows(workbook_path: Path) -> Iterable[tuple[str, list[list[str]]]]:
+    with zipfile.ZipFile(workbook_path) as archive:
+        shared_strings: list[str] = []
+        if "xl/sharedStrings.xml" in archive.namelist():
+            root = ET.fromstring(archive.read("xl/sharedStrings.xml"))
+            for item in root.findall("a:si", SPREADSHEET_NS):
+                shared_strings.append("".join(node.text or "" for node in item.iterfind(".//a:t", SPREADSHEET_NS)))
+
+        workbook = ET.fromstring(archive.read("xl/workbook.xml"))
+        relations = ET.fromstring(archive.read("xl/_rels/workbook.xml.rels"))
+        relation_map = {item.attrib["Id"]: item.attrib["Target"] for item in relations}
+
+        for sheet in workbook.find("a:sheets", SPREADSHEET_NS):
+            sheet_name = sheet.attrib["name"]
+            relation_id = sheet.attrib["{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"]
+            target = "xl/" + relation_map[relation_id]
+            root = ET.fromstring(archive.read(target))
+            rows: list[list[str]] = []
+            for row in root.findall(".//a:sheetData/a:row", SPREADSHEET_NS):
+                values: list[str] = []
+                for cell in row.findall("a:c", SPREADSHEET_NS):
+                    cell_type = cell.attrib.get("t")
+                    value_node = cell.find("a:v", SPREADSHEET_NS)
+                    value = ""
+                    if cell_type == "s" and value_node is not None:
+                        value = shared_strings[int(value_node.text)]
+                    elif cell_type == "inlineStr":
+                        value = "".join(node.text or "" for node in cell.iterfind(".//a:t", SPREADSHEET_NS))
+                    elif value_node is not None:
+                        value = value_node.text or ""
+                    values.append(value.strip())
+                rows.append(values)
+            yield sheet_name, rows
+
+
+def build_row(
+    *,
+    module_type: str,
+    subject_code: str | None,
+    scene_code: str,
+    code: str,
+    name: str,
+    score_type: str,
+    score_target: str,
+    score_value: int,
+    source_desc: str,
+    allowed_role_codes: list[str] | None = None,
+):
+    sentiment = "positive" if score_type == "add" else "negative"
+    dimension, tag = infer_dimension_and_tag(name, sentiment)
+    return {
+        "module_type": module_type,
+        "subject_code": subject_code,
+        "scene_code": scene_code,
+        "code": code,
+        "name": name,
+        "score_type": score_type,
+        "score_target": score_target,
+        "score_value": score_value,
+        "dimension": dimension,
+        "tag": tag,
+        "sentiment": sentiment,
+        "ai_summary_text": f"{dimension} / {tag} / {'正向' if sentiment == 'positive' else '负向'}",
+        "description": source_desc,
+        "allowed_role_codes": allowed_role_codes or [],
+        "is_high_frequency": 1 if is_high_frequency(name) else 0,
+        "display_enabled": 1 if should_display(name, score_value, score_type, score_target) else 0,
+        "admin_enabled": 1,
+    }
+
+
+def build_rows_from_legacy_xls(workbook_path: Path):
     workbook = xlrd.open_workbook(str(workbook_path))
     generated_rows = []
 
     for sheet_name in workbook.sheet_names():
-        config = SHEET_CONFIG[sheet_name]
+        if sheet_name not in LEGACY_SHEET_CONFIG:
+            continue
+        config = LEGACY_SHEET_CONFIG[sheet_name]
         sheet = workbook.sheet_by_name(sheet_name)
 
         for row_idx in range(2, sheet.nrows):
@@ -221,7 +314,6 @@ def build_rows(workbook_path: Path):
                 continue
 
             rule_name, raw_score, description = clean_source_row(sheet_name, rule_name, raw_score, description)
-
             parsed = parse_score(raw_score)
             if str(source_index).strip():
                 try:
@@ -230,39 +322,130 @@ def build_rows(workbook_path: Path):
                     source_no = row_idx - 1
             else:
                 source_no = row_idx - 1
+
             scene_code = infer_scene_code(rule_name)
             for score_value in parsed.values:
-                sentiment = "positive" if parsed.score_type == "add" else "negative"
-                dimension, tag = infer_dimension_and_tag(rule_name, sentiment)
                 expanded_name = rule_name
                 if len(parsed.values) > 1:
                     expanded_name = f"{rule_name}（{signed_label(parsed.score_type, score_value)}）"
-                code = f"XLS_{config['sheet_code']}_{source_no:03d}_{score_value:02d}_{parsed.score_type.upper()}"
-                summary = f"{dimension} / {tag} / {'正向' if sentiment == 'positive' else '负向'}"
                 source_desc = f"来源工作表：{sheet_name}；原始分值：{parsed.source_text}"
                 if description:
                     source_desc = f"{source_desc}；说明：{description}"
-
+                code = f"XLS_{config['sheet_code']}_{source_no:03d}_{score_value:02d}_{parsed.score_type.upper()}"
                 generated_rows.append(
-                    {
-                        "module_type": config["module_type"],
-                        "subject_code": config["subject_code"],
-                        "scene_code": scene_code,
-                        "code": code,
-                        "name": expanded_name,
-                        "score_type": parsed.score_type,
-                        "score_target": "class" if rule_name in CLASS_SCORE_RULE_NAMES else "student",
-                        "score_value": score_value,
-                        "dimension": dimension,
-                        "tag": tag,
-                        "sentiment": sentiment,
-                        "ai_summary_text": summary,
-                        "description": source_desc,
-                        "is_high_frequency": 1 if is_high_frequency(rule_name) else 0,
-                        "display_enabled": 1 if should_display(rule_name, score_value, parsed.score_type) else 0,
-                        "admin_enabled": 1,
-                    }
+                    build_row(
+                        module_type=config["module_type"],
+                        subject_code=config["subject_code"],
+                        scene_code=scene_code,
+                        code=code,
+                        name=expanded_name,
+                        score_type=parsed.score_type,
+                        score_target="student",
+                        score_value=score_value,
+                        source_desc=source_desc,
+                    )
                 )
+
+    return generated_rows
+
+
+def build_rows_from_moral_xlsx(workbook_path: Path):
+    generated_rows = []
+    source_no = 1
+    for sheet_name, rows in iter_xlsx_rows(workbook_path):
+        if not rows:
+            continue
+        current_score_type = None
+        for row in rows:
+            cells = [cell.strip() for cell in row]
+            if not any(cells):
+                continue
+            title = cells[0] if cells else ""
+            score_text = cells[1] if len(cells) > 1 else ""
+            if title == "加分项":
+                current_score_type = "add"
+                continue
+            if title == "扣分项":
+                current_score_type = "deduct"
+                continue
+            if title in ("学生行为", "行为") or score_text == "分值":
+                continue
+            if current_score_type not in {"add", "deduct"} or not title or not score_text:
+                continue
+
+            score_value = int(float(score_text))
+            code = f"MORAL_{source_no:03d}_{score_value:02d}_{current_score_type.upper()}"
+            generated_rows.append(
+                build_row(
+                    module_type="general",
+                    subject_code=None,
+                    scene_code=infer_scene_code(title),
+                    code=code,
+                    name=title,
+                    score_type=current_score_type,
+                    score_target="student",
+                    score_value=score_value,
+                    source_desc=f"来源工作簿：{workbook_path.name} / {sheet_name}",
+                    allowed_role_codes=["school_admin", "moral_admin"],
+                )
+            )
+            source_no += 1
+        break
+    return generated_rows
+
+
+def normalize_class_metric_name(raw_name: str):
+    return (
+        raw_name.replace("（好/差）", "")
+        .replace("(好/差)", "")
+        .replace("（好／差）", "")
+        .replace("(好／差)", "")
+        .strip()
+    )
+
+
+def build_rows_from_class_eval_xlsx(workbook_path: Path):
+    generated_rows = []
+    source_no = 1
+    for sheet_name, rows in iter_xlsx_rows(workbook_path):
+        if not rows:
+            continue
+        for row in rows[1:]:
+            cells = [cell.strip() for cell in row]
+            if len(cells) < 2 or not cells[0] or not cells[1]:
+                continue
+            metric_name = normalize_class_metric_name(cells[0])
+            scene_code = infer_scene_code(metric_name)
+            source_desc = f"来源工作簿：{workbook_path.name} / {sheet_name}；原始分值：{cells[1]}"
+
+            generated_rows.append(
+                build_row(
+                    module_type="general",
+                    subject_code=None,
+                    scene_code=scene_code,
+                    code=f"CLASS_{source_no:03d}_01_ADD",
+                    name=f"{metric_name}优秀",
+                    score_type="add",
+                    score_target="class",
+                    score_value=1,
+                    source_desc=source_desc,
+                )
+            )
+            generated_rows.append(
+                build_row(
+                    module_type="general",
+                    subject_code=None,
+                    scene_code=scene_code,
+                    code=f"CLASS_{source_no:03d}_01_DEDUCT",
+                    name=f"{metric_name}待改进",
+                    score_type="deduct",
+                    score_target="class",
+                    score_value=1,
+                    source_desc=source_desc,
+                )
+            )
+            source_no += 1
+        break
     return generated_rows
 
 
@@ -270,6 +453,11 @@ def render_sql(rows: list[dict]) -> str:
     values_sql = []
     for row in rows:
         subject_code = "NULL" if row["subject_code"] is None else sql_quote(row["subject_code"])
+        allowed_role_codes = (
+            "NULL"
+            if not row["allowed_role_codes"]
+            else sql_quote(json.dumps(row["allowed_role_codes"], ensure_ascii=False))
+        )
         values_sql.append(
             "("
             "@school_id, "
@@ -288,6 +476,7 @@ def render_sql(rows: list[dict]) -> str:
             f"{sql_quote(row['sentiment'])}, "
             f"{sql_quote(row['ai_summary_text'])}, "
             f"{sql_quote(row['description'])}, "
+            f"{allowed_role_codes}, "
             f"{row['is_high_frequency']}, "
             f"{row['display_enabled']}, "
             f"{row['admin_enabled']}, "
@@ -321,7 +510,12 @@ SET @operator_id = COALESCE(
 DELETE FROM `score_rule`
 WHERE `school_id` = @school_id
   AND `semester_id` = @semester_id
-  AND (`code` LIKE 'XLS_%' OR `code` LIKE 'DOC_%');
+  AND (
+    `code` LIKE 'DOC_%'
+    OR `code` LIKE 'XLS_%'
+    OR `code` LIKE 'MORAL_%'
+    OR `code` LIKE 'CLASS_%'
+  );
 
 INSERT INTO `score_rule` (
   `school_id`,
@@ -340,6 +534,7 @@ INSERT INTO `score_rule` (
   `sentiment`,
   `ai_summary_text`,
   `description`,
+  `allowed_role_codes`,
   `is_high_frequency`,
   `display_enabled`,
   `admin_enabled`,
@@ -358,11 +553,21 @@ COMMIT;
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input", required=True)
+    parser.add_argument("--legacy-input", required=True)
+    parser.add_argument("--moral-input", required=True)
+    parser.add_argument("--class-input", required=True)
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
-    rows = build_rows(Path(args.input))
+    rows = []
+    rows.extend(build_rows_from_legacy_xls(Path(args.legacy_input)))
+    rows.extend(build_rows_from_moral_xlsx(Path(args.moral_input)))
+    rows.extend(build_rows_from_class_eval_xlsx(Path(args.class_input)))
+
+    codes = [row["code"] for row in rows]
+    if len(codes) != len(set(codes)):
+        raise ValueError("generated duplicate rule codes")
+
     sql = render_sql(rows)
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)

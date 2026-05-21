@@ -17,6 +17,7 @@ export class AdminInsightsController {
     @Query('regenerateAi') regenerateAi?: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
+    @Query('subjectCode') subjectCode?: string,
   ) {
     return this.adminInsightsService.analytics(authorization, {
       gradeName,
@@ -24,6 +25,7 @@ export class AdminInsightsController {
       regenerateAi: regenerateAi === 'true',
       startDate,
       endDate,
+      subjectCode,
     });
   }
 
@@ -34,6 +36,7 @@ export class AdminInsightsController {
     @Query('gradeName') gradeName?: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
+    @Query('subjectCode') subjectCode?: string,
   ) {
     return this.adminInsightsService.analyticsReportStatus(
       authorization,
@@ -41,12 +44,18 @@ export class AdminInsightsController {
       gradeName,
       startDate,
       endDate,
+      subjectCode,
     );
   }
 
   @Get('pets')
   pets(@Headers('authorization') authorization: string | undefined, @Query('category') category?: string) {
     return this.adminInsightsService.listPets(authorization, category);
+  }
+
+  @Get('pets/growth-thresholds')
+  petGrowthThresholds(@Headers('authorization') authorization: string | undefined) {
+    return this.adminInsightsService.getPetGrowthThresholds(authorization);
   }
 
   @Post('pets')

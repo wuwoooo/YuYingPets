@@ -1,10 +1,10 @@
 import { useState, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
 import presentationLogo from "../assets/presentation-logo.svg";
 import { adminApi } from "../lib/api";
 import {
   getAdminLoginCredentials,
   setAdminLoginCredentials,
+  setAdminToken,
 } from "../lib/session";
 
 type LoginPageProps = {
@@ -12,7 +12,6 @@ type LoginPageProps = {
 };
 
 export function LoginPage({ onLoggedIn }: LoginPageProps) {
-  const navigate = useNavigate();
   const storedCredentials = getAdminLoginCredentials();
   const [username, setUsername] = useState(
     storedCredentials?.username ?? "admin",
@@ -21,19 +20,25 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
     storedCredentials?.password ?? "123456",
   );
   const [submitting, setSubmitting] = useState(false);
+  const [isExiting, setIsExiting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitting(true);
+    setIsExiting(true);
     setError(null);
 
     try {
       const response = await adminApi.login(username, password);
       setAdminLoginCredentials(username, password);
+      setAdminToken(response.data.token);
       onLoggedIn(response.data.token);
-      navigate("/dashboard", { replace: true });
+      window.location.assign(
+        new URL("/dashboard", window.location.origin).toString(),
+      );
     } catch (err) {
+      setIsExiting(false);
       setError(err instanceof Error ? err.message : "登录失败");
     } finally {
       setSubmitting(false);
@@ -41,7 +46,7 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
   }
 
   return (
-    <div className="admin-login">
+    <div className={`admin-login${isExiting ? " is-exiting" : ""}`}>
       <section className="login-left">
         <div className="login-stars login-stars-far" />
         <div className="login-stars login-stars-mid" />
@@ -112,12 +117,16 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
             </button>
           </form>
           {error ? <div className="status-card error">{error}</div> : null}
-          <div className="login-footer">
+          {/* <div className="login-footer">
             <a href="/">忘记密码?</a>
             <span>© 2026 育英星宠</span>
-          </div>
+          </div> */}
           <div className="login-beian">
-            <a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer">
+            <a
+              href="https://beian.miit.gov.cn/"
+              target="_blank"
+              rel="noreferrer"
+            >
               滇ICP备2020007229号-4
             </a>
           </div>

@@ -1,0 +1,23 @@
+             <div className="presentation-top-behaviors">
+                {presentationTopBehaviors.length > 0 ? (
+                  presentationTopBehaviors.map((item, index) => (
+                    <div key={`${item.name}-${index}`} className="behavior-row">
+                      <span className="behavior-rank">{index + 1}</span>
+                      <div className="behavior-track">
+                        <div
+                          className="behavior-fill"
+                          style={{
+                            width: barsExpanded ? `${item.widthPercent}%` : '0%',
+                            background: item.color,
+                          }}
+                        >
+                           <span className="behavior-name">{item.name}</span>
+                        </div>
+                      </div>
+                      <span className="behavior-count">{item.count}次</span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="presentation-panel-footnote">暂无评价行为统计数据</div>
+                )}
+             </div>

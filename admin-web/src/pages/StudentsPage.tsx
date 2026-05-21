@@ -4,6 +4,7 @@ import { Modal } from '../components/Modal';
 import { Shell } from '../components/Shell';
 import { TablePagination } from '../components/TablePagination';
 import { usePagination } from '../hooks/usePagination';
+import { useAdminView } from '../context/AdminViewContext';
 import type { 
   AdminClass,
   AdminStudent,
@@ -22,7 +23,7 @@ import { adminApi } from '../lib/api';
 import {
   normalizeKeyword
 } from '../utils/adminForms';
-import { canImportStudents } from '../utils/adminPermissions';
+import { canEditStudents, canImportStudents } from '../utils/adminPermissions';
 import { parseAcademicScoreWorkbook } from '../utils/academicImport';
 import { parseStudentImportRows,parseStudentImportText } from '../utils/studentImport';
 
@@ -76,6 +77,25 @@ export function StudentsPage({
 }: StudentsPageProps) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const { activeSubjectView } = useAdminView();
+  const isSubjectTeacher = user?.roleCode === 'subject_teacher';
+
+
+
+  const pagePresentation =
+    isSubjectTeacher
+      ? {
+          title: '学生查看',
+          shellSubtitle: '名单默认对应您在顶部选的班级；切换班级请用右上角下拉。',
+          heading: '学生查看',
+          description: '查看当前所选班级的学生档案与成绩；无需在本页再选班级。',
+        }
+      : {
+          title: '学生管理',
+          shellSubtitle: '学生档案、积分成长、萌宠等级与观察记录',
+          heading: '学生管理',
+          description: '从校级视角查看学生规模、成长状态和萌宠绑定覆盖情况。',
+        };
   const [statsView, setStatsView] = useState<'grade' | 'class' | 'student'>('grade');
   const [showOverview, setShowOverview] = useState(false);
   const [showImport, setShowImport] = useState(false);
@@ -123,6 +143,7 @@ export function StudentsPage({
   const [examFilter, setExamFilter] = useState('all');
   const [academicReloadKey, setAcademicReloadKey] = useState(0);
   const [submitting, setSubmitting] = useState(false);
+  const [resetPetSubmitting, setResetPetSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
   const [searchKeyword, setSearchKeyword] = useState('');
@@ -131,6 +152,7 @@ export function StudentsPage({
   const [focusFilter, setFocusFilter] = useState<'all' | 'pet_bound' | 'high_level'>('all');
   const [sortConfig, setSortConfig] = useState<{ key: StudentSortKey; direction: SortDirection } | null>(null);
   const allowImport = canImportStudents(user?.roleCode);
+  const allowEdit = canEditStudents(user?.roleCode);
   const returnTo = searchParams.get('returnTo');
   const returnLabel = searchParams.get('returnLabel') || '返回来源页面';
   const gradeOptions = useMemo(
@@ -397,6 +419,15 @@ export function StudentsPage({
   }, [classId, classes]);
 
   useEffect(() => {
+    if (!isSubjectTeacher || !activeSubjectView) return;
+    setShowOverview(false);
+    setExamFilter('all');
+    setClassFilter(String(activeSubjectView.classId));
+    const meta = classes.find((item) => item.id === activeSubjectView.classId);
+    if (meta?.gradeName) setGradeFilter(meta.gradeName);
+  }, [activeSubjectView, classes, isSubjectTeacher]);
+
+  useEffect(() => {
     const keyword = searchParams.get('keyword');
     const nextGrade = searchParams.get('gradeName');
     const nextClassId = searchParams.get('classId');
@@ -405,8 +436,20 @@ export function StudentsPage({
     const studentId = searchParams.get('studentId');
 
     if (keyword) setSearchKeyword(keyword);
-    if (nextGrade) setGradeFilter(nextGrade);
-    if (nextClassId) setClassFilter(nextClassId);
+    if (!isSubjectTeacher) {
+      if (nextGrade) setGradeFilter(nextGrade);
+      if (nextClassId) setClassFilter(nextClassId);
+    }
+    const urlTab = searchParams.get('tab');
+    if (urlTab === 'scores') {
+      setListTab('scores');
+    } else if (urlTab === 'students') {
+      setListTab('students');
+    }
+    const examIdParam = searchParams.get('examId');
+    if (examIdParam && !Number.isNaN(Number(examIdParam)) && !isSubjectTeacher) {
+      setExamFilter(examIdParam);
+    }
     if (nextFocusFilter === 'pet_bound' || nextFocusFilter === 'high_level') {
       setFocusFilter(nextFocusFilter);
     }
@@ -420,7 +463,7 @@ export function StudentsPage({
         setShowStudentScoreRecordsModal(false);
       }
     }
-  }, [searchParams, students]);
+  }, [isSubjectTeacher, searchParams, students]);
 
   useEffect(() => {
     let active = true;
@@ -758,8 +801,10 @@ export function StudentsPage({
 
   function resetListFilters() {
     setSearchKeyword('');
-    setGradeFilter('all');
-    setClassFilter('all');
+    if (!isSubjectTeacher) {
+      setGradeFilter('all');
+      setClassFilter('all');
+    }
     setFocusFilter('all');
   }
 
@@ -837,7 +882,7 @@ export function StudentsPage({
   }
 
   function closeImportModal(force = false) {
-    if (submitting && !force) return;
+    if ((submitting || resetPetSubmitting) && !force) return;
     setShowImport(false);
     setEditingStudent(null);
     setTextarea('');
@@ -958,9 +1003,42 @@ export function StudentsPage({
     }
   }
 
+  async function handleResetPet() {
+    if (!editingStudent?.pet || resetPetSubmitting || submitting) return;
+    if (editingStudent.pet.currentLevel !== 1) return;
+
+    const confirmed = window.confirm(
+      `确定将「${editingStudent.name}」的萌宠「${editingStudent.pet.name}」重置为未领取状态吗？\n重置后学生可在展示端重新选择萌宠，积分不受影响。`,
+    );
+    if (!confirmed) return;
+
+    setResetPetSubmitting(true);
+    setSubmitError(null);
+    setSubmitSuccess(null);
+
+    try {
+      await adminApi.resetStudentPet(token, editingStudent.id);
+      await onSaved();
+      setEditingStudent((prev) =>
+        prev
+          ? {
+              ...prev,
+              pet: null,
+              currentPetLevel: 1,
+            }
+          : null,
+      );
+      setSubmitSuccess('萌宠已重置为未领取');
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : '重置萌宠失败');
+    } finally {
+      setResetPetSubmitting(false);
+    }
+  }
+
   async function handleImport(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (submitting) return;
+    if (submitting || resetPetSubmitting) return;
     setSubmitting(true);
     setSubmitError(null);
     setSubmitSuccess(null);
@@ -1063,10 +1141,13 @@ export function StudentsPage({
     }
   }
 
+
+
+
   return (
     <Shell
-      title="学生管理"
-      subtitle="学生档案、积分成长、萌宠等级与观察记录"
+      title={pagePresentation.title}
+      subtitle={pagePresentation.shellSubtitle}
       user={user}
       status={
         <>
@@ -1076,10 +1157,11 @@ export function StudentsPage({
         </>
       }
     >
-      <div className="page-header">
+      <div className="admin-list-desk">
+      <div className="page-header admin-list-page-header">
         <div>
-          <h2>学生管理</h2>
-          <p className="page-desc">从校级视角查看学生规模、成长状态和萌宠绑定覆盖情况。</p>
+          <h2>{pagePresentation.heading}</h2>
+          <p className="page-desc">{pagePresentation.description}</p>
         </div>
         <div className="page-actions">
           {returnTo ? (
@@ -1095,22 +1177,26 @@ export function StudentsPage({
               onChange={(event) => setSearchKeyword(event.target.value)}
             />
           </div>
-          <select className="filter-select" value={gradeFilter} onChange={(event) => setGradeFilter(event.target.value)}>
-            <option value="all">全部年级</option>
-            {gradeOptions.map((item) => (
-              <option key={item} value={item}>
-                {item}
-              </option>
-            ))}
-          </select>
-          <select className="filter-select" value={classFilter} onChange={(event) => setClassFilter(event.target.value)}>
-            <option value="all">全部班级</option>
-            {classes.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.name}
-              </option>
-            ))}
-          </select>
+          {!isSubjectTeacher ? (
+            <>
+              <select className="filter-select" value={gradeFilter} onChange={(event) => setGradeFilter(event.target.value)}>
+                <option value="all">全部年级</option>
+                {gradeOptions.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+              <select className="filter-select" value={classFilter} onChange={(event) => setClassFilter(event.target.value)}>
+                <option value="all">全部班级</option>
+                {classes.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            </>
+          ) : null}
           {allowImport ? (
             <>
               <button className="btn btn-outline" type="button" onClick={() => openImportModal('batch')}>
@@ -1124,43 +1210,56 @@ export function StudentsPage({
         </div>
       </div>
 
-      <div className="metric-strip">
-        <div className="metric-card">
-          <span>学生总数</span>
-          <button className="metric-value-button" type="button" onClick={resetListFilters}>
-            {students.length}
+      {!isSubjectTeacher ? (
+        <div className="std-metric-grid std-metric-grid--4">
+          <button type="button" className="std-metric-card std-metric-card--blue std-metric-card--action" onClick={resetListFilters}>
+            <div className="std-metric-card__top">
+              <div className="std-metric-card__icon"><span className="sec-metric-glyph">总</span></div>
+              <span className="std-metric-card__label">学生总数</span>
+            </div>
+            <div className="std-metric-card__value">{students.length}</div>
+            <div className="std-metric-card__hint">当前已建立档案、可参与成长统计的学生</div>
           </button>
-          <p>当前已建立学生档案、可参与成长统计的学生总量。</p>
-        </div>
-        <div className="metric-card">
-          <span>萌宠绑定率</span>
-          <button className="metric-value-button" type="button" onClick={() => setFocusFilter('pet_bound')}>
-            {students.length ? `${Math.round((studentsWithPetCount / students.length) * 100)}%` : '0%'}
+          <button type="button" className="std-metric-card std-metric-card--green std-metric-card--action" onClick={() => setFocusFilter('pet_bound')}>
+            <div className="std-metric-card__top">
+              <div className="std-metric-card__icon"><span className="sec-metric-glyph">宠</span></div>
+              <span className="std-metric-card__label">萌宠绑定率</span>
+            </div>
+            <div className="std-metric-card__value">
+              {students.length ? `${Math.round((studentsWithPetCount / students.length) * 100)}%` : '0%'}
+            </div>
+            <div className="std-metric-card__hint">已完成萌宠绑定的学生覆盖比例</div>
           </button>
-          <p>已完成萌宠绑定的学生覆盖比例，便于观察成长体系接入情况。</p>
-        </div>
-        <div className="metric-card">
-          <span>学业覆盖</span>
-          <button className="metric-value-button" type="button" onClick={() => setShowOverview(true)}>
-            {students.length ? `${Math.round((studentsWithAcademicCount / students.length) * 100)}%` : '0%'}
+          <button type="button" className="std-metric-card std-metric-card--purple std-metric-card--action" onClick={() => setShowOverview(true)}>
+            <div className="std-metric-card__top">
+              <div className="std-metric-card__icon"><span className="sec-metric-glyph">学</span></div>
+              <span className="std-metric-card__label">学业覆盖</span>
+            </div>
+            <div className="std-metric-card__value">
+              {students.length ? `${Math.round((studentsWithAcademicCount / students.length) * 100)}%` : '0%'}
+            </div>
+            <div className="std-metric-card__hint">
+              {latestAcademicExamName ? `最近：${latestAcademicExamName}` : '导入成绩后展示覆盖情况'}
+            </div>
           </button>
-          <p>{latestAcademicExamName ? `最近导入：${latestAcademicExamName}` : '导入成绩表后，这里展示学业数据覆盖情况。'}</p>
+          <button
+            type="button"
+            className={`std-metric-card std-metric-card--amber std-metric-card--action${showOverview ? ' active' : ''}`}
+            onClick={() => setShowOverview((prev) => !prev)}
+          >
+            <div className="std-metric-card__top">
+              <div className="std-metric-card__icon"><span className="sec-metric-glyph">析</span></div>
+              <span className="std-metric-card__label">{showOverview ? '收起分析' : '更多分析'}</span>
+            </div>
+            <div className="std-metric-card__value std-metric-card__value--text">
+              {studentsWithAcademicCount} 人已有成绩 · {academicCoveredClassCount || coveredClassCount} 班已接入
+            </div>
+            <div className="std-metric-card__hint">展开查看年级、班级与学生维度分析</div>
+          </button>
         </div>
-        <button
-          className={`metric-card metric-card-action${showOverview ? " active" : ""}`}
-          type="button"
-          onClick={() => setShowOverview((prev) => !prev)}
-        >
-          <span>{showOverview ? "收起更多分析" : "更多分析"}</span>
-          <strong>{showOverview ? "收起剩余分析卡片" : "展开剩余分析卡片"}</strong>
-          <p>
-            {studentsWithAcademicCount} 人已有成绩，
-            {academicCoveredClassCount || coveredClassCount} 个班已接入，展开后可查看年级、班级、学生等更多分析。
-          </p>
-        </button>
-      </div>
+      ) : null}
 
-      {showOverview ? (
+      {!isSubjectTeacher && showOverview ? (
         <div className="panel summary-panel">
           {gradeFilter !== 'all' || classFilter !== 'all' || focusFilter !== 'all' || searchKeyword.trim() ? (
             <div className="summary-panel-actions">
@@ -1247,39 +1346,39 @@ export function StudentsPage({
         </div>
       ) : null}
 
-      <div className="panel">
-        <div className="page-header">
-          <div>
-            <div className="tabs">
-              <button
-                className={`tab${listTab === 'students' ? ' active' : ''}`}
-                type="button"
-                onClick={() => setListTab('students')}
-              >
-                学生列表
-              </button>
-              <button
-                className={`tab${listTab === 'scores' ? ' active' : ''}`}
-                type="button"
-                onClick={() => setListTab('scores')}
-              >
-                成绩列表
-              </button>
-            </div>
-            <p className="page-desc">
-              {listTab === 'students' ? '查看学生档案、积分与萌宠绑定情况。' : '查询历史考试总分、校次与班次变化。'}
-            </p>
+      <div className="panel admin-list-panel security-accounts-panel">
+        <div className="security-panel-head">
+          <div className="sec-nav-tabs">
+            <button
+              className={`sec-nav-tab${listTab === 'students' ? ' active' : ''}`}
+              type="button"
+              onClick={() => setListTab('students')}
+            >
+              学生列表
+            </button>
+            <button
+              className={`sec-nav-tab${listTab === 'scores' ? ' active' : ''}`}
+              type="button"
+              onClick={() => setListTab('scores')}
+            >
+              成绩列表
+            </button>
           </div>
+          <p className="page-desc">
+            {listTab === 'students' ? '查看学生档案、积分与萌宠绑定情况。' : '查询历史考试总分、校次与班次变化。'}
+          </p>
           {listTab === 'scores' ? (
-            <div className="page-actions">
-              <select className="filter-select" value={examFilter} onChange={(event) => setExamFilter(event.target.value)}>
-                <option value="all">全部考试</option>
-                {academicExams.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
-              </select>
+            <div className="page-actions" style={{ marginTop: 12 }}>
+              {!isSubjectTeacher ? (
+                <select className="filter-select" value={examFilter} onChange={(event) => setExamFilter(event.target.value)}>
+                  <option value="all">全部考试</option>
+                  {academicExams.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
               {allowImport ? (
                 <button className="btn btn-outline" type="button" onClick={openAcademicImportModal}>
                   导入成绩表
@@ -1290,10 +1389,11 @@ export function StudentsPage({
         </div>
         {listTab === 'students' ? (
           <>
-            <div className="data-table-wrap">
-              <table className="data-table">
+            <div className="data-table-wrap security-table-wrap">
+              <table className="data-table security-table">
                 <thead>
                   <tr>
+
                     <th>{renderSortHeader('姓名', 'name')}</th>
                     <th>{renderSortHeader('班级', 'className')}</th>
                     <th>{renderSortHeader('准考证号', 'studentNo')}</th>
@@ -1309,7 +1409,8 @@ export function StudentsPage({
                 <tbody>
                   {studentPagination.pagedItems.map((row) => (
                     <tr key={row.id}>
-                      <td>{row.name}</td>
+
+                      <td className="security-name-cell">{row.name}</td>
                       <td>{row.className}</td>
                       <td>{row.studentNo}</td>
                       <td>
@@ -1354,7 +1455,7 @@ export function StudentsPage({
                         <button className="op-btn" type="button" onClick={() => openStudentDetail(row.id)}>
                           详情
                         </button>
-                        {allowImport ? (
+                        {allowEdit ? (
                           <button className="op-btn" type="button" onClick={() => openEditStudentModal(row)}>
                             编辑
                           </button>
@@ -1384,8 +1485,8 @@ export function StudentsPage({
         ) : (
           <>
             {academicScoresError ? <div className="status-card error">{academicScoresError}</div> : null}
-            <div className="data-table-wrap">
-              <table className="data-table">
+            <div className="data-table-wrap security-table-wrap">
+              <table className="data-table security-table">
                 <thead>
                   <tr>
                     <th>考试</th>
@@ -1464,7 +1565,7 @@ export function StudentsPage({
         )}
       </div>
 
-      {allowImport && showImport ? (
+      {(allowImport || allowEdit) && showImport ? (
         <Modal
           title={editingStudent ? '编辑学生' : entryMode === 'single' ? '新增学生' : '导入学生'}
           subtitle={
@@ -1532,6 +1633,42 @@ export function StudentsPage({
                     <option value="女">女</option>
                   </select>
                 </label>
+                {editingStudent ? (
+                  <div className="span-2 detail-card student-pet-reset-card">
+                    <h4>萌宠领取</h4>
+                    {editingStudent.pet ? (
+                      <div className="detail-list">
+                        <div>
+                          <span>当前萌宠</span>
+                          <strong>
+                            {editingStudent.pet.name}（Lv.{editingStudent.pet.currentLevel}）
+                          </strong>
+                        </div>
+                        <div className="settings-note">
+                          {editingStudent.pet.currentLevel === 1
+                            ? '可将领取状态重置为「未领取」，学生可在展示端重新选择萌宠；积分与成长记录不受影响。'
+                            : '仅萌宠等级为 1 时可重置为未领取，请先确认学生萌宠尚未升级。'}
+                        </div>
+                        <div className="form-actions" style={{ marginTop: 12, paddingTop: 0 }}>
+                          <button
+                            type="button"
+                            className="ghost-button"
+                            disabled={
+                              resetPetSubmitting ||
+                              submitting ||
+                              editingStudent.pet.currentLevel !== 1
+                            }
+                            onClick={() => void handleResetPet()}
+                          >
+                            {resetPetSubmitting ? '重置中...' : '重置宠物'}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="settings-note">当前为未领取状态</div>
+                    )}
+                  </div>
+                ) : null}
               </>
             ) : (
               <>
@@ -1560,10 +1697,15 @@ export function StudentsPage({
             )}
             {submitError ? <div className="status-card error span-2">{submitError}</div> : null}
             <div className="form-actions span-2">
-              <button type="button" className="ghost-button" onClick={() => closeImportModal()} disabled={submitting}>
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={() => closeImportModal()}
+                disabled={submitting || resetPetSubmitting}
+              >
                 取消
               </button>
-              <button type="submit" className="toolbar-button" disabled={submitting}>
+              <button type="submit" className="toolbar-button" disabled={submitting || resetPetSubmitting}>
                 {submitting
                   ? editingStudent || entryMode === 'single'
                     ? '提交中...'
@@ -1970,6 +2112,9 @@ export function StudentsPage({
           </div>
         </Modal>
       ) : null}
+
+      </div>
     </Shell>
   );
 }
+

@@ -38,6 +38,31 @@ type TreeSelection =
   | { type: 'scene'; key: string }
   | { type: 'rule'; key: string };
 
+const roleLabelMap: Record<string, string> = {
+  super_admin: '系统管理员',
+  school_admin: '学校管理员',
+  academic_admin: '教务管理员',
+  moral_admin: '德育管理员',
+  grade_admin: '年级管理员',
+  homeroom_teacher: '班主任',
+  subject_teacher: '任课教师',
+};
+
+const MORAL_SPECIAL_ROLE_CODES = ['school_admin', 'moral_admin'] as const;
+
+function isMoralSpecialRule(rule: Pick<ScoreRule, 'allowedRoleCodes'>) {
+  return (
+    rule.allowedRoleCodes.length > 0 &&
+    rule.allowedRoleCodes.includes('moral_admin') &&
+    rule.allowedRoleCodes.every((roleCode) => MORAL_SPECIAL_ROLE_CODES.includes(roleCode as (typeof MORAL_SPECIAL_ROLE_CODES)[number]))
+  );
+}
+
+function formatAllowedRoleLabels(rule: Pick<ScoreRule, 'allowedRoleCodes'>) {
+  if (rule.allowedRoleCodes.length === 0) return '全部后台角色';
+  return rule.allowedRoleCodes.map((item) => roleLabelMap[item] ?? item).join(' / ');
+}
+
 type RulesPageProps = {
   token: string;
   user: SessionUser | null;
@@ -64,6 +89,7 @@ export function RulesPage({
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState('all');
+  const [audienceFilter, setAudienceFilter] = useState<'all' | 'student' | 'class' | 'moral_only'>('all');
   const [currentSemester, setCurrentSemester] = useState<SystemSettings['semester'] | null>(null);
   const [pageLoading, setPageLoading] = useState(false);
   const [togglePendingIds, setTogglePendingIds] = useState<number[]>([]);
@@ -121,8 +147,17 @@ export function RulesPage({
     });
   }, [mergedRules, statusFilter]);
 
+  const audienceFilteredRules = useMemo(() => {
+    return statusFilteredRules.filter((rule) => {
+      if (audienceFilter === 'all') return true;
+      if (audienceFilter === 'student') return rule.scoreTarget === 'student';
+      if (audienceFilter === 'class') return rule.scoreTarget === 'class';
+      return isMoralSpecialRule(rule);
+    });
+  }, [audienceFilter, statusFilteredRules]);
+
   const filteredTreeData = useMemo(() => {
-    const ruleMap = new Map(statusFilteredRules.map((rule) => [rule.id, rule]));
+    const ruleMap = new Map(audienceFilteredRules.map((rule) => [rule.id, rule]));
 
     return treeData
       .map((moduleNode) => {
@@ -164,7 +199,7 @@ export function RulesPage({
           : null;
       })
       .filter((moduleNode): moduleNode is NonNullable<typeof moduleNode> => Boolean(moduleNode));
-  }, [statusFilteredRules, treeData]);
+  }, [audienceFilteredRules, treeData]);
 
   useEffect(() => {
     setExpandedNodes((prev) => {
@@ -221,28 +256,36 @@ export function RulesPage({
   }, [form.moduleType, form.subjectCode, isEditorOpen]);
 
   const filteredRules = useMemo(() => {
-    if (treeSelection.type === 'all') return statusFilteredRules;
+    if (treeSelection.type === 'all') return audienceFilteredRules;
     if (treeSelection.type === 'module') {
-      return statusFilteredRules.filter((rule) => rule.moduleType === treeSelection.key);
+      return audienceFilteredRules.filter((rule) => rule.moduleType === treeSelection.key);
     }
     if (treeSelection.type === 'subject') {
       const [, subjectCode] = treeSelection.key.split(':');
-      return statusFilteredRules.filter((rule) => (rule.subjectCode ?? 'general') === subjectCode);
+      return audienceFilteredRules.filter((rule) => (rule.subjectCode ?? 'general') === subjectCode);
     }
     if (treeSelection.type === 'scene') {
       const [, subjectCode, sceneCode] = treeSelection.key.split(':');
-      return statusFilteredRules.filter(
+      return audienceFilteredRules.filter(
         (rule) => (rule.subjectCode ?? 'general') === subjectCode && rule.sceneCode === sceneCode,
       );
     }
-    return statusFilteredRules.filter((rule) => String(rule.id) === treeSelection.key);
-  }, [statusFilteredRules, treeSelection]);
+    return audienceFilteredRules.filter((rule) => String(rule.id) === treeSelection.key);
+  }, [audienceFilteredRules, treeSelection]);
 
   const duplicateDraftChecks = useMemo(() => {
     const currentRuleId = editingRule?.id ?? null;
     const compareRules = rules.filter((rule) => rule.id !== currentRuleId);
+    const normalizedSceneCode = form.sceneCode.trim().toLocaleLowerCase();
+    const sameBranch = (rule: ScoreRule) =>
+      rule.moduleType === form.moduleType &&
+      (rule.subjectCode?.trim().toLocaleLowerCase() ?? '') === normalizedSubjectCode.toLocaleLowerCase() &&
+      rule.sceneCode.trim().toLocaleLowerCase() === normalizedSceneCode &&
+      rule.scoreTarget === form.scoreTarget;
     const duplicatedNameRule = normalizedName
-      ? compareRules.find((rule) => rule.name.trim().toLocaleLowerCase() === normalizedName.toLocaleLowerCase())
+      ? compareRules.find(
+          (rule) => sameBranch(rule) && rule.name.trim().toLocaleLowerCase() === normalizedName.toLocaleLowerCase(),
+        )
       : null;
     const normalizedCode = generatedRuleCode.trim().toLocaleLowerCase();
     const duplicatedCodeRule = normalizedCode
@@ -253,7 +296,7 @@ export function RulesPage({
       duplicatedNameRule,
       duplicatedCodeRule,
     };
-  }, [editingRule?.id, generatedRuleCode, normalizedName, rules]);
+  }, [editingRule?.id, form.moduleType, form.sceneCode, form.scoreTarget, generatedRuleCode, normalizedName, normalizedSubjectCode, rules]);
 
   const rulePagination = usePagination(
     filteredRules,
@@ -371,6 +414,7 @@ export function RulesPage({
         sentiment: row.sentiment,
         ...(row.aiSummaryText ? { aiSummaryText: row.aiSummaryText } : {}),
         ...(row.description ? { description: row.description } : {}),
+        ...(row.allowedRoleCodes.length > 0 ? { allowedRoleCodes: row.allowedRoleCodes } : {}),
         isHighFrequency: row.isHighFrequency,
         displayEnabled: nextState.displayEnabled,
         adminEnabled: nextState.adminEnabled,
@@ -444,6 +488,7 @@ export function RulesPage({
         sentiment,
         ...(form.aiSummaryText.trim() ? { aiSummaryText: form.aiSummaryText.trim() } : {}),
         ...(form.description.trim() ? { description: form.description.trim() } : {}),
+        ...(form.allowedRoleCodes.length > 0 ? { allowedRoleCodes: form.allowedRoleCodes } : {}),
         isHighFrequency: form.isHighFrequency,
         displayEnabled: form.displayEnabled,
         adminEnabled: form.adminEnabled,
@@ -493,6 +538,16 @@ export function RulesPage({
             <option value="enabled">启用中</option>
             <option value="disabled">已停用</option>
           </select>
+          <select
+            className="filter-select"
+            value={audienceFilter}
+            onChange={(event) => setAudienceFilter(event.target.value as 'all' | 'student' | 'class' | 'moral_only')}
+          >
+            <option value="all">全部规则</option>
+            <option value="student">学生评价</option>
+            <option value="class">班级评价</option>
+            <option value="moral_only">德育专用</option>
+          </select>
           {allowManage ? (
             <button className="btn btn-primary" onClick={openCreate}>
               + 新建规则
@@ -509,7 +564,7 @@ export function RulesPage({
             onClick={() => applyTreeSelection({ type: 'all', key: null })}
           >
             <span>全部规则</span>
-            <span className="tree-count">{statusFilteredRules.length}</span>
+            <span className="tree-count">{audienceFilteredRules.length}</span>
           </button>
           {filteredTreeData.map((moduleNode) => {
             const moduleKey = `module:${moduleNode.moduleType}`;
@@ -626,6 +681,7 @@ export function RulesPage({
                   <th>规则名称</th>
                   <th>适用分类</th>
                   <th>评价对象</th>
+                  <th>适用角色</th>
                   <th>积分方向</th>
                   <th>分值</th>
                   <th>使用位置</th>
@@ -651,6 +707,7 @@ export function RulesPage({
                         .join(' / ')}
                     </td>
                     <td>{row.scoreTarget === 'class' ? '班级评价' : '学生评价'}</td>
+                    <td>{isMoralSpecialRule(row) ? '德育管理员专用' : formatAllowedRoleLabels(row)}</td>
                     <td>
                       <span className={row.scoreType === 'deduct' ? 'score-badge deduct' : 'score-badge add'}>
                         {row.scoreType === 'deduct' ? '减分' : '加分'}
@@ -683,7 +740,7 @@ export function RulesPage({
                 })}
                 {filteredRules.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="table-empty">
+                    <td colSpan={9} className="table-empty">
                       当前筛选条件下没有积分规则
                     </td>
                   </tr>
@@ -810,6 +867,21 @@ export function RulesPage({
               </select>
             </label>
             <label>
+              <span>专用范围</span>
+              <select
+                value={isMoralSpecialRule(form) ? 'moral_special' : 'all'}
+                onChange={(event) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    allowedRoleCodes: event.target.value === 'moral_special' ? [...MORAL_SPECIAL_ROLE_CODES] : [],
+                  }))
+                }
+              >
+                <option value="all">全部后台角色</option>
+                <option value="moral_special">学校管理员 / 德育管理员专用</option>
+              </select>
+            </label>
+            <label>
               <span>积分方向</span>
               <select
                 value={form.scoreType}
@@ -866,6 +938,10 @@ export function RulesPage({
                 rows={4}
                 placeholder="选填，说明老师在什么情况下使用这条规则"
               />
+            </label>
+            <label className="span-2">
+              <span>角色说明</span>
+              <input value={isMoralSpecialRule(form) ? '德育管理员专用' : '全部后台角色'} readOnly />
             </label>
             <div className="checkbox-grid span-2">
               <label className="checkbox-item">
@@ -925,6 +1001,7 @@ export function RulesPage({
                 <span>编码：{generatedRuleCode || '待生成'}</span>
                 <span>语气：{form.scoreType === 'deduct' ? '提醒纠偏' : '正向激励'}</span>
                 <span>使用位置：{draftAudience || '未选择'}</span>
+                <span>专用范围：{isMoralSpecialRule(form) ? '德育管理员专用' : '全部后台角色'}</span>
                 <span>常用规则：{form.isHighFrequency ? '是' : '否'}</span>
               </div>
             </div>

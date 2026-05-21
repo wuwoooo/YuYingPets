@@ -63,6 +63,7 @@ async function main() {
   const roleCodes = [
     ['super_admin', '系统管理员'],
     ['school_admin', '学校管理员'],
+    ['academic_admin', '教务管理员'],
     ['moral_admin', '德育管理员'],
     ['homeroom_teacher', '班主任'],
     ['subject_teacher', '任课教师'],

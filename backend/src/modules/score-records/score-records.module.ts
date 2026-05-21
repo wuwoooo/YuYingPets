@@ -7,5 +7,6 @@ import { ScoreRecordsService } from './score-records.service';
   imports: [AuthModule],
   controllers: [ScoreRecordsController],
   providers: [ScoreRecordsService],
+  exports: [ScoreRecordsService],
 })
 export class ScoreRecordsModule {}

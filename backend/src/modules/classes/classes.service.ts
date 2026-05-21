@@ -40,7 +40,7 @@ export class ClassesService {
     });
 
     const filteredRows =
-      ['super_admin', 'school_admin', 'moral_admin'].includes(user.roleCode)
+      ['super_admin', 'school_admin', 'academic_admin', 'moral_admin'].includes(user.roleCode)
         ? rows
         : rows.filter((row) => this.authService.canAccessClass(user, row.id));
 
@@ -57,6 +57,8 @@ export class ClassesService {
         name: row.name,
         slogan: row.slogan,
         targetScore: row.targetScore,
+        countdownTitle: row.countdownTitle,
+        countdownDeadlineAt: row.countdownDeadlineAt,
         sortOrder: row.sortOrder,
         displayStatus: row.displayStatus,
         studentCount: row.students.length,
@@ -78,6 +80,7 @@ export class ClassesService {
   async create(authorization: string | undefined, body: Record<string, unknown>) {
     const user = await this.authService.getAuthUserFromAuthorization(authorization);
     this.ensureCanManageClass(user.roleCode);
+    const countdownData = this.normalizeCountdownData(body, true);
 
     const created = await this.prisma.$transaction(async (tx) => {
       const classroom = await tx.classroom.create({
@@ -93,6 +96,8 @@ export class ClassesService {
             : null,
           slogan: body.slogan ? String(body.slogan) : null,
           targetScore: body.targetScore === undefined ? null : Number(body.targetScore),
+          countdownTitle: countdownData?.countdownTitle ?? null,
+          countdownDeadlineAt: countdownData?.countdownDeadlineAt ?? null,
           displayStatus: body.displayStatus ? String(body.displayStatus) : 'enabled',
           sortOrder: body.sortOrder === undefined ? null : Number(body.sortOrder),
           status: 'enabled',
@@ -162,6 +167,8 @@ export class ClassesService {
         name: row.name,
         slogan: row.slogan,
         targetScore: row.targetScore,
+        countdownTitle: row.countdownTitle,
+        countdownDeadlineAt: row.countdownDeadlineAt,
         sortOrder: row.sortOrder,
         displayStatus: row.displayStatus,
         semester: {
@@ -194,6 +201,7 @@ export class ClassesService {
     if (user.roleCode === 'homeroom_teacher') {
       await this.authService.ensureIsHomeroomOfClass(user, id);
     }
+    const countdownData = this.normalizeCountdownData(body, false);
 
     const exists = await this.prisma.classroom.findFirst({
       where: { id: BigInt(id), schoolId: user.schoolId, deletedAt: null },
@@ -230,6 +238,12 @@ export class ClassesService {
           slogan: body.slogan === undefined ? undefined : body.slogan ? String(body.slogan) : null,
           targetScore:
             body.targetScore === undefined ? undefined : body.targetScore === null ? null : Number(body.targetScore),
+          ...(countdownData
+            ? {
+                countdownTitle: countdownData.countdownTitle,
+                countdownDeadlineAt: countdownData.countdownDeadlineAt,
+              }
+            : {}),
           displayStatus:
             body.displayStatus === undefined ? undefined : String(body.displayStatus),
           sortOrder:
@@ -272,6 +286,33 @@ export class ClassesService {
     });
 
     return { code: 0, message: 'ok', data: { id: toNumber(updated.id) } };
+  }
+
+  private normalizeCountdownData(body: Record<string, unknown>, forCreate: boolean) {
+    const hasTitle = Object.prototype.hasOwnProperty.call(body, 'countdownTitle');
+    const hasDeadline = Object.prototype.hasOwnProperty.call(body, 'countdownDeadlineAt');
+    if (!forCreate && !hasTitle && !hasDeadline) {
+      return undefined;
+    }
+
+    const title = hasTitle && body.countdownTitle !== null ? String(body.countdownTitle).trim() : '';
+    const deadlineRaw = hasDeadline && body.countdownDeadlineAt !== null ? String(body.countdownDeadlineAt).trim() : '';
+    if (!title || !deadlineRaw) {
+      return {
+        countdownTitle: null,
+        countdownDeadlineAt: null,
+      };
+    }
+
+    const deadlineAt = new Date(deadlineRaw);
+    if (Number.isNaN(deadlineAt.getTime())) {
+      throw new BadRequestException('倒计时截止时间格式不正确');
+    }
+
+    return {
+      countdownTitle: title,
+      countdownDeadlineAt: deadlineAt,
+    };
   }
 
   async groups(authorization: string | undefined, id: number) {
@@ -418,13 +459,13 @@ export class ClassesService {
   }
 
   private ensureCanManageGroups(roleCode: string) {
-    if (!['super_admin', 'school_admin', 'moral_admin', 'homeroom_teacher'].includes(roleCode)) {
+    if (!['super_admin', 'school_admin', 'academic_admin', 'homeroom_teacher'].includes(roleCode)) {
       throw new ForbiddenException('当前角色无权维护学生分组');
     }
   }
 
   private ensureCanManageClass(roleCode: string) {
-    if (!['super_admin', 'school_admin', 'moral_admin', 'homeroom_teacher'].includes(roleCode)) {
+    if (!['super_admin', 'school_admin', 'academic_admin', 'homeroom_teacher'].includes(roleCode)) {
       throw new ForbiddenException('当前角色无权维护班级');
     }
   }

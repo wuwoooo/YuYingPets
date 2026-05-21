@@ -14,6 +14,16 @@ const SUBJECT_RULE_COMPATIBILITY: Record<string, string[]> = {
   pe: ['pe', 'arts_it'],
 };
 
+const DUTY_TAG_ROLE_MAP: Array<{ keywords: string[]; roleCode: string }> = [
+  { keywords: ['班主任'], roleCode: 'homeroom_teacher' },
+  { keywords: ['教务', '教务处', '考务'], roleCode: 'academic_admin' },
+  { keywords: ['德育', '德育处'], roleCode: 'moral_admin' },
+  { keywords: ['校长', '副校长', '学校领导', '领导'], roleCode: 'school_admin' },
+];
+
+const DISPLAY_ADMIN_ROLE_CODES = ['super_admin', 'school_admin', 'academic_admin', 'moral_admin'];
+const DISPLAY_OPERATOR_ROLE_CODES = [...DISPLAY_ADMIN_ROLE_CODES, 'homeroom_teacher', 'subject_teacher'];
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -176,11 +186,16 @@ export class AuthService {
       throw new UnauthorizedException('无效的 token');
     }
 
-    const payload = await this.jwtService.verifyAsync<{
+    let payload: {
       sub: number;
       schoolId: number;
       roleCode: string;
-    }>(token);
+    };
+    try {
+      payload = await this.jwtService.verifyAsync(token);
+    } catch {
+      throw new UnauthorizedException('无效的 token');
+    }
 
     const user = await this.prisma.user.findFirst({
       where: {
@@ -225,7 +240,7 @@ export class AuthService {
   }
 
   canAccessClass(user: AuthUser, classId: bigint | number) {
-    if (['super_admin', 'school_admin', 'moral_admin'].includes(user.roleCode)) {
+    if (this.hasAnyRole(user, DISPLAY_ADMIN_ROLE_CODES)) {
       return true;
     }
 
@@ -243,7 +258,7 @@ export class AuthService {
   }
 
   async ensureIsHomeroomOfClass(user: AuthUser, classId: bigint | number) {
-    if (['super_admin', 'school_admin', 'moral_admin'].includes(user.roleCode)) {
+    if (this.hasAnyRole(user, DISPLAY_ADMIN_ROLE_CODES)) {
       return;
     }
 
@@ -275,9 +290,19 @@ export class AuthService {
     const targetClassId = typeof classId === 'bigint' ? classId : BigInt(classId);
     return Array.from(
       new Set(
-        user.scopes
-          .filter((scope) => scope.classId === targetClassId && scope.subjectCode)
-          .map((scope) => scope.subjectCode as string),
+        [
+          ...user.scopes
+            .filter((scope) => scope.classId === targetClassId && scope.subjectCode)
+            .map((scope) => scope.subjectCode as string),
+          ...user.classAssignments
+            .filter(
+              (assignment) =>
+                assignment.classId === targetClassId &&
+                assignment.roleInClass === 'subject_teacher' &&
+                assignment.subjectCode,
+            )
+            .map((assignment) => assignment.subjectCode as string),
+        ],
       ),
     );
   }
@@ -293,14 +318,22 @@ export class AuthService {
   canUseRuleForClass(
     user: AuthUser,
     classId: bigint | number,
-    rule: { moduleType?: unknown; subjectCode?: unknown },
+    rule: { moduleType?: unknown; subjectCode?: unknown; allowedRoleCodes?: unknown },
   ) {
-    if (['super_admin', 'school_admin', 'moral_admin'].includes(user.roleCode)) {
+    if (!this.canUseRuleByRole(user, rule)) {
+      return false;
+    }
+
+    if (this.hasAnyRole(user, DISPLAY_ADMIN_ROLE_CODES)) {
       return true;
     }
 
     if (!this.canAccessClass(user, classId)) {
       return false;
+    }
+
+    if (this.hasHomeroomRoleForClass(user, classId)) {
+      return true;
     }
 
     if (rule.moduleType === 'general') {
@@ -317,11 +350,43 @@ export class AuthService {
   ensureCanUseRuleForClass(
     user: AuthUser,
     classId: bigint | number,
-    rule: { moduleType?: unknown; subjectCode?: unknown },
+    rule: { moduleType?: unknown; subjectCode?: unknown; allowedRoleCodes?: unknown },
   ) {
     if (!this.canUseRuleForClass(user, classId, rule)) {
       throw new ForbiddenException('无权使用当前积分规则');
     }
+  }
+
+  canUseRuleByRole(user: AuthUser, rule: { allowedRoleCodes?: unknown }) {
+    const allowedRoleCodes = this.normalizeAllowedRoleCodes(rule.allowedRoleCodes);
+    if (allowedRoleCodes.length === 0) {
+      return true;
+    }
+
+    const effectiveRoles = new Set(this.getEffectiveRoleCodes(user));
+    return allowedRoleCodes.some((roleCode) => effectiveRoles.has(roleCode));
+  }
+
+  normalizeAllowedRoleCodes(value: unknown) {
+    if (Array.isArray(value)) {
+      return Array.from(new Set(value.map((item) => String(item).trim()).filter(Boolean)));
+    }
+
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!trimmed) return [];
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          return Array.from(new Set(parsed.map((item) => String(item).trim()).filter(Boolean)));
+        }
+      } catch {
+        // ignore invalid JSON and fallback to delimited parsing
+      }
+      return Array.from(new Set(trimmed.split(/[,，;；|]/).map((item) => item.trim()).filter(Boolean)));
+    }
+
+    return [];
   }
 
   private normalizeDutyTags(value: unknown) {
@@ -329,5 +394,51 @@ export class AuthService {
       ? value
       : String(value ?? '').split(/[,，;；、/／|]+/);
     return Array.from(new Set(rawItems.map((item) => String(item).trim()).filter(Boolean)));
+  }
+
+  getEffectiveRoleCodes(user: AuthUser) {
+    const roleCodes = new Set<string>([user.roleCode]);
+    for (const tag of user.dutyTags) {
+      for (const { keywords, roleCode } of DUTY_TAG_ROLE_MAP) {
+        if (keywords.some((keyword) => tag.includes(keyword))) {
+          roleCodes.add(roleCode);
+        }
+      }
+    }
+    for (const assignment of user.classAssignments) {
+      if (assignment.roleInClass === 'subject_teacher') {
+        roleCodes.add('subject_teacher');
+      }
+      if (['homeroom', 'co_homeroom'].includes(assignment.roleInClass)) {
+        roleCodes.add('homeroom_teacher');
+      }
+    }
+    return Array.from(roleCodes);
+  }
+
+  hasAnyRole(user: AuthUser, roleCodes: string[]) {
+    const effectiveRoleCodes = this.getEffectiveRoleCodes(user);
+    return roleCodes.some((roleCode) => effectiveRoleCodes.includes(roleCode));
+  }
+
+  canManageAllDisplays(user: AuthUser) {
+    return this.hasAnyRole(user, DISPLAY_ADMIN_ROLE_CODES);
+  }
+
+  canInitializeDisplayTerminal(user: AuthUser) {
+    return this.hasAnyRole(user, [...DISPLAY_ADMIN_ROLE_CODES, 'homeroom_teacher']);
+  }
+
+  canOperateDisplay(user: AuthUser) {
+    return this.hasAnyRole(user, DISPLAY_OPERATOR_ROLE_CODES);
+  }
+
+  private hasHomeroomRoleForClass(user: AuthUser, classId: bigint | number) {
+    const targetClassId = typeof classId === 'bigint' ? classId : BigInt(classId);
+    return user.classAssignments.some(
+      (assignment) =>
+        assignment.classId === targetClassId &&
+        ['homeroom', 'co_homeroom'].includes(assignment.roleInClass),
+    );
   }
 }

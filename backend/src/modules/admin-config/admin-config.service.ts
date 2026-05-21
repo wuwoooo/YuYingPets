@@ -24,6 +24,10 @@ const rolePermissionTemplate: Record<string, { summary: string; permissions: str
     summary: '学校运营配置、班级查看、统计分析、教师管理',
     permissions: ['学校运营配置', '班级查看', '统计分析', '教师管理'],
   },
+  academic_admin: {
+    summary: '班级教师维护、课表管理、学业数据导入与分析查看',
+    permissions: ['班级维护', '教师管理', '课表管理', '学业数据导入', '数据分析查看'],
+  },
   moral_admin: {
     summary: '规则维护、荣誉配置、奖励中心、数据分析查看',
     permissions: ['规则维护', '荣誉配置', '奖励中心', '数据分析查看'],
@@ -73,6 +77,39 @@ const SUBJECT_CODE_BY_LABEL: Record<string, string> = {
   体育: 'pe',
 };
 
+const SCOPE_TYPE_LABELS: Record<string, string> = {
+  school: '全校',
+  grade: '年级范围',
+  class_scope: '班级范围',
+  subject_class: '学科班级',
+};
+
+function formatUserScopeDisplayName(scope: {
+  scopeType: string;
+  gradeCode?: string | null;
+  subjectCode?: string | null;
+  classroom?: { gradeName: string; name: string } | null;
+  classId?: bigint | null;
+}) {
+  if (scope.scopeType === 'subject_class' && scope.classId && scope.subjectCode) {
+    const classLabel = scope.classroom
+      ? `${scope.classroom.gradeName} ${scope.classroom.name}`
+      : `班级${toNumber(scope.classId)}`;
+    const subjectLabel = SUBJECT_LABELS[scope.subjectCode] ?? scope.subjectCode;
+    return `${classLabel}·${subjectLabel}`;
+  }
+  if (scope.scopeType === 'school') return '全校';
+  if (scope.scopeType === 'class_scope' && scope.classroom) {
+    return `${scope.classroom.gradeName} ${scope.classroom.name}`;
+  }
+  if (scope.scopeType === 'grade' && scope.gradeCode) {
+    return scope.gradeCode;
+  }
+  if (scope.classroom?.name) return `${scope.classroom.gradeName} ${scope.classroom.name}`;
+  if (scope.subjectCode) return SUBJECT_LABELS[scope.subjectCode] ?? scope.subjectCode;
+  return SCOPE_TYPE_LABELS[scope.scopeType] ?? scope.scopeType;
+}
+
 function buildGradeCode(name: string, fallbackIndex: number) {
   const normalized = name
     .trim()
@@ -94,6 +131,7 @@ export class AdminConfigService {
   async getSettings(authorization: string | undefined) {
     const user = await this.authService.getAuthUserFromAuthorization(authorization);
     this.ensureCanManageAdminConfig(user.roleCode);
+    await this.ensureSystemRoles(user.schoolId);
 
     const [school, semester, displayConfig, displayTerminalCount, roles, rawGradeConfigs] = await Promise.all([
       this.prisma.school.findUniqueOrThrow({ where: { id: user.schoolId } }),
@@ -129,6 +167,7 @@ export class AdminConfigService {
           motto: school.motto,
           phone: school.phone,
           address: school.address,
+          classScoreStudentLinkMultiplier: school.classScoreStudentLinkMultiplier ?? 0,
           petGrowth: {
             thresholds: normalizePetGrowthThresholds(school.petGrowthThresholds),
           },
@@ -215,6 +254,7 @@ export class AdminConfigService {
       where: { id: user.schoolId },
       data: {
         petGrowthThresholds: thresholds,
+        classScoreStudentLinkMultiplier: Math.trunc(Number(body.classScoreStudentLinkMultiplier)),
       },
     });
 
@@ -248,6 +288,61 @@ export class AdminConfigService {
 
     await this.logAction(user, 'semester', 'update', updated.id, body);
     return { code: 0, message: 'ok', data: { id: toNumber(updated.id) } };
+  }
+
+  async getDisplaySettings(authorization: string | undefined) {
+    const user = await this.authService.getAuthUserFromAuthorization(authorization);
+    this.ensureCanViewSchoolPresentation(user.roleCode);
+
+    const displayConfig = await this.prisma.displayConfig.findFirst({
+      where: { schoolId: user.schoolId, classId: null },
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    return {
+      code: 0,
+      message: 'ok',
+      data: {
+        id: displayConfig ? toNumber(displayConfig.id) : null,
+        title: displayConfig?.title ?? '育英星宠',
+        subtitle: displayConfig?.subtitle ?? '校园荣誉体系下的萌宠成长激励平台',
+        bgImageUrl: displayConfig?.bgImageUrl ?? null,
+        weatherLabel: displayConfig?.weatherLabel ?? '大理',
+        weatherLatitude: displayConfig?.weatherLatitude ? Number(displayConfig.weatherLatitude) : 25.6065,
+        weatherLongitude: displayConfig?.weatherLongitude ? Number(displayConfig.weatherLongitude) : 100.2676,
+        animationSpeed: displayConfig?.animationSpeed ?? 'normal',
+        allowSkipAnimation: displayConfig?.allowSkipAnimation ?? true,
+        defaultMode: displayConfig?.defaultMode ?? 'daily',
+      },
+    };
+  }
+
+  async setPresentationMode(authorization: string | undefined, mode: 'report' | 'daily') {
+    const user = await this.authService.getAuthUserFromAuthorization(authorization);
+    this.ensureCanViewSchoolPresentation(user.roleCode);
+
+    const existing = await this.prisma.displayConfig.findFirst({
+      where: { schoolId: user.schoolId, classId: null },
+      select: { id: true },
+    });
+
+    const saved = existing
+      ? await this.prisma.displayConfig.update({
+          where: { id: existing.id },
+          data: { defaultMode: mode },
+        })
+      : await this.prisma.displayConfig.create({
+          data: {
+            schoolId: user.schoolId,
+            title: '育英星宠',
+            subtitle: '校园荣誉体系下的萌宠成长激励平台',
+            allowSkipAnimation: true,
+            animationSpeed: 'normal',
+            defaultMode: mode,
+          },
+        });
+
+    return { code: 0, message: 'ok', data: { id: toNumber(saved.id), defaultMode: mode } };
   }
 
   async updateDisplay(authorization: string | undefined, body: DisplaySettingsUpdateDto) {
@@ -370,7 +465,8 @@ export class AdminConfigService {
 
   async listRoleTemplates(authorization: string | undefined) {
     const user = await this.authService.getAuthUserFromAuthorization(authorization);
-    this.ensureCanManageAdminConfig(user.roleCode);
+    this.ensureCanViewPermissionDirectory(user.roleCode);
+    await this.ensureSystemRoles(user.schoolId);
 
     const roles = await this.prisma.role.findMany({
       where: { schoolId: user.schoolId },
@@ -392,7 +488,8 @@ export class AdminConfigService {
 
   async listPermissionUsers(authorization: string | undefined) {
     const user = await this.authService.getAuthUserFromAuthorization(authorization);
-    this.ensureCanManageAdminConfig(user.roleCode);
+    this.ensureCanViewPermissionDirectory(user.roleCode);
+    await this.ensureSystemRoles(user.schoolId);
 
     const rows = await this.prisma.user.findMany({
       where: {
@@ -433,16 +530,7 @@ export class AdminConfigService {
         const scopeNames = Array.from(
           new Set(
             row.scopes
-              .map((scope) => {
-                if (scope.scopeType === 'subject_class' && scope.classId && scope.subjectCode) {
-                  const classLabel = scope.classroom
-                    ? `${scope.classroom.gradeName} ${scope.classroom.name}`
-                    : `班级${toNumber(scope.classId)}`;
-                  const subjectLabel = SUBJECT_LABELS[scope.subjectCode] ?? scope.subjectCode;
-                  return `${classLabel}·${subjectLabel}`;
-                }
-                return scope.classroom?.name ?? scope.gradeCode ?? scope.subjectCode ?? scope.scopeType;
-              })
+              .map((scope) => formatUserScopeDisplayName(scope))
               .filter(Boolean),
           ),
         );
@@ -471,10 +559,12 @@ export class AdminConfigService {
 
   async createPermissionUser(authorization: string | undefined, body: PermissionUserUpsertDto) {
     const user = await this.authService.getAuthUserFromAuthorization(authorization);
-    this.ensureCanManageAdminConfig(user.roleCode);
+    this.ensureCanManagePermissionUsers(user.roleCode);
+    await this.ensureSystemRoles(user.schoolId);
+    this.ensureCanManagePermissionUserRole(user.roleCode, body.roleCode);
 
     const role = await this.findRole(user.schoolId, body.roleCode);
-    await this.ensureUsernameAvailable(user.schoolId, body.username);
+    await this.ensureUsernameAvailable(body.username);
 
     const created = await this.prisma.$transaction(async (tx) => {
       const createdUser = await tx.user.create({
@@ -501,7 +591,9 @@ export class AdminConfigService {
 
   async updatePermissionUser(authorization: string | undefined, id: number, body: PermissionUserUpsertDto) {
     const user = await this.authService.getAuthUserFromAuthorization(authorization);
-    this.ensureCanManageAdminConfig(user.roleCode);
+    this.ensureCanManagePermissionUsers(user.roleCode);
+    await this.ensureSystemRoles(user.schoolId);
+    this.ensureCanManagePermissionUserRole(user.roleCode, body.roleCode);
 
     const exists = await this.prisma.user.findFirst({
       where: {
@@ -516,7 +608,7 @@ export class AdminConfigService {
     }
 
     const role = await this.findRole(user.schoolId, body.roleCode);
-    await this.ensureUsernameAvailable(user.schoolId, body.username, BigInt(id));
+    await this.ensureUsernameAvailable(body.username, BigInt(id));
 
     await this.prisma.$transaction(async (tx) => {
       await tx.user.update({
@@ -540,7 +632,8 @@ export class AdminConfigService {
 
   async importPermissionUsers(authorization: string | undefined, body: PermissionUserImportDto) {
     const user = await this.authService.getAuthUserFromAuthorization(authorization);
-    this.ensureCanManageAdminConfig(user.roleCode);
+    this.ensureCanManagePermissionUsers(user.roleCode);
+    await this.ensureSystemRoles(user.schoolId);
 
     const rows = (body.rows ?? [])
       .map((row, index) => ({
@@ -556,7 +649,7 @@ export class AdminConfigService {
       throw new BadRequestException('导入文件中没有可识别的教师数据');
     }
 
-    const [roles, classrooms, existingUsers] = await Promise.all([
+    const [roles, classrooms, existingUsers, allUsers] = await Promise.all([
       this.prisma.role.findMany({ where: { schoolId: user.schoolId } }),
       this.prisma.classroom.findMany({
         where: { schoolId: user.schoolId, deletedAt: null },
@@ -566,9 +659,12 @@ export class AdminConfigService {
         where: { schoolId: user.schoolId, deletedAt: null },
         select: { id: true, username: true, phone: true, name: true },
       }),
+      this.prisma.user.findMany({
+        select: { username: true },
+      }),
     ]);
     const roleMap = new Map(roles.map((role) => [role.code, role]));
-    const usernameSet = new Set(existingUsers.map((item) => item.username.toLowerCase()));
+    const usernameSet = new Set(allUsers.map((item) => item.username.toLowerCase()));
     const seenImportPhones = new Map<string, number>();
     const seenImportNames = new Map<string, number>();
     const results: Array<{
@@ -620,7 +716,18 @@ export class AdminConfigService {
       seenImportNames.set(row.name, row.sourceIndex);
 
       const parsedScopes = this.parseTeachingScopes(row.teachingClasses, classrooms, row.sourceIndex, warnings);
+      const parsedHomeroomScopes = this.parseHomeroomScopes(row.roles, classrooms, row.sourceIndex, warnings);
       const roleCode = this.resolveImportRoleCode(row, parsedScopes.subjectScopes.length);
+      if (!row.roles?.trim()) {
+        warnings.push(
+          `第 ${row.sourceIndex} 行「${row.name}」职务角色为空，已默认按任课教师导入；可在后续编辑中补全职务标签。`,
+        );
+      }
+      if (roleCode === 'subject_teacher' && parsedScopes.subjectScopes.length === 0) {
+        warnings.push(
+          `第 ${row.sourceIndex} 行「${row.name}」未配置有效的任课班级及学科（或未填写任课班级），账号已导入；请稍后在「教师管理」中补全授课范围。`,
+        );
+      }
       const role = roleMap.get(roleCode);
       if (!role) {
         skippedCount += 1;
@@ -635,6 +742,7 @@ export class AdminConfigService {
         });
         continue;
       }
+      this.ensureCanManagePermissionUserRole(user.roleCode, roleCode);
 
       if (roleCode !== 'homeroom_teacher' && roleCode !== 'subject_teacher' && row.roles) {
         warnings.push(`第 ${row.sourceIndex} 行「${row.name}」包含职务「${row.roles}」，已按账号角色「${role.name}」导入；细分职务建议后续作为岗位标签呈现。`);
@@ -645,6 +753,10 @@ export class AdminConfigService {
         ? matchedUser.username
         : this.buildUniqueUsername(row.name, usernameSet);
       usernameSet.add(username.toLowerCase());
+      const classIds =
+        roleCode === 'homeroom_teacher' && parsedHomeroomScopes.classIds.length > 0
+          ? parsedHomeroomScopes.classIds
+          : parsedScopes.classIds;
 
       const upsertBody: PermissionUserUpsertDto = {
         name: row.name,
@@ -652,7 +764,7 @@ export class AdminConfigService {
         roleCode,
         phone: row.phone || undefined,
         dutyTags: this.normalizeDutyTags(row.roles),
-        classIds: parsedScopes.classIds,
+        classIds,
         subjectScopes: parsedScopes.subjectScopes,
       };
 
@@ -713,11 +825,14 @@ export class AdminConfigService {
       });
     }
 
+    const scheduleRelinkResult = await this.reconcileTeacherScheduleBindings(user.schoolId);
+
     await this.logAction(user, 'permission_user', 'import_teachers', user.id, {
       total: rows.length,
       createdCount,
       updatedCount,
       skippedCount,
+      scheduleRelinkResult,
     });
 
     return {
@@ -731,26 +846,38 @@ export class AdminConfigService {
         defaultPassword: '123456',
         results,
         warnings,
+        scheduleRelinkResult,
       },
     };
   }
 
   async resetPassword(authorization: string | undefined, id: number) {
     const user = await this.authService.getAuthUserFromAuthorization(authorization);
-    this.ensureCanManageAdminConfig(user.roleCode);
+    this.ensureCanManagePermissionUsers(user.roleCode);
+
+    const targetUser = await this.prisma.user.findFirst({
+      where: { id: BigInt(id), schoolId: user.schoolId, deletedAt: null },
+      include: { role: true },
+    });
+    if (!targetUser) {
+      throw new NotFoundException('账号不存在');
+    }
+    this.ensureCanManagePermissionUserRole(user.roleCode, targetUser.role.code);
 
     const updated = await this.prisma.user.update({
       where: { id: BigInt(id) },
       data: { passwordHash: hashSync('123456', 10) },
     });
 
-    await this.logAction(user, 'permission_user', 'reset_password', updated.id, { defaultPassword: '123456' });
+    await this.logAction(user, 'permission_user', 'reset_password', updated.id, {
+      temporaryPasswordIssued: true,
+    });
     return { code: 0, message: 'ok', data: { id, defaultPassword: '123456' } };
   }
 
   async updatePermissionUserStatus(authorization: string | undefined, id: number, status: 'enabled' | 'disabled') {
     const user = await this.authService.getAuthUserFromAuthorization(authorization);
-    this.ensureCanManageAdminConfig(user.roleCode);
+    this.ensureCanManagePermissionUsers(user.roleCode);
 
     if (toNumber(user.id) === id && status === 'disabled') {
       throw new ForbiddenException('不能停用当前登录账号');
@@ -762,11 +889,12 @@ export class AdminConfigService {
         schoolId: user.schoolId,
         deletedAt: null,
       },
-      select: { id: true, status: true },
+      include: { role: true },
     });
     if (!exists) {
       throw new NotFoundException('账号不存在');
     }
+    this.ensureCanManagePermissionUserRole(user.roleCode, exists.role.code);
 
     const updated = await this.prisma.user.update({
       where: { id: BigInt(id) },
@@ -838,12 +966,38 @@ export class AdminConfigService {
     return role;
   }
 
-  private async ensureUsernameAvailable(schoolId: bigint, username: string, excludeUserId?: bigint) {
+  private async ensureSystemRoles(schoolId: bigint) {
+    const defaults = [
+      ['super_admin', '系统管理员'],
+      ['school_admin', '学校管理员'],
+      ['academic_admin', '教务管理员'],
+      ['moral_admin', '德育管理员'],
+      ['homeroom_teacher', '班主任'],
+      ['subject_teacher', '任课教师'],
+    ] as const;
+    const existing = await this.prisma.role.findMany({
+      where: { schoolId, code: { in: defaults.map(([code]) => code) } },
+      select: { code: true },
+    });
+    const existingCodes = new Set(existing.map((item) => item.code));
+    const missing = defaults
+      .filter(([code]) => !existingCodes.has(code))
+      .map(([code, name]) => ({
+        schoolId,
+        code,
+        name,
+        isSystem: true,
+      }));
+
+    if (missing.length > 0) {
+      await this.prisma.role.createMany({ data: missing });
+    }
+  }
+
+  private async ensureUsernameAvailable(username: string, excludeUserId?: bigint) {
     const exists = await this.prisma.user.findFirst({
       where: {
-        schoolId,
         username,
-        deletedAt: null,
         ...(excludeUserId ? { id: { not: excludeUserId } } : {}),
       },
       select: { id: true },
@@ -898,12 +1052,29 @@ export class AdminConfigService {
     return username;
   }
 
+  private normalizeTeacherName(value: string) {
+    return String(value ?? '').replace(/\s+/g, '').trim();
+  }
+
   private resolveImportRoleCode(row: Pick<PermissionUserImportRowDto, 'roles' | 'teachingClasses'>, subjectScopeCount: number) {
     const roles = row.roles ?? '';
+    const rolesTrimmed = roles.trim();
+    const teachingText = row.teachingClasses?.trim() ?? '';
     if (roles.includes('班主任')) return 'homeroom_teacher';
-    if (subjectScopeCount > 0 || row.teachingClasses?.trim()) return 'subject_teacher';
+    if (roles.includes('校长')) return 'school_admin';
+    if (roles.includes('副校长')) return 'school_admin';
+    if (roles.includes('学校领导')) return 'school_admin';
+    if (roles.includes('领导')) return 'school_admin';
+    if (roles.includes('学校管理员')) return 'school_admin';
+    if (roles.includes('教务')) return 'academic_admin';
+    if (roles.includes('教务处')) return 'academic_admin';
+    if (roles.includes('考务')) return 'academic_admin';
+    if (roles.includes('考试管理员')) return 'academic_admin';
     if (roles.includes('德育')) return 'moral_admin';
-    if (roles.includes('考试管理员')) return 'moral_admin';
+    if (subjectScopeCount > 0 || teachingText.length > 0) return 'subject_teacher';
+    // 职务列为空或未填时默认按任课教师导入（可在后台再补全班级与学科）
+    if (!rolesTrimmed) return 'subject_teacher';
+    if (roles.includes('任课教师')) return 'subject_teacher';
     return 'school_admin';
   }
 
@@ -918,6 +1089,182 @@ export class AdminConfigService {
     return existingUsers.find((item) => item.name === row.name) ?? null;
   }
 
+  private async reconcileTeacherScheduleBindings(schoolId: bigint) {
+    const activeTeachers = await this.prisma.user.findMany({
+      where: {
+        schoolId,
+        deletedAt: null,
+        status: 'enabled',
+        role: { code: { in: ['homeroom_teacher', 'subject_teacher'] } },
+      },
+      select: { id: true, name: true },
+    });
+
+    const activeTeacherMap = new Map<string, bigint>();
+    const duplicateTeacherNames = new Set<string>();
+    for (const teacher of activeTeachers) {
+      const normalizedName = this.normalizeTeacherName(teacher.name);
+      if (!normalizedName) continue;
+      if (activeTeacherMap.has(normalizedName)) {
+        duplicateTeacherNames.add(normalizedName);
+        activeTeacherMap.delete(normalizedName);
+        continue;
+      }
+      if (!duplicateTeacherNames.has(normalizedName)) {
+        activeTeacherMap.set(normalizedName, teacher.id);
+      }
+    }
+
+    const [legacyTeachers, pendingSlots] = await Promise.all([
+      this.prisma.user.findMany({
+        where: {
+          schoolId,
+          deletedAt: { not: null },
+        },
+        select: { id: true, name: true },
+      }),
+      this.prisma.pendingTeacherScheduleSlot.findMany({
+        where: { schoolId },
+      }),
+    ]);
+
+    const legacyTeacherRelinks = legacyTeachers
+      .map((teacher) => {
+        const nextTeacherId = activeTeacherMap.get(this.normalizeTeacherName(teacher.name));
+        if (!nextTeacherId) return null;
+        return {
+          fromTeacherId: teacher.id,
+          toTeacherId: nextTeacherId,
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => Boolean(item));
+
+    let relinkedScheduleSlotCount = 0;
+    if (legacyTeacherRelinks.length > 0) {
+      const updateResults = await this.prisma.$transaction(
+        legacyTeacherRelinks.map((item) =>
+          this.prisma.teacherScheduleSlot.updateMany({
+            where: {
+              schoolId,
+              teacherId: item.fromTeacherId,
+            },
+            data: {
+              teacherId: item.toTeacherId,
+            },
+          }),
+        ),
+      );
+      relinkedScheduleSlotCount = updateResults.reduce((sum, item) => sum + item.count, 0);
+    }
+
+    const matchedPendingSlots = pendingSlots
+      .map((slot) => {
+        const teacherId = activeTeacherMap.get(this.normalizeTeacherName(slot.teacherName));
+        if (!teacherId) return null;
+        return {
+          pendingId: slot.id,
+          row: {
+            schoolId,
+            teacherId,
+            classId: slot.classId,
+            weekday: slot.weekday,
+            periodNo: slot.periodNo,
+            startTime: slot.startTime,
+            endTime: slot.endTime,
+            subject: slot.subject,
+            className: slot.className,
+            sourceFile: slot.sourceFile,
+          },
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => Boolean(item));
+
+    if (matchedPendingSlots.length > 0) {
+      await this.prisma.$transaction([
+        this.prisma.teacherScheduleSlot.createMany({
+          data: matchedPendingSlots.map((item) => item.row),
+        }),
+        this.prisma.pendingTeacherScheduleSlot.deleteMany({
+          where: {
+            id: { in: matchedPendingSlots.map((item) => item.pendingId) },
+          },
+        }),
+      ]);
+    }
+
+    return {
+      relinkedScheduleSlotCount,
+      linkedPendingSlotCount: matchedPendingSlots.length,
+      skippedDuplicateTeacherNameCount: duplicateTeacherNames.size,
+    };
+  }
+
+  private buildImportClassroomMap(
+    classrooms: Array<{ id: bigint; gradeName: string; name: string; code: string }>,
+  ) {
+    const classMap = new Map<string, { id: bigint; gradeName: string; name: string; code: string }>();
+
+    for (const classroom of classrooms) {
+      const normalizedName = this.normalizeImportText(classroom.name);
+      const normalizedCode = this.normalizeImportText(classroom.code);
+      const keys = [
+        `${classroom.gradeName}${classroom.name}`,
+        `${classroom.gradeName}${classroom.code}`,
+        classroom.name,
+        classroom.code,
+        normalizedName,
+        normalizedCode,
+      ]
+        .filter(Boolean)
+        .map((item) => this.normalizeImportText(item));
+      keys.forEach((key) => classMap.set(key, classroom));
+    }
+
+    return classMap;
+  }
+
+  private parseHomeroomScopes(
+    roles: string,
+    classrooms: Array<{ id: bigint; gradeName: string; name: string; code: string }>,
+    rowIndex: number,
+    warnings: string[],
+  ) {
+    const classMap = this.buildImportClassroomMap(classrooms);
+    const classIds = new Set<number>();
+    const normalizedRoles = roles
+      .replace(/[（]/g, '(')
+      .replace(/[）]/g, ')');
+
+    for (const part of this.splitImportList(normalizedRoles)) {
+      if (!part.includes('班主任')) continue;
+      const matched = part.match(/班主任(?:\(([^)]+)\))?/);
+      const rawClassLabel = matched?.[1]?.trim() ?? '';
+      if (!rawClassLabel) continue;
+
+      const normalizedClassLabel = this.normalizeImportText(rawClassLabel);
+      const candidateKeys = Array.from(
+        new Set([
+          normalizedClassLabel,
+          normalizedClassLabel.endsWith('班') ? normalizedClassLabel : `${normalizedClassLabel}班`,
+        ]),
+      );
+      const classroom = candidateKeys
+        .map((key) => classMap.get(key))
+        .find(Boolean);
+
+      if (!classroom) {
+        warnings.push(`第 ${rowIndex} 行未匹配到班主任班级「${rawClassLabel}」`);
+        continue;
+      }
+
+      classIds.add(Number(classroom.id));
+    }
+
+    return {
+      classIds: Array.from(classIds),
+    };
+  }
+
   private parseTeachingScopes(
     value: string,
     classrooms: Array<{ id: bigint; gradeName: string; name: string; code: string }>,
@@ -926,17 +1273,7 @@ export class AdminConfigService {
   ) {
     const classIds = new Set<number>();
     const subjectScopeMap = new Map<string, { classId: number; subjectCode: string }>();
-    const classMap = new Map<string, { id: bigint; gradeName: string; name: string; code: string }>();
-
-    for (const classroom of classrooms) {
-      const keys = [
-        `${classroom.gradeName}${classroom.name}`,
-        `${classroom.gradeName}${classroom.code}`,
-        classroom.name,
-        classroom.code,
-      ].map((item) => this.normalizeImportText(item));
-      keys.forEach((key) => classMap.set(key, classroom));
-    }
+    const classMap = this.buildImportClassroomMap(classrooms);
 
     const parts = this.splitImportList(value);
 
@@ -1031,20 +1368,33 @@ export class AdminConfigService {
       data: { homeroomTeacherId: null },
     });
 
-    if (roleCode === 'super_admin') {
+    const subjectScopes = this.normalizeSubjectScopes(body);
+
+    if (['super_admin', 'school_admin', 'academic_admin', 'moral_admin'].includes(roleCode)) {
       await tx.userScope.create({
         data: {
           userId,
           scopeType: 'school',
         },
       });
+      if (subjectScopes.length > 0) {
+        await tx.userScope.createMany({
+          data: subjectScopes.map((item) => ({
+            userId,
+            scopeType: 'subject_class',
+            classId: BigInt(item.classId),
+            subjectCode: item.subjectCode,
+          })),
+        });
+        await this.createSubjectTeacherAssignments(tx, schoolId, userId, subjectScopes);
+      }
       return;
     }
 
     if (roleCode === 'subject_teacher') {
-      const subjectScopes = this.normalizeSubjectScopes(body);
+      // 允许任课教师暂时没有授课班级/学科（如批量导入占位），功能界面保存时仍会校验必填。
       if (subjectScopes.length === 0) {
-        throw new BadRequestException('任课教师至少需要配置一个授课班级和学科');
+        return;
       }
       await tx.userScope.createMany({
         data: subjectScopes.map((item) => ({
@@ -1106,19 +1456,17 @@ export class AdminConfigService {
           data: { homeroomTeacherId: userId },
         });
 
-        const subjectScopes = this
-          .normalizeSubjectScopes(body)
-          .filter((item) => classIds.includes(item.classId));
-        if (subjectScopes.length > 0) {
+        const filteredSubjectScopes = subjectScopes.filter((item) => classIds.includes(item.classId));
+        if (filteredSubjectScopes.length > 0) {
           await tx.userScope.createMany({
-            data: subjectScopes.map((item) => ({
+            data: filteredSubjectScopes.map((item) => ({
               userId,
               scopeType: 'subject_class',
               classId: BigInt(item.classId),
               subjectCode: item.subjectCode,
             })),
           });
-          await this.createSubjectTeacherAssignments(tx, schoolId, userId, subjectScopes);
+          await this.createSubjectTeacherAssignments(tx, schoolId, userId, filteredSubjectScopes);
         }
       }
       return;
@@ -1186,9 +1534,37 @@ export class AdminConfigService {
   }
 
   private ensureCanManageAdminConfig(roleCode: string) {
-    if (!['super_admin', 'school_admin', 'moral_admin'].includes(roleCode)) {
+    if (!['super_admin', 'school_admin'].includes(roleCode)) {
       throw new ForbiddenException('当前角色无权访问管理配置');
     }
+  }
+
+  private ensureCanViewSchoolPresentation(roleCode: string) {
+    if (!['super_admin', 'school_admin', 'academic_admin', 'moral_admin', 'grade_admin'].includes(roleCode)) {
+      throw new ForbiddenException('当前角色无权使用汇报展示模式');
+    }
+  }
+
+  private ensureCanViewPermissionDirectory(roleCode: string) {
+    if (!['super_admin', 'school_admin', 'academic_admin'].includes(roleCode)) {
+      throw new ForbiddenException('当前角色无权查看账号与角色目录');
+    }
+  }
+
+  private ensureCanManagePermissionUsers(roleCode: string) {
+    if (!['super_admin', 'school_admin', 'academic_admin'].includes(roleCode)) {
+      throw new ForbiddenException('当前角色无权维护教师账号');
+    }
+  }
+
+  private ensureCanManagePermissionUserRole(roleCode: string, targetRoleCode: string) {
+    if (['super_admin', 'school_admin'].includes(roleCode)) {
+      return;
+    }
+    if (roleCode === 'academic_admin' && ['academic_admin', 'homeroom_teacher', 'subject_teacher'].includes(targetRoleCode)) {
+      return;
+    }
+    throw new ForbiddenException('当前角色无权维护该账号角色');
   }
 
   private async logAction(

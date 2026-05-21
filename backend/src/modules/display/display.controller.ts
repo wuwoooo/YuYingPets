@@ -5,6 +5,7 @@ import { DisplayService } from './display.service';
 import { DisplayLockDto } from './dto/display-lock.dto';
 import { DisplayTerminalInitializeDto } from './dto/display-terminal-initialize.dto';
 import { DisplayWeatherQueryDto } from './dto/display-weather-query.dto';
+import { AiGenerateDto } from '../ai/dto/ai-generate.dto';
 
 @ApiTags('Display')
 @Controller('display')
@@ -78,8 +79,11 @@ export class DisplayController {
   }
 
   @Get('classes/:classId/academic-growth')
-  academicGrowth(@Param('classId') classId: string) {
-    return this.displayService.academicGrowth(Number(classId));
+  academicGrowth(@Param('classId') classId: string, @Query('examId') examId?: string) {
+    return this.displayService.academicGrowth(
+      Number(classId),
+      examId && Number.isInteger(Number(examId)) && Number(examId) > 0 ? Number(examId) : undefined,
+    );
   }
 
   @Get('classes/:classId/academic-ai/:studentId/summary')
@@ -89,6 +93,15 @@ export class DisplayController {
     @Query('periodType') periodType?: 'weekly' | 'monthly',
   ) {
     return this.displayService.academicAiSummary(Number(classId), Number(studentId), periodType);
+  }
+
+  @Post('classes/:classId/academic-ai/:studentId/generate')
+  academicAiGenerate(
+    @Param('classId') classId: string,
+    @Param('studentId') studentId: string,
+    @Body() body: AiGenerateDto,
+  ) {
+    return this.displayService.academicAiGenerate(Number(classId), Number(studentId), body.periodType);
   }
 
   @Get('classes/:classId/reward-center')

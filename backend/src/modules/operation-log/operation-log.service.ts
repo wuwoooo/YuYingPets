@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { sanitizeAuditDetail } from '@/common/utils/redact-audit-detail';
 import { PrismaService } from '@/prisma/prisma.service';
 import { Prisma, TerminalType } from '@prisma/client';
 
@@ -29,7 +30,10 @@ export class OperationLogService {
         action: input.action,
         targetType: input.targetType,
         targetId: input.targetId ?? null,
-        detail: input.detail,
+        detail:
+          input.detail === undefined
+            ? undefined
+            : (sanitizeAuditDetail(input.detail) as Prisma.InputJsonValue),
       },
     });
   }

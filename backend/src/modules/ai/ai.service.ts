@@ -150,12 +150,53 @@ export class AiService {
     periodType: 'weekly' | 'monthly' = 'weekly',
   ) {
     const user = await this.authService.getAuthUserFromAuthorization(authorization);
-    if (!['homeroom_teacher', 'subject_teacher', 'school_admin', 'grade_admin', 'moral_admin', 'super_admin'].includes(user.roleCode)) {
+    if (!['homeroom_teacher', 'subject_teacher', 'school_admin', 'academic_admin', 'grade_admin', 'moral_admin', 'super_admin'].includes(user.roleCode)) {
       throw new ForbiddenException('当前角色无权生成学情摘要');
     }
 
     const student = await this.loadStudent(studentId);
     this.authService.ensureCanAccessClass(user, student.classId);
+
+    const result = await this.generateSnapshot(studentId, periodType, 'manual');
+
+    await this.operationLogService.create({
+      schoolId: student.schoolId,
+      userId: user.id,
+      roleCode: user.roleCode,
+      terminalType: 'admin',
+      module: 'ai_student_snapshot',
+      action: 'generate',
+      targetType: 'student',
+      targetId: BigInt(studentId),
+      detail: {
+        classId: Number(student.classId),
+        periodType,
+        snapshotId: result.data.id,
+      },
+    });
+
+    return result;
+  }
+
+  async generateForDisplay(
+    classId: number,
+    studentId: number,
+    periodType: 'weekly' | 'monthly' = 'weekly',
+  ) {
+    const student = await this.loadStudent(studentId);
+    if (Number(student.classId) !== classId) {
+      throw new NotFoundException('学生不存在或不属于当前大屏班级');
+    }
+
+    return this.generateSnapshot(studentId, periodType, 'manual');
+  }
+
+  private async generateSnapshot(
+    studentId: number,
+    periodType: 'weekly' | 'monthly',
+    generatedBy: 'manual',
+  ) {
+    const student = await this.loadStudent(studentId);
 
     const scoreRecords = await this.prisma.scoreRecord.findMany({
       where: {
@@ -235,7 +276,7 @@ export class AiService {
         },
         aiSummary: llmResult.aiSummary,
         aiSuggestion: llmResult.aiSuggestion,
-        generatedBy: 'manual',
+        generatedBy,
       },
     });
 
@@ -262,22 +303,6 @@ export class AiService {
         aiSuggestion: llmResult.aiSuggestion,
       },
     };
-
-    await this.operationLogService.create({
-      schoolId: student.schoolId,
-      userId: user.id,
-      roleCode: user.roleCode,
-      terminalType: 'admin',
-      module: 'ai_student_snapshot',
-      action: 'generate',
-      targetType: 'student',
-      targetId: BigInt(studentId),
-      detail: {
-        classId: Number(student.classId),
-        periodType,
-        snapshotId: result.data.id,
-      },
-    });
 
     this.realtimeService.emitAiSummaryGenerated(Number(student.classId), {
       classId: Number(student.classId),

@@ -3,40 +3,45 @@
 set -euo pipefail
 
 # 用法：
-#   ./deploy-server.sh admin-web
-#   ./deploy-server.sh display-app backend
-#   ./deploy-server.sh all
+#   ./deploy.sh admin-web
+#   ./deploy.sh display-app backend
+#   ./deploy.sh all
 #
 # 可覆盖配置：
-#   DEPLOY_USER=root DEPLOY_HOST=8.137.161.101 DEPLOY_PORT=22 ./deploy-server.sh all
-#   SSH_KEY="$HOME/.ssh/id_ed25519" ./deploy-server.sh backend
-#   DEPLOY_BASE_DIR=/var/www/yuyingpets ./deploy-server.sh all
-#   BACKEND_RESTART_CMD="pm2 restart yuyingpets-backend" ./deploy-server.sh backend
+#   DEPLOY_USER=root DEPLOY_HOST=8.137.161.101 DEPLOY_PORT=22 ./deploy.sh all
+#   SSH_KEY="$HOME/.ssh/id_ed25519_tencent" ./deploy.sh backend
+#   DEPLOY_BASE_DIR=/www/wwwroot/yuyingpets ./deploy.sh all
+#   BACKEND_RESTART_CMD="pm2 startOrReload ecosystem.config.cjs --env production && pm2 save" ./deploy.sh backend
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 DEPLOY_USER="${DEPLOY_USER:-root}"
 DEPLOY_HOST="${DEPLOY_HOST:-8.137.161.101}"
 DEPLOY_PORT="${DEPLOY_PORT:-22}"
-DEPLOY_BASE_DIR="${DEPLOY_BASE_DIR:-/var/www/yuyingpets}"
+DEPLOY_BASE_DIR="${DEPLOY_BASE_DIR:-/www/wwwroot/yuyingpets}"
 
-ADMIN_REMOTE_DIR="${ADMIN_REMOTE_DIR:-$DEPLOY_BASE_DIR/admin-web}"
-DISPLAY_REMOTE_DIR="${DISPLAY_REMOTE_DIR:-$DEPLOY_BASE_DIR/display-app}"
+ADMIN_REMOTE_DIR="${ADMIN_REMOTE_DIR:-$DEPLOY_BASE_DIR/www-admin}"
+DISPLAY_REMOTE_DIR="${DISPLAY_REMOTE_DIR:-$DEPLOY_BASE_DIR/www-admin/display}"
 BACKEND_REMOTE_DIR="${BACKEND_REMOTE_DIR:-$DEPLOY_BASE_DIR/backend}"
 
 SKIP_BUILD="${SKIP_BUILD:-0}"
 REMOTE_NPM_INSTALL="${REMOTE_NPM_INSTALL:-1}"
 RUN_PRISMA_GENERATE="${RUN_PRISMA_GENERATE:-1}"
-BACKEND_RESTART_CMD="${BACKEND_RESTART_CMD:-}"
+BACKEND_RESTART_CMD="${BACKEND_RESTART_CMD:-pm2 startOrReload ecosystem.config.cjs --env production && pm2 save}"
+CONTINUE_ON_ERROR="${CONTINUE_ON_ERROR:-0}"
 
 REMOTE="$DEPLOY_USER@$DEPLOY_HOST"
 
-SSH_ARGS=(-p "$DEPLOY_PORT")
+if [ -z "${SSH_KEY:-}" ] && [ -f "$HOME/.ssh/id_ed25519_tencent" ]; then
+  SSH_KEY="$HOME/.ssh/id_ed25519_tencent"
+fi
+
+SSH_ARGS=(-p "$DEPLOY_PORT" -o "IdentitiesOnly=yes")
 if [ -n "${SSH_KEY:-}" ]; then
   SSH_ARGS+=(-i "$SSH_KEY")
 fi
 
-RSYNC_SSH="ssh -p $DEPLOY_PORT"
+RSYNC_SSH="ssh -p $DEPLOY_PORT -o IdentitiesOnly=yes"
 if [ -n "${SSH_KEY:-}" ]; then
   RSYNC_SSH="$RSYNC_SSH -i $SSH_KEY"
 fi
@@ -44,26 +49,28 @@ fi
 usage() {
   cat <<EOF
 用法：
-  ./deploy-server.sh <admin-web|display-app|backend|all> [...]
+  ./deploy.sh <admin-web|display-app|backend|all> [...]
 
 示例：
-  ./deploy-server.sh admin-web
-  ./deploy-server.sh display-app backend
-  ./deploy-server.sh all
+  ./deploy.sh admin-web
+  ./deploy.sh display-app backend
+  ./deploy.sh all
 
 常用配置：
   DEPLOY_USER=root              SSH 用户，默认 root
   DEPLOY_HOST=8.137.161.101     服务器地址
   DEPLOY_PORT=22                SSH 端口
-  SSH_KEY=~/.ssh/id_ed25519     SSH 私钥
-  DEPLOY_BASE_DIR=/var/www/yuyingpets
+  SSH_KEY=~/.ssh/id_ed25519_tencent
+  DEPLOY_BASE_DIR=/www/wwwroot/yuyingpets
   ADMIN_REMOTE_DIR=...          管理后台远端目录
   DISPLAY_REMOTE_DIR=...        Display 远端目录
   BACKEND_REMOTE_DIR=...        后端远端目录
-  BACKEND_RESTART_CMD="pm2 restart yuyingpets-backend"
+  BACKEND_RESTART_CMD="pm2 startOrReload ecosystem.config.cjs --env production && pm2 save"
   SKIP_BUILD=1                  跳过本地构建
-  REMOTE_NPM_INSTALL=0          后端上传后不执行 npm ci --omit=dev
+  REMOTE_NPM_INSTALL=0          后端上传后不执行 npm install
   RUN_PRISMA_GENERATE=0         后端上传后不执行 npx prisma generate
+  BACKEND_RESTART_CMD="..."     后端重启命令，默认按 ecosystem.config.cjs 启动/重载并保存 PM2
+  CONTINUE_ON_ERROR=1           某个模块失败后继续尝试后续模块
 EOF
 }
 
@@ -140,6 +147,7 @@ deploy_admin_web() {
   log "上传 admin-web 到 $REMOTE:$ADMIN_REMOTE_DIR"
   ensure_remote_dir "$ADMIN_REMOTE_DIR"
   rsync -az --delete -e "$RSYNC_SSH" \
+    --exclude 'display/' \
     "$PROJECT_ROOT/admin-web/dist/" \
     "$REMOTE:$ADMIN_REMOTE_DIR/"
 }
@@ -147,10 +155,27 @@ deploy_admin_web() {
 deploy_display_app() {
   build_display_app
 
+  local display_stage="$PROJECT_ROOT/.deploy/display-app"
+  rm -rf "$display_stage"
+  mkdir -p "$display_stage"
+
+  rsync -a \
+    --exclude 'display/' \
+    "$PROJECT_ROOT/display-app/web/dist/" \
+    "$display_stage/"
+
+  rsync -a \
+    --exclude 'index.html' \
+    --exclude '.DS_Store' \
+    --exclude 'images/display-bg.svg' \
+    "$PROJECT_ROOT/display-app/web/dist/display/" \
+    "$display_stage/"
+
   log "上传 display-app/web 到 $REMOTE:$DISPLAY_REMOTE_DIR"
   ensure_remote_dir "$DISPLAY_REMOTE_DIR"
-  rsync -az --delete -e "$RSYNC_SSH" \
-    "$PROJECT_ROOT/display-app/web/dist/" \
+  rsync -az --delete --delete-excluded -e "$RSYNC_SSH" \
+    --exclude '.DS_Store' \
+    "$display_stage/" \
     "$REMOTE:$DISPLAY_REMOTE_DIR/"
 }
 
@@ -164,9 +189,11 @@ deploy_backend() {
     --exclude '.cache/' \
     --exclude 'node_modules/' \
     --exclude 'tmp/' \
+    --exclude 'public/assets/' \
     --exclude 'public/uploads/' \
     "$PROJECT_ROOT/backend/package.json" \
     "$PROJECT_ROOT/backend/package-lock.json" \
+    "$PROJECT_ROOT/backend/ecosystem.config.cjs" \
     "$PROJECT_ROOT/backend/dist" \
     "$PROJECT_ROOT/backend/prisma" \
     "$PROJECT_ROOT/backend/sql" \
@@ -174,9 +201,11 @@ deploy_backend() {
     "$PROJECT_ROOT/backend/public" \
     "$REMOTE:$BACKEND_REMOTE_DIR/"
 
+  remote_exec "mkdir -p '$BACKEND_REMOTE_DIR/logs'"
+
   if [ "$REMOTE_NPM_INSTALL" = "1" ]; then
-    log "服务器端安装 backend 生产依赖"
-    remote_exec "cd '$BACKEND_REMOTE_DIR' && npm ci --omit=dev"
+    log "服务器端安装 backend 依赖"
+    remote_exec "cd '$BACKEND_REMOTE_DIR' && if [ -f package-lock.json ]; then npm ci; else npm install; fi"
   fi
 
   if [ "$RUN_PRISMA_GENERATE" = "1" ]; then
@@ -249,8 +278,11 @@ main() {
   done
 
   log "目标服务器 $REMOTE:$DEPLOY_PORT"
+  log "部署模块 ${targets[*]}"
+
+  local failed_targets=()
   for target in "${targets[@]}"; do
-    case "$target" in
+    if ! case "$target" in
       admin-web)
         deploy_admin_web
         ;;
@@ -261,7 +293,20 @@ main() {
         deploy_backend
         ;;
     esac
+    then
+      echo "错误：$target 部署失败。"
+      failed_targets+=("$target")
+      if [ "$CONTINUE_ON_ERROR" != "1" ]; then
+        echo "已停止后续模块部署。如需失败后继续尝试，执行：CONTINUE_ON_ERROR=1 ./deploy.sh ${targets[*]}"
+        exit 1
+      fi
+    fi
   done
+
+  if [ "${#failed_targets[@]}" -gt 0 ]; then
+    echo "错误：以下模块部署失败：${failed_targets[*]}"
+    exit 1
+  fi
 
   log "部署完成"
 }

@@ -16,7 +16,7 @@ import {
   createPetForm,
   normalizeKeyword
 } from '../utils/adminForms';
-import { canManagePets } from '../utils/adminPermissions';
+import { canManageAdminConfig, canManagePets } from '../utils/adminPermissions';
 
 type PetsPageProps = {
   token: string;
@@ -31,15 +31,18 @@ const PET_FAMILY_OPTIONS = [
   { key: 'all', label: '全部' },
   { key: 'star', label: '星宠' },
   { key: 'zodiac', label: '十二生肖' },
-  { key: 'cat', label: '猫咪系' },
-  { key: 'dog', label: '犬类系' },
-  { key: 'rabbit', label: '兔子系' },
-  { key: 'hamster', label: '仓鼠系' },
-  { key: 'mythical', label: '神兽系' },
-  { key: 'other', label: '其他' },
 ] as const;
 
-type PetFamilyKey = (typeof PET_FAMILY_OPTIONS)[number]['key'];
+type PetFamilyKey =
+  | 'all'
+  | 'star'
+  | 'zodiac'
+  | 'cat'
+  | 'dog'
+  | 'rabbit'
+  | 'hamster'
+  | 'mythical'
+  | 'other';
 
 const PET_CATEGORY_META: Record<string, { family: PetFamilyKey; label: string }> = {
   star: { family: 'star', label: '星宠' },
@@ -77,7 +80,6 @@ export function PetsPage({
   const [sourceFilter, setSourceFilter] = useState<'all' | 'system' | 'custom'>('all');
   const [uploadingStageNo, setUploadingStageNo] = useState<number | null>(null);
   const [uploadingCover, setUploadingCover] = useState(false);
-  const [cardPreviewStages, setCardPreviewStages] = useState<Record<number, number>>({});
   const [selectedPreviewStage, setSelectedPreviewStage] = useState(1);
   const [defaultGrowthThresholds, setDefaultGrowthThresholds] = useState<number[]>([0, 140, 240, 360, 500, 660, 840, 1040, 1260, 1500]);
   const allowManage = canManagePets(user?.roleCode);
@@ -90,9 +92,20 @@ export function PetsPage({
       setPets(petsResponse.data);
 
       if (allowManage) {
-        const settingsResponse = await adminApi.settings(token);
-        if (settingsResponse.data.school.petGrowth.thresholds?.length === 10) {
-          setDefaultGrowthThresholds(settingsResponse.data.school.petGrowth.thresholds);
+        try {
+          if (canManageAdminConfig(user?.roleCode)) {
+            const settingsResponse = await adminApi.settings(token);
+            if (settingsResponse.data.school.petGrowth.thresholds?.length === 10) {
+              setDefaultGrowthThresholds(settingsResponse.data.school.petGrowth.thresholds);
+            }
+          } else {
+            const growthResponse = await adminApi.petGrowthThresholds(token);
+            if (growthResponse.data.thresholds?.length === 10) {
+              setDefaultGrowthThresholds(growthResponse.data.thresholds);
+            }
+          }
+        } catch {
+          // 阈值拉取失败不阻断图鉴列表
         }
       }
     } catch (err) {
@@ -138,7 +151,7 @@ export function PetsPage({
 
   function openCreatePet() {
     setEditingPet(null);
-    setForm({ ...createPetForm(undefined, defaultGrowthThresholds), category: 'cat' });
+    setForm({ ...createPetForm(undefined, defaultGrowthThresholds), category: 'star' });
     setShowCreatePet(true);
     setSubmitError(null);
   }
@@ -335,7 +348,15 @@ export function PetsPage({
   function getPetAccentStyle(item: PetCatalogItem): CSSProperties {
     const familyIndex = PET_FAMILY_OPTIONS.findIndex((option) => option.key === resolvePetFamily(item.category));
     const accent = PET_CARD_ACCENTS[(familyIndex > 0 ? familyIndex - 1 : 0) % PET_CARD_ACCENTS.length];
-    return { '--pet-accent': accent } as CSSProperties;
+    return { '--pet-accent': accent, '--pet-accent-rgb': hexToRgbChannels(accent) } as CSSProperties;
+  }
+
+  function hexToRgbChannels(hex: string) {
+    const normalized = hex.replace('#', '');
+    const value = normalized.length === 3 ? normalized.split('').map((c) => c + c).join('') : normalized;
+    const int = Number.parseInt(value, 16);
+    if (Number.isNaN(int)) return '57, 160, 237';
+    return `${(int >> 16) & 255}, ${(int >> 8) & 255}, ${int & 255}`;
   }
 
   function getPetStages(item: Pick<PetCatalogItem, 'stages'>) {
@@ -346,16 +367,8 @@ export function PetsPage({
     return getPetStages(item).find((stage) => stage.stageNo === stageNo) ?? null;
   }
 
-  function getCardPreviewStage(item: PetCatalogItem) {
-    return cardPreviewStages[item.id] ?? 1;
-  }
-
   function getCardPreviewImage(item: PetCatalogItem) {
-    return getStageByNo(item, getCardPreviewStage(item))?.imageUrl ?? item.coverUrl;
-  }
-
-  function updateCardPreviewStage(itemId: number, stageNo: number) {
-    setCardPreviewStages((prev) => ({ ...prev, [itemId]: stageNo }));
+    return getStageByNo(item, 1)?.imageUrl ?? item.coverUrl;
   }
 
   function getSelectedPreviewImage() {
@@ -429,62 +442,61 @@ export function PetsPage({
       </div>
       <div className="pet-grid">
         {filteredPets.map((item) => (
-          <article className="pet-card pet-catalog-card" key={item.id} style={getPetAccentStyle(item)}>
-            <button className="pet-cover-button" type="button" onClick={() => openPetDetails(item)} aria-label={`查看${item.name}的进化图谱`}>
-              <div className="pet-cover pet-catalog-cover">
-                {getCardPreviewImage(item) ? <img src={resolveAssetUrl(getCardPreviewImage(item) ?? '')} alt={item.name} /> : item.name.slice(0, 1)}
+          <article
+            className={`pet-card pet-catalog-card${item.sourceType === 'custom' && item.status === 'disabled' ? ' is-disabled' : ''}`}
+            key={item.id}
+            style={getPetAccentStyle(item)}
+          >
+            <button className="pet-catalog-tile" type="button" onClick={() => openPetDetails(item)} aria-label={`查看${item.name}进化图谱`}>
+              <div className="pet-catalog-visual">
+                {getCardPreviewImage(item) ? (
+                  <img src={resolveAssetUrl(getCardPreviewImage(item) ?? '')} alt="" />
+                ) : (
+                  <span className="pet-catalog-fallback">{item.name.slice(0, 1)}</span>
+                )}
+              </div>
+              <div className="pet-catalog-meta">
+                <span className="pet-catalog-name">{item.name}</span>
+                {item.sourceType === 'custom' ? <span className="pet-catalog-kind">自定义</span> : null}
               </div>
             </button>
-            <div className="pet-catalog-body">
-              <div className="pet-catalog-head">
-                <div className="pet-name">{item.name}</div>
-                <div className="pet-catalog-tags">
-                  <span className="pet-category-pill">{getPetFamilyLabel(item.category)}</span>
-                  {getPetSubcategoryLabel(item.category) ? <span className="pet-subcategory-pill">{getPetSubcategoryLabel(item.category)}</span> : null}
-                  <span className={`pet-source-pill ${item.sourceType}`}>{item.sourceType === 'system' ? '系统图鉴' : '自定义图鉴'}</span>
-                  {item.sourceType === 'custom' ? (
-                    <span className={`pet-status-pill ${item.status}`}>{item.status === 'enabled' ? '启用中' : '已停用'}</span>
-                  ) : null}
-                </div>
-              </div>
-              <div className="pet-growth-strip" aria-label={`${item.name}进化阶段`}>
-                {Array.from({ length: PET_STAGE_COUNT }, (_, index) => (
-                  <button
-                    type="button"
-                    key={index + 1}
-                    className={`pet-growth-dot${index < getPetStages(item).length ? ' active' : ''}${getCardPreviewStage(item) === index + 1 ? ' current' : ''}`}
-                    title={`Lv.${index + 1}`}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      updateCardPreviewStage(item.id, index + 1);
-                    }}
-                  />
-                ))}
-              </div>
-              <div className="pet-catalog-stats">
-                <span>最高等级 Lv.{item.maxLevel}</span>
-                <span>已配置 {getPetStages(item).length} 阶</span>
-                <span>绑定 {item.bindCount} 名学生</span>
-              </div>
-              <div className="pet-catalog-footer">
-                <button className="pet-detail-link" type="button" onClick={() => openPetDetails(item)}>
-                  查看进化图谱 →
+            {allowManage && item.sourceType === 'custom' ? (
+              <div className="pet-catalog-manage">
+                <button
+                  className="pet-manage-btn"
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    openEditPet(item);
+                  }}
+                  title="编辑"
+                >
+                  编
                 </button>
-                {allowManage && item.sourceType === 'custom' ? (
-                  <div className="pet-card-actions">
-                    <button className="link-button" type="button" onClick={() => openEditPet(item)}>
-                      编辑
-                    </button>
-                    <button className="link-button" type="button" onClick={() => void togglePetStatus(item)}>
-                      {item.status === 'enabled' ? '停用' : '启用'}
-                    </button>
-                    <button className="link-button" type="button" onClick={() => void deletePet(item)}>
-                      删除
-                    </button>
-                  </div>
-                ) : null}
+                <button
+                  className="pet-manage-btn"
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void togglePetStatus(item);
+                  }}
+                  title={item.status === 'enabled' ? '停用' : '启用'}
+                >
+                  {item.status === 'enabled' ? '停' : '启'}
+                </button>
+                <button
+                  className="pet-manage-btn danger"
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void deletePet(item);
+                  }}
+                  title="删除"
+                >
+                  删
+                </button>
               </div>
-            </div>
+            ) : null}
           </article>
         ))}
         {filteredPets.length === 0 ? <div className="settings-note">当前筛选条件下暂无萌宠数据。</div> : null}
@@ -581,15 +593,9 @@ export function PetsPage({
             </label>
             <label>
               <span>分类</span>
-              <select value={form.category || 'cat'} onChange={(event) => setForm((prev) => ({ ...prev, category: event.target.value }))}>
+              <select value={form.category || 'star'} onChange={(event) => setForm((prev) => ({ ...prev, category: event.target.value }))}>
                 <option value="star">星宠</option>
                 <option value="zodiac">十二生肖</option>
-                <option value="cat">猫咪系</option>
-                <option value="dog">犬类系</option>
-                <option value="rabbit">兔子系</option>
-                <option value="hamster">仓鼠系</option>
-                <option value="mythical">神兽系</option>
-                <option value="other">其他</option>
               </select>
             </label>
             <label>

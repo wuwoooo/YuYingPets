@@ -31,7 +31,8 @@ function cleanExamName(value: string) {
   const normalized = value.trim();
   if (!normalized) return normalized;
   const match = normalized.match(/^(.*?(?:成绩汇总|考生成绩汇总))\s*[-—–:：]+\s*(.+)$/);
-  return match?.[2]?.trim() || normalized;
+  const cleaned = (match?.[2]?.trim() || normalized).replace(/^（[^）]*年级）\s*/, '').trim();
+  return cleaned;
 }
 
 function rowToArray(cells: BiffCellMap, rowIndex: number) {

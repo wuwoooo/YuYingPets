@@ -15,6 +15,14 @@ import type {
 } from '../types/admin';
 
 export function createClassForm(defaultSemesterId?: number, row?: AdminClass): ClassFormState {
+  const formatLocalDateTime = (value?: string | null) => {
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    const pad = (part: number) => String(part).padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  };
+
   return {
     semesterId: String(row?.semesterId ?? defaultSemesterId ?? ''),
     code: row?.code ?? '',
@@ -24,6 +32,8 @@ export function createClassForm(defaultSemesterId?: number, row?: AdminClass): C
     homeroomTeacherId: row?.homeroomTeacher?.id ? String(row.homeroomTeacher.id) : '',
     slogan: row?.slogan ?? '',
     targetScore: row?.targetScore === null || row?.targetScore === undefined ? '' : String(row.targetScore),
+    countdownTitle: row?.countdownTitle ?? '',
+    countdownDeadlineAt: formatLocalDateTime(row?.countdownDeadlineAt),
     displayStatus: row?.displayStatus ?? 'enabled',
     sortOrder: row?.sortOrder === null || row?.sortOrder === undefined ? '' : String(row.sortOrder),
   };
@@ -102,6 +112,7 @@ export function createRuleForm(defaultSemesterId?: number, row?: ScoreRule): Rul
     sentiment: row?.sentiment ?? 'positive',
     aiSummaryText: row?.aiSummaryText ?? '',
     description: row?.description ?? '',
+    allowedRoleCodes: row?.allowedRoleCodes ?? [],
     isHighFrequency: row?.isHighFrequency ?? false,
     displayEnabled: row?.displayEnabled ?? true,
     adminEnabled: row?.adminEnabled ?? true,
@@ -148,6 +159,7 @@ export function createPetGrowthForm(school?: SystemSettings['school'] | null): P
 
   return {
     thresholds: thresholds.map(String),
+    classScoreStudentLinkMultiplier: String(school?.classScoreStudentLinkMultiplier ?? 0),
   };
 }
 
@@ -236,4 +248,22 @@ export function normalizeKeyword(value: string) {
 
 export function formatEnabledStatus(status?: string | null, enabledLabel = '启用中', disabledLabel = '未启用') {
   return status === 'enabled' ? enabledLabel : disabledLabel;
+}
+
+const permissionScopeTokenLabels: Record<string, string> = {
+  school: '全校',
+  grade: '年级范围',
+  class_scope: '班级范围',
+  subject_class: '学科班级',
+};
+
+/** 将负责范围中的英文 scope 标识转为中文展示 */
+export function formatPermissionScopeDisplay(value?: string | null) {
+  const text = String(value ?? '').trim();
+  if (!text) return '全校范围';
+  if (permissionScopeTokenLabels[text]) return permissionScopeTokenLabels[text];
+  return text
+    .split('、')
+    .map((part) => permissionScopeTokenLabels[part.trim()] ?? part.trim())
+    .join('、');
 }

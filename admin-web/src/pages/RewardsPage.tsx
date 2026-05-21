@@ -542,57 +542,51 @@ export function RewardsPage({
       </div>
       <div className="reward-grid">
         {rewardCards.map((item) => (
-          <div className="reward-card" key={item.id}>
-            <div className="r-icon-area">
+          <article className={`reward-card${item.status === 'disabled' ? ' is-disabled' : ''}`} key={item.id}>
+            <div className="reward-card-media">
               {item.imageUrl ? (
-                <img src={resolveAssetUrl(item.imageUrl)} alt={item.name} />
+                <img src={resolveAssetUrl(item.imageUrl)} alt="" />
               ) : (
                 <span className="reward-fallback">{item.name.slice(0, 2)}</span>
               )}
-            </div>
-            <div className="r-body">
-              <div className="r-name">{item.name}</div>
-              <span className={`r-cat ${item.category}`}>{item.category}</span>
-              <div className="r-cost">兑换需 {item.scoreCost} 积分</div>
-              <div className="r-stock">{item.isInfiniteStock ? '库存不限' : `库存：${item.stockQty ?? 0}`}</div>
-              <div className="r-stock">{item.status === 'enabled' ? '启用中' : '已停用'}</div>
-              <div className="r-stock">兑换记录：{item.rewardOrderCount}</div>
-              <div className="r-actions">
-                <button
-                  type="button"
-                  className="link-button"
-                  onClick={() => void openRewardRecords(item)}
-                >
-                  兑换记录
+              {item.status === 'disabled' ? <span className="reward-card-flag">已停用</span> : null}
+              <div className="reward-card-toolbar">
+                <button type="button" className="reward-tool-btn" onClick={() => void openRewardRecords(item)} title="兑换记录">
+                  记录
                 </button>
                 {allowManage ? (
                   <>
-                    <button
-                      type="button"
-                      className="link-button"
-                      onClick={() => openRewardEditor(item)}
-                    >
-                      编辑
+                    <button type="button" className="reward-tool-btn" onClick={() => openRewardEditor(item)} title="编辑">
+                      编
                     </button>
-                    <button
-                      type="button"
-                      className="link-button"
-                      onClick={() => void toggleRewardStatus(item)}
-                    >
-                      {item.status === 'enabled' ? '停用' : '启用'}
+                    <button type="button" className="reward-tool-btn" onClick={() => void toggleRewardStatus(item)} title={item.status === 'enabled' ? '停用' : '启用'}>
+                      {item.status === 'enabled' ? '停' : '启'}
                     </button>
-                    <button
-                      type="button"
-                      className="link-button"
-                      onClick={() => void deleteReward(item)}
-                    >
-                      删除
+                    <button type="button" className="reward-tool-btn danger" onClick={() => void deleteReward(item)} title="删除">
+                      删
                     </button>
                   </>
                 ) : null}
               </div>
             </div>
-          </div>
+            <div className="reward-card-body">
+              <div className="reward-card-head">
+                <h3 className="r-name">{item.name}</h3>
+                <span className={`r-cat ${item.category}`}>{item.category}</span>
+              </div>
+              <p className="reward-card-summary">
+                <strong>{item.scoreCost}</strong> 积分
+                <span className="reward-card-sep">·</span>
+                {item.isInfiniteStock ? '库存不限' : `余 ${item.stockQty ?? 0}`}
+                {item.rewardOrderCount > 0 ? (
+                  <>
+                    <span className="reward-card-sep">·</span>
+                    {item.rewardOrderCount} 笔兑换
+                  </>
+                ) : null}
+              </p>
+            </div>
+          </article>
         ))}
         {rewardCards.length === 0 ? <div className="settings-note">当前分类下暂无奖励数据。</div> : null}
       </div>
