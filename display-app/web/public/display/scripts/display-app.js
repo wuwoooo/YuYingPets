@@ -239,6 +239,167 @@ const students = [
   },
 ];
 
+/* ========== 开发期遮罩诊断 ========== */
+function isMaskProbeEnabled() {
+  return ["localhost", "127.0.0.1"].includes(window.location.hostname);
+}
+
+function escapeProbeSelector(value) {
+  if (window.CSS && typeof window.CSS.escape === "function") {
+    return window.CSS.escape(value);
+  }
+  return String(value).replace(/[^a-zA-Z0-9_-]/g, "\\$&");
+}
+
+function probeCssPath(element) {
+  if (!element) return "";
+  if (element.id) return `#${escapeProbeSelector(element.id)}`;
+  const parts = [];
+  let current = element;
+  while (current && current !== document.body) {
+    let part = current.tagName.toLowerCase();
+    const classNames = Array.from(current.classList || []).slice(0, 3);
+    if (classNames.length) {
+      part += `.${classNames.map(escapeProbeSelector).join(".")}`;
+    }
+    const parent = current.parentElement;
+    if (parent) {
+      const siblings = Array.from(parent.children).filter(
+        (item) => item.tagName === current.tagName,
+      );
+      if (siblings.length > 1) {
+        part += `:nth-of-type(${siblings.indexOf(current) + 1})`;
+      }
+    }
+    parts.unshift(part);
+    current = current.parentElement;
+  }
+  return `body > ${parts.join(" > ")}`;
+}
+
+function summarizeProbeElement(element) {
+  const style = window.getComputedStyle(element);
+  const rect = element.getBoundingClientRect();
+  return {
+    selector: probeCssPath(element),
+    tag: element.tagName.toLowerCase(),
+    id: element.id || "",
+    className: String(element.className || "").slice(0, 180),
+    text: (element.textContent || "").trim().replace(/\s+/g, " ").slice(0, 120),
+    position: style.position,
+    zIndex: style.zIndex,
+    pointerEvents: style.pointerEvents,
+    opacity: style.opacity,
+    visibility: style.visibility,
+    display: style.display,
+    rect: {
+      x: Math.round(rect.x),
+      y: Math.round(rect.y),
+      width: Math.round(rect.width),
+      height: Math.round(rect.height),
+    },
+  };
+}
+
+function isProbeViewportBlocker(element) {
+  const style = window.getComputedStyle(element);
+  const rect = element.getBoundingClientRect();
+  return (
+    ["fixed", "absolute", "sticky"].includes(style.position) &&
+    style.display !== "none" &&
+    style.visibility !== "hidden" &&
+    style.pointerEvents !== "none" &&
+    rect.width >= window.innerWidth * 0.9 &&
+    rect.height >= window.innerHeight * 0.9
+  );
+}
+
+function isProbeActiveLayer(element) {
+  const className = String(element.className || "");
+  return (
+    element.getAttribute("aria-modal") === "true" ||
+    element.getAttribute("role") === "dialog" ||
+    className.includes("active") ||
+    /modal|mask|overlay|popover|drawer|backdrop|loading/i.test(className)
+  );
+}
+
+function getProbeStorageKeys(storage) {
+  const keys = [];
+  for (let index = 0; index < storage.length; index += 1) {
+    const key = storage.key(index);
+    if (key) keys.push(key);
+  }
+  return keys.sort();
+}
+
+function captureDisplayMaskProbe(reason = "manual") {
+  if (!isMaskProbeEnabled()) return null;
+  const bodyStyle = window.getComputedStyle(document.body);
+  const htmlStyle = window.getComputedStyle(document.documentElement);
+  const centerStack = document
+    .elementsFromPoint(window.innerWidth / 2, window.innerHeight / 2)
+    .map(summarizeProbeElement);
+  const allElements = Array.from(document.querySelectorAll("body *"));
+  const viewportBlockers = allElements
+    .filter(isProbeViewportBlocker)
+    .map(summarizeProbeElement)
+    .sort(
+      (a, b) =>
+        (Number.parseInt(b.zIndex, 10) || 0) -
+        (Number.parseInt(a.zIndex, 10) || 0),
+    );
+  const activeLayers = allElements.filter(isProbeActiveLayer).map(summarizeProbeElement);
+  const snapshot = {
+    ts: new Date().toISOString(),
+    reason,
+    url: window.location.href,
+    title: document.title,
+    hasFocus: document.hasFocus(),
+    fullscreen: Boolean(getDisplayFullscreenElement?.()),
+    activePageId: document.querySelector(".page.active")?.id || "",
+    activeElement: document.activeElement
+      ? document.activeElement.outerHTML.slice(0, 400)
+      : null,
+    lockStatus: runtimeState?.lockStatus,
+    lockOverlayForced: runtimeState?.lockOverlayForced,
+    body: {
+      className: document.body.className,
+      style: document.body.getAttribute("style") || "",
+      pointerEvents: bodyStyle.pointerEvents,
+      overflow: bodyStyle.overflow,
+    },
+    html: {
+      className: document.documentElement.className,
+      style: document.documentElement.getAttribute("style") || "",
+      pointerEvents: htmlStyle.pointerEvents,
+      overflow: htmlStyle.overflow,
+    },
+    centerStack,
+    viewportBlockers,
+    activeLayers,
+    storageKeys: {
+      localStorage: getProbeStorageKeys(window.localStorage),
+      sessionStorage: getProbeStorageKeys(window.sessionStorage),
+    },
+  };
+
+  const logs = (window.__yypMaskProbeLogs ||= []);
+  logs.push(snapshot);
+  if (logs.length > 40) logs.splice(0, logs.length - 40);
+
+  window.__yypMaskProbe = captureDisplayMaskProbe;
+  const level = viewportBlockers.length > 0 ? "warn" : "info";
+  console[level]("[yyp-mask-probe]", reason, snapshot);
+  return snapshot;
+}
+
+function scheduleDisplayMaskProbe(reason, delay = 1200) {
+  if (!isMaskProbeEnabled()) return;
+  window.__yypMaskProbe = captureDisplayMaskProbe;
+  window.setTimeout(() => captureDisplayMaskProbe(reason), delay);
+}
+
 /* 未领养学生默认无宠；学生默认不自动分组 */
 students.forEach((s) => {
   if (s.hasPet == null) s.hasPet = true;
@@ -870,8 +1031,8 @@ function openBatchPointModal() {
 }
 
 async function openAdoptModal(studentName) {
-  if (!isHomeroomTeacher()) {
-    showDisplayToast("萌宠领养仅允许班主任执行");
+  if (!canAdoptPet()) {
+    showDisplayToast("萌宠领养仅允许班主任或管理员执行");
     return;
   }
   adoptTargetName = studentName;
@@ -1232,7 +1393,8 @@ function renderStudentGrid(options = {}) {
     String(n || "")
       .replace(/&/g, "&amp;")
       .replace(/"/g, "&quot;");
-  grid.innerHTML = indices
+  
+  const innerHtmlStr = indices
     .map((realIdx, visPos) => {
       const s = students[realIdx];
       const rankClass =
@@ -1272,36 +1434,65 @@ function renderStudentGrid(options = {}) {
       </div>`;
     })
     .join("");
+
+  if (window.morphdom) {
+    const wrapper = document.createElement("div");
+    wrapper.className = "student-grid";
+    wrapper.id = "studentGrid";
+    wrapper.innerHTML = innerHtmlStr;
+    morphdom(grid, wrapper, {
+      onBeforeElUpdated: function(fromEl, toEl) {
+        if (fromEl.isEqualNode && fromEl.isEqualNode(toEl)) {
+          return false;
+        }
+        return true;
+      }
+    });
+  } else {
+    grid.innerHTML = innerHtmlStr;
+  }
   initPetPkInteractions();
 }
 
+let pkInteractionsInitialized = false;
 function initPetPkInteractions() {
-  document.querySelectorAll(".card-pet-trigger").forEach((trigger) => {
-    if (trigger.dataset.pkBound === "1") return;
-    trigger.dataset.pkBound = "1";
+  if (pkInteractionsInitialized) return;
+  const grid = document.getElementById("studentGrid");
+  if (!grid) return;
+  pkInteractionsInitialized = true;
 
-    trigger.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      if (trigger.dataset.pkSuppressClick === "1") {
-        trigger.dataset.pkSuppressClick = "0";
-        return;
-      }
-      const studentName = trigger.dataset.studentName || "";
-      if (studentName) {
-        openPetProfileByName(studentName);
-      }
-    });
+  grid.addEventListener("click", (event) => {
+    if (batchMode) return;
+    const trigger = event.target.closest(".card-pet-trigger");
+    if (!trigger) return;
+    if (trigger.classList.contains("card-pet-trigger--seed")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (trigger.dataset.pkSuppressClick === "1") {
+      trigger.dataset.pkSuppressClick = "0";
+      return;
+    }
+    const studentName = trigger.dataset.studentName || "";
+    if (studentName) {
+      openPetProfileByName(studentName);
+    }
+  });
 
-    trigger.addEventListener("pointerdown", (event) => {
-      if (event.button !== undefined && event.button !== 0) return;
+  grid.addEventListener("pointerdown", (event) => {
+    if (batchMode) return;
+    const trigger = event.target.closest(".card-pet-trigger");
+    if (!trigger) return;
+    if (trigger.classList.contains("card-pet-trigger--seed")) return;
+    if (event.button !== undefined && event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    startPetPkDrag(trigger, event);
+  });
+
+  grid.addEventListener("dragstart", (event) => {
+    if (event.target.closest(".card-pet-trigger")) {
       event.preventDefault();
-      event.stopPropagation();
-      startPetPkDrag(trigger, event);
-    });
-    trigger.addEventListener("dragstart", (event) => {
-      event.preventDefault();
-    });
+    }
   });
 }
 
@@ -1458,33 +1649,46 @@ function getStudentByCard(card) {
   return students.find((item) => item.name === studentName) || null;
 }
 
-function updatePetPkHoverTarget(sourceCard, clientX, clientY) {
-  const visibleCards = Array.from(document.querySelectorAll(".page.active .student-card"));
-  const geometryTarget =
-    visibleCards.find((card) => {
-      if (card === sourceCard || !card.querySelector(".card-pet-trigger")) return false;
-      const rect = card.getBoundingClientRect();
+function updatePetPkHoverTarget(sourceCard, clientX, clientY, cachedRects) {
+  let validTarget = null;
+  if (cachedRects) {
+    const hit = cachedRects.find(item => {
       return (
-        clientX >= rect.left &&
-        clientX <= rect.right &&
-        clientY >= rect.top &&
-        clientY <= rect.bottom
+        clientX >= item.rect.left &&
+        clientX <= item.rect.right &&
+        clientY >= item.rect.top &&
+        clientY <= item.rect.bottom
       );
-    }) || null;
-  const stack = geometryTarget ? [] : document.elementsFromPoint(clientX, clientY);
-  const targetCard =
-    geometryTarget ||
-    stack.find((node) => {
-      if (!(node instanceof Element)) return false;
-      const card = node.closest?.(".student-card");
-      return card && card !== sourceCard;
-    })?.closest?.(".student-card") || null;
-  const validTarget =
-    targetCard &&
-    targetCard !== sourceCard &&
-    targetCard.querySelector(".card-pet-trigger")
-      ? targetCard
-      : null;
+    });
+    if (hit) validTarget = hit.card;
+  } else {
+    const visibleCards = Array.from(document.querySelectorAll(".page.active .student-card"));
+    const geometryTarget =
+      visibleCards.find((card) => {
+        if (card === sourceCard || !card.querySelector(".card-pet-trigger")) return false;
+        const rect = card.getBoundingClientRect();
+        return (
+          clientX >= rect.left &&
+          clientX <= rect.right &&
+          clientY >= rect.top &&
+          clientY <= rect.bottom
+        );
+      }) || null;
+    const stack = geometryTarget ? [] : document.elementsFromPoint(clientX, clientY);
+    const targetCard =
+      geometryTarget ||
+      stack.find((node) => {
+        if (!(node instanceof Element)) return false;
+        const card = node.closest?.(".student-card");
+        return card && card !== sourceCard;
+      })?.closest?.(".student-card") || null;
+    validTarget =
+      targetCard &&
+      targetCard !== sourceCard &&
+      targetCard.querySelector(".card-pet-trigger")
+        ? targetCard
+        : null;
+  }
 
   if (petPkState.hoverTargetCard === validTarget) {
     return validTarget;
@@ -1709,6 +1913,14 @@ function startPetPkDrag(trigger, event) {
 
   petPkState.sourceCard = sourceCard;
   petPkState.sourceTrigger = trigger;
+  
+  const visibleCards = Array.from(document.querySelectorAll(".page.active .student-card"));
+  const cachedRects = visibleCards
+    .filter(card => card !== sourceCard && card.querySelector(".card-pet-trigger"))
+    .map(card => ({
+      card,
+      rect: card.getBoundingClientRect()
+    }));
 
   const onMove = (moveEvent) => {
     const clientX = moveEvent.clientX;
@@ -1728,7 +1940,7 @@ function startPetPkDrag(trigger, event) {
     sourceCard.classList.add("pk-source-active");
     trigger.classList.add("pk-drag-origin");
 
-    const targetCard = updatePetPkHoverTarget(sourceCard, clientX, clientY);
+    const targetCard = updatePetPkHoverTarget(sourceCard, clientX, clientY, cachedRects);
     updatePetPkDragAtmosphere(clientX, clientY, Boolean(targetCard));
     ensurePetPkProxy(trigger, clientX, clientY, Boolean(targetCard));
   };
@@ -2062,6 +2274,15 @@ function navigateTo(key) {
     }
     if (key === "academic") {
       renderAcademicGrowth();
+      /* 未来感增强：过场动画 → 粒子星网全屏展示 → 淡出 → 面板入场 */
+      if (!isStandardDisplay()) {
+        startAcademicSplash(target);
+      }
+    }
+    /* 离开 academic 页时清理粒子动画 */
+    if (key !== "academic") {
+      cleanupAcademicParticles();
+      cleanupAcademicSplash();
     }
   }
 
@@ -2078,6 +2299,8 @@ function navigateTo(key) {
   if (typeof applyLockOverlay === "function") {
     applyLockOverlay();
   }
+  flushStalePageUpdates(key);
+  scheduleDisplayMaskProbe(`display-navigate:${key}`, 1500);
 }
 
 function syncBottomUserName() {
@@ -2199,6 +2422,14 @@ function startTransitionAnimation() {
     progress.classList.add("animating");
   });
 
+  /* 粒子星网：0.3s 立即启动（背景暗色时最清晰） */
+  transTimers.push(
+    setTimeout(() => {
+      initTransParticles(canvas);
+      canvas.classList.add("visible");
+    }, 300),
+  );
+
   /* 阶段1：0.8s → 进入校园 */
   transTimers.push(
     setTimeout(() => {
@@ -2229,11 +2460,9 @@ function startTransitionAnimation() {
     }, 4800),
   );
 
-  /* 阶段3：5.2s → 粒子 + 班级信息 */
+  /* 阶段3：5.2s → 班级信息 */
   transTimers.push(
     setTimeout(() => {
-      initTransParticles(canvas);
-      canvas.classList.add("visible");
       cls.classList.add("show");
     }, 5200),
   );
@@ -2271,35 +2500,74 @@ function initTransParticles(canvas) {
   const ctx = canvas.getContext("2d");
   let w = (canvas.width = window.innerWidth);
   let h = (canvas.height = window.innerHeight);
+
+  const budget = getDisplayEffectBudget();
+  const COUNT = budget.transitionParticles;
+  const CONNECTION_DIST = isStandardDisplay() ? 100 : 130;
+
   const pts = [];
-  for (let i = 0; i < getDisplayEffectBudget().transitionParticles; i++) {
+  for (let i = 0; i < COUNT; i++) {
     pts.push({
       x: Math.random() * w,
-      y: h + Math.random() * 100,
-      r: Math.random() * 2.5 + 0.5,
-      speed: Math.random() * 1.2 + 0.4,
-      drift: (Math.random() - 0.5) * 0.6,
-      alpha: Math.random() * 0.6 + 0.2,
+      y: Math.random() * h,
+      /* 基础漂移 + 向上升力 */
+      vx: (Math.random() - 0.5) * 0.5,
+      vy: -(Math.random() * 0.6 + 0.15),
+      r: Math.random() * 2 + 0.8,
+      alpha: Math.random() * 0.5 + 0.3,
+      hue: Math.random() > 0.7 ? 45 : Math.random() > 0.5 ? 175 : 38,
       phase: Math.random() * Math.PI * 2,
-      hue: Math.random() > 0.7 ? 45 : 38,
     });
   }
+
   function draw() {
     ctx.clearRect(0, 0, w, h);
     const t = Date.now() * 0.001;
-    pts.forEach((p) => {
-      p.y -= p.speed;
-      p.x += p.drift + Math.sin(t + p.phase) * 0.3;
+
+    /* 更新粒子位置 */
+    for (const p of pts) {
+      p.x += p.vx + Math.sin(t + p.phase) * 0.25;
+      p.y += p.vy;
       if (p.y < -20) {
         p.y = h + 20;
         p.x = Math.random() * w;
       }
+      if (p.x < -20) p.x = w + 20;
+      if (p.x > w + 20) p.x = -20;
+    }
+
+    /* 绘制连线网络 */
+    for (let i = 0; i < pts.length; i++) {
+      for (let j = i + 1; j < pts.length; j++) {
+        const dx = pts[i].x - pts[j].x;
+        const dy = pts[i].y - pts[j].y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < CONNECTION_DIST) {
+          const lineAlpha = (1 - dist / CONNECTION_DIST) * 0.18;
+          ctx.beginPath();
+          ctx.moveTo(pts[i].x, pts[i].y);
+          ctx.lineTo(pts[j].x, pts[j].y);
+          ctx.strokeStyle = `rgba(240, 200, 80, ${lineAlpha})`;
+          ctx.lineWidth = 0.5;
+          ctx.stroke();
+        }
+      }
+    }
+
+    /* 绘制粒子 + 光晕 */
+    for (const p of pts) {
       const a = p.alpha * (0.5 + 0.5 * Math.sin(t * 2.5 + p.phase));
+      /* 外层光晕 */
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r * 3.5, 0, Math.PI * 2);
+      ctx.fillStyle = `hsla(${p.hue}, 85%, 60%, ${a * 0.1})`;
+      ctx.fill();
+      /* 核心粒子 */
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
       ctx.fillStyle = `hsla(${p.hue}, 85%, 60%, ${a})`;
       ctx.fill();
-    });
+    }
     transParticlesRAF = requestAnimationFrame(draw);
   }
   draw();
@@ -2506,32 +2774,12 @@ function makeInteractive(card) {
     });
   };
 
-  card.addEventListener("mousemove", (e) => {
-    if (isDragging || isStandardDisplay()) return;
-    bounds = card.getBoundingClientRect();
-    const px = e.clientX - bounds.left;
-    const py = e.clientY - bounds.top;
-    const cw = bounds.width;
-    const ch = bounds.height;
-
-    const normX = (px / cw) * 2 - 1;
-    const normY = (py / ch) * 2 - 1;
-
-    const rotX = -normY * 12; // 显示端可以给更强的3D感
-    const rotY = normX * 12;
-
-    card.style.transform = `perspective(1000px) rotateX(${rotX}deg) rotateY(${rotY}deg) scale3d(1.03, 1.03, 1.03)`;
-  });
-
-  card.addEventListener("mouseleave", () => {
-    if (isDragging || isStandardDisplay()) return;
-    card.style.transform = `perspective(1000px) rotateX(0) rotateY(0) scale3d(1, 1, 1)`;
-  });
+  // 考虑到大屏端为触控设备，为保障性能与防止粘滞，移除了原有的卡片 3D Tilt 跟手效果
 
   const onStart = (e) => {
     if (
       e.target.closest("a") ||
-      e.target.closest("button") ||
+      (!batchMode && e.target.closest("button")) ||
       e.target.closest("input") ||
       e.target.closest(".card-nameplate--empty")
     )
@@ -2542,7 +2790,9 @@ function makeInteractive(card) {
       ? getStudentByCard(card)
       : null;
     card.classList.remove("snapping");
-    card.classList.add("dragging");
+    if (!batchMode) {
+      card.classList.add("dragging");
+    }
 
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
@@ -2558,6 +2808,7 @@ function makeInteractive(card) {
 
   const onMove = (e) => {
     if (!isDragging) return;
+    if (batchMode) return;
     e.preventDefault();
     hasMoved = true;
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
@@ -2691,6 +2942,45 @@ function closeConfirmModal(confirmed = false) {
   }
 }
 
+function bindConfirmModalButton(button, action) {
+  if (!button) return;
+  button.__displayConfirmAction = action;
+  if (button.__displayConfirmBound) return;
+  button.__displayConfirmBound = true;
+  button.__displayLastDirectPressAt = 0;
+
+  const activate = (event, source) => {
+    if (button.disabled) return;
+    const now = Date.now();
+    if (source === "click" && now - button.__displayLastDirectPressAt < 500) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    if (source !== "click") {
+      button.__displayLastDirectPressAt = now;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    button.__displayConfirmAction?.(event);
+  };
+
+  button.addEventListener("click", (event) => activate(event, "click"));
+  button.addEventListener("pointerup", (event) => {
+    if (event.pointerType === "mouse") return;
+    if (event.button !== undefined && event.button !== 0) return;
+    activate(event, "pointerup");
+  });
+  button.addEventListener(
+    "touchend",
+    (event) => {
+      if (window.PointerEvent) return;
+      activate(event, "touchend");
+    },
+    { passive: false },
+  );
+}
+
 function showConfirmModal(options = {}) {
   const overlay = document.getElementById("confirmModal");
   const badge = document.getElementById("confirmModalBadge");
@@ -2728,8 +3018,8 @@ function showConfirmModal(options = {}) {
   cancelBtn.textContent = options.cancelText || "取消";
   confirmBtn.textContent = options.confirmText || "确认";
 
-  cancelBtn.onclick = () => closeConfirmModal(false);
-  confirmBtn.onclick = () => closeConfirmModal(true);
+  bindConfirmModalButton(cancelBtn, () => closeConfirmModal(false));
+  bindConfirmModalButton(confirmBtn, () => closeConfirmModal(true));
   overlay.onclick = (event) => {
     if (event.target === overlay) {
       closeConfirmModal(false);
@@ -3098,13 +3388,22 @@ async function updatePoint(btnEl, diff, reason) {
   document.body.appendChild(floatSpan);
   setTimeout(() => floatSpan.remove(), 1500);
 
-  reorderStudents();
   setTimeout(() => {
     closePointModal();
   }, 300);
-  renderStudentGrid();
-  renderTodayRank();
-  renderLeaderboardList();
+  scheduleDebouncedRenders();
+}
+
+let renderDebounceTimer = null;
+function scheduleDebouncedRenders() {
+  if (renderDebounceTimer) return;
+  renderDebounceTimer = setTimeout(() => {
+    renderDebounceTimer = null;
+    reorderStudents();
+    renderStudentGrid();
+    renderTodayRank();
+    renderLeaderboardList();
+  }, 16);
 }
 
 /* ========== 原型接入真实数据：Display Web ========== */
@@ -3158,6 +3457,11 @@ const runtimeState = {
   studentGridRenderKey: "",
   pendingPetUpgradeAnimations: [],
   petUpgradePlaying: false,
+  stalePages: new Set(),
+  pendingScoreEffects: null,
+  immediateScoreBatch: null,
+  scoreRealtimeFlushTimer: null,
+  metaPollTimer: null,
 };
 
 const displayRulePanelState = {
@@ -3239,6 +3543,8 @@ function getDisplayEffectBudget() {
         upgradeEnergyLines: 10,
         transitionParticles: 38,
         realtimeRefreshDelay: 1000,
+        academicParticles: 35,
+        academicConnectionDist: 110,
       }
     : {
         upgradeBurstParticles: 90,
@@ -3247,6 +3553,8 @@ function getDisplayEffectBudget() {
         upgradeEnergyLines: 16,
         transitionParticles: 70,
         realtimeRefreshDelay: 800,
+        academicParticles: 55,
+        academicConnectionDist: 140,
       };
 }
 
@@ -3855,6 +4163,10 @@ function isHomeroomTeacher() {
   return runtimeState.user?.roleCode === "homeroom_teacher";
 }
 
+function canAdoptPet() {
+  return isHomeroomTeacher() || isDisplayAdminRole();
+}
+
 function getGroupOptions() {
   return runtimeState.groups
     .map((group) => ({
@@ -3873,6 +4185,443 @@ function getGroupLabel(groupNo) {
   return group?.name || `第${targetNo}组`;
 }
 
+function getActiveDisplayPage() {
+  return document.querySelector(".page.active")?.id || "";
+}
+
+function isClassroomPageActive() {
+  return getActiveDisplayPage() === "page-classroom";
+}
+
+function markPageStale(pageKey) {
+  if (!runtimeState.stalePages) {
+    runtimeState.stalePages = new Set();
+  }
+  runtimeState.stalePages.add(pageKey);
+}
+
+function createEmptyScoreEffectsBucket() {
+  return {
+    byStudent: new Map(),
+    upgrades: new Map(),
+    classScoreDelta: 0,
+    eventCount: 0,
+  };
+}
+
+function ensurePendingScoreEffects() {
+  if (!runtimeState.pendingScoreEffects) {
+    runtimeState.pendingScoreEffects = createEmptyScoreEffectsBucket();
+  }
+  return runtimeState.pendingScoreEffects;
+}
+
+function ensureImmediateScoreBatch() {
+  if (!runtimeState.immediateScoreBatch) {
+    runtimeState.immediateScoreBatch = createEmptyScoreEffectsBucket();
+  }
+  return runtimeState.immediateScoreBatch;
+}
+
+function accumulateScoreEffects(bucket, payload) {
+  if (!bucket || !payload) return;
+  const changes = Array.isArray(payload.changes) ? payload.changes : [];
+  changes.forEach((change) => {
+    const studentId = Number(change?.studentId);
+    if (!Number.isFinite(studentId) || studentId <= 0) return;
+    const prev =
+      bucket.byStudent.get(studentId) || {
+        studentId,
+        netDelta: 0,
+        currentScore: null,
+        currentPetLevel: null,
+      };
+    const scoreDelta = Number(change.scoreDelta || 0);
+    prev.netDelta += Number.isFinite(scoreDelta) ? scoreDelta : 0;
+    if (change.currentScore != null) {
+      prev.currentScore = Number(change.currentScore);
+    }
+    if (change.currentPetLevel != null) {
+      prev.currentPetLevel = Number(change.currentPetLevel);
+    }
+    bucket.byStudent.set(studentId, prev);
+  });
+
+  (Array.isArray(payload.upgrades) ? payload.upgrades : []).forEach((item) => {
+    const studentId = Number(item?.studentId);
+    const afterLevel = Number(item?.afterLevel || 0);
+    if (!Number.isFinite(studentId) || studentId <= 0) return;
+    bucket.upgrades.set(studentId, {
+      studentId,
+      afterLevel: Number.isFinite(afterLevel) && afterLevel > 0 ? afterLevel : null,
+    });
+  });
+
+  if (typeof payload.classScoreDelta === "number") {
+    bucket.classScoreDelta += payload.classScoreDelta;
+  }
+  bucket.eventCount += 1;
+}
+
+function scoreEffectsToRows(bucket) {
+  if (!bucket) return [];
+  return Array.from(bucket.byStudent.values()).filter(
+    (row) => row.netDelta !== 0 || row.currentScore != null,
+  );
+}
+
+function patchHomeFromConfigPayload(payload) {
+  if (!payload) return;
+  if (!runtimeState.home) runtimeState.home = {};
+  if (payload.slogan !== undefined) runtimeState.home.slogan = payload.slogan;
+  if (payload.targetScore !== undefined) {
+    runtimeState.home.targetScore = payload.targetScore;
+  }
+  if (payload.countdown !== undefined) {
+    runtimeState.home.countdown = payload.countdown;
+  }
+  if (payload.scoreSummary) {
+    runtimeState.home.scoreSummary = {
+      ...(runtimeState.home.scoreSummary || {}),
+      ...payload.scoreSummary,
+    };
+  }
+}
+
+function patchStudentsFromScorePayload(payload) {
+  const changes = Array.isArray(payload?.changes) ? payload.changes : [];
+  changes.forEach((change) => {
+    const student = students.find(
+      (item) => Number(item.id) === Number(change.studentId),
+    );
+    if (!student) return;
+    if (change.currentScore != null) {
+      student.pts = Number(change.currentScore);
+    }
+    if (change.currentPetLevel != null) {
+      student.lv = Number(change.currentPetLevel);
+    }
+  });
+
+  if (runtimeState.home?.scoreSummary) {
+    if (payload?.classCurrentScore != null) {
+      runtimeState.home.scoreSummary.classScore = Number(payload.classCurrentScore);
+    }
+    if (changes.length > 0) {
+      runtimeState.home.scoreSummary.currentScoreTotal = students.reduce(
+        (sum, item) => sum + Number(item.pts || 0),
+        0,
+      );
+    }
+  }
+}
+
+function playSingleStudentScoreAnim(row) {
+  const studentId = Number(row?.studentId);
+  const netDelta = Number(row?.netDelta || 0);
+  if (!Number.isFinite(studentId) || studentId <= 0 || netDelta === 0) return;
+
+  const student = students.find((item) => Number(item.id) === studentId);
+  if (!student) return;
+  if (row.currentScore != null) student.pts = Number(row.currentScore);
+  if (row.currentPetLevel != null) student.lv = Number(row.currentPetLevel);
+
+  const card = document.querySelector(`[data-student-id="${studentId}"]`);
+  if (card) {
+    const pointsEl = card.querySelector(".card-points");
+    if (pointsEl) {
+      pointsEl.textContent = `${student.pts}分`;
+    }
+    const petImgEl = card.querySelector(".card-pet-img");
+    if (petImgEl) {
+      petImgEl.classList.remove("card-hit-flash");
+      void petImgEl.offsetWidth;
+      petImgEl.classList.add("card-hit-flash");
+    }
+    const cardBounds = card.getBoundingClientRect();
+    const floatSpan = document.createElement("span");
+    floatSpan.className = "point-float-anim";
+    floatSpan.textContent = netDelta > 0 ? `+${netDelta}` : `${netDelta}`;
+    floatSpan.style.color =
+      netDelta > 0 ? "var(--success-green)" : "var(--brand-red)";
+    floatSpan.style.left = `${cardBounds.left + cardBounds.width / 2 - 15}px`;
+    floatSpan.style.top = `${cardBounds.top + cardBounds.height / 2 - 20}px`;
+    document.body.appendChild(floatSpan);
+    setTimeout(() => floatSpan.remove(), 1500);
+  }
+}
+
+function playRemoteScoreAnimations(rows, options = {}) {
+  const mode = options.mode || "immediate";
+  const staggerMs = options.staggerMs ?? 120;
+  const list = Array.isArray(rows) ? rows.filter((row) => row.netDelta !== 0) : [];
+  if (list.length === 0) return;
+
+  const cap = isStandardDisplay() ? 3 : 8;
+  const toAnimate =
+    mode === "deferred" && list.length > cap
+      ? [...list]
+          .sort((a, b) => Math.abs(b.netDelta) - Math.abs(a.netDelta))
+          .slice(0, cap)
+      : list;
+
+  const animatedIds = new Set(toAnimate.map((row) => Number(row.studentId)));
+  list.forEach((row) => {
+    const studentId = Number(row.studentId);
+    const student = students.find((item) => Number(item.id) === studentId);
+    if (!student) return;
+    if (row.currentScore != null) student.pts = Number(row.currentScore);
+    if (row.currentPetLevel != null) student.lv = Number(row.currentPetLevel);
+    if (animatedIds.has(studentId)) return;
+    const card = document.querySelector(`[data-student-id="${studentId}"]`);
+    const pointsEl = card?.querySelector(".card-points");
+    if (pointsEl) pointsEl.textContent = `${student.pts}分`;
+  });
+
+  toAnimate.forEach((row, index) => {
+    setTimeout(() => playSingleStudentScoreAnim(row), index * staggerMs);
+  });
+
+  syncClassroomMeta();
+  reorderStudents();
+  renderStudentGrid({ force: true });
+  renderTodayRank();
+}
+
+function queueScoreUpgradesFromBucket(bucket) {
+  if (!bucket) return;
+  const upgrades = Array.from(bucket.upgrades.values()).map((item) => ({
+    studentId: item.studentId,
+    afterLevel: item.afterLevel,
+  }));
+  queuePetUpgradeAnimations(upgrades);
+}
+
+async function refreshClassMeta() {
+  if (!runtimeState.classId) return;
+  const home = await apiFetch(`/display/classes/${runtimeState.classId}/home`);
+  runtimeState.home = home;
+  syncClassroomMeta();
+  renderClassCountdown();
+}
+
+function syncStudentCollectionFromRoster(rosterData) {
+  const rosterGroups = Array.isArray(rosterData?.groups) ? rosterData.groups : [];
+  const rosterStudents = Array.isArray(rosterData?.students) ? rosterData.students : [];
+  runtimeState.groups = rosterGroups.map((group) => ({
+    id: group.id,
+    groupNo: group.groupNo,
+    name: group.name,
+    students: rosterStudents
+      .filter((student) => Number(student.groupNo) === Number(group.groupNo))
+      .map((student) => ({
+        id: student.id,
+        name: student.name,
+        currentScore: student.currentScore,
+      })),
+  }));
+
+  const groupMap = new Map();
+  rosterStudents.forEach((row) => {
+    if (row.groupNo == null) return;
+    groupMap.set(row.id, {
+      id: null,
+      groupNo: row.groupNo,
+      name: row.groupName,
+    });
+  });
+  runtimeState.groupMap = groupMap;
+
+  const mapped = rosterStudents.map((row) => ({
+    id: row.id,
+    name: row.name,
+    petId: row.pet?.id ? String(row.pet.id).padStart(3, "0") : null,
+    petName: row.pet?.name || null,
+    ext:
+      row.pet?.currentImageUrl?.split(".").pop() ||
+      row.pet?.coverUrl?.split(".").pop() ||
+      "jpg",
+    lv: row.currentPetLevel || row.pet?.currentLevel || 1,
+    pts: row.currentScore || 0,
+    totalScore: row.totalScore || 0,
+    medals: 0,
+    hasPet: Boolean(row.pet?.currentImageUrl || row.pet?.coverUrl),
+    petImageUrl: row.pet?.currentImageUrl || row.pet?.coverUrl || null,
+    petStageName: row.pet?.currentStageName || null,
+    petTotalScore: row.pet?.totalScore || 0,
+    avatarUrl: row.avatarUrl || null,
+    group: row.groupNo ?? null,
+    groupName: row.groupName || null,
+    history: [],
+  }));
+
+  students.splice(0, students.length, ...mapped);
+  reorderStudents();
+}
+
+async function refreshStudentRoster() {
+  if (!runtimeState.classId) return;
+  const roster = await apiFetch(`/display/classes/${runtimeState.classId}/roster`);
+  syncStudentCollectionFromRoster(roster);
+  updateGroupToolbar();
+}
+
+async function refreshLeaderboardOnly() {
+  if (!runtimeState.classId) return;
+  await fetchLeaderboard(runtimeState.leaderboardType || "score");
+}
+
+function flushClassroomScoreVisuals(batch, options = {}) {
+  const mode = options.mode || "immediate";
+  const rows = scoreEffectsToRows(batch);
+  playRemoteScoreAnimations(rows, { mode });
+  queueScoreUpgradesFromBucket(batch);
+  const delay =
+    rows.length > 0
+      ? Math.min(rows.length, isStandardDisplay() ? 3 : 8) * 120 + 300
+      : 0;
+  setTimeout(() => {
+    playPendingPetUpgradeAnimations();
+  }, delay);
+}
+
+function flushClassroomStaleUpdates(options = {}) {
+  const animationMode = options.animationMode || "none";
+  syncClassroomMeta();
+  renderClassCountdown();
+
+  if (animationMode === "deferred" && runtimeState.pendingScoreEffects?.eventCount) {
+    flushClassroomScoreVisuals(runtimeState.pendingScoreEffects, {
+      mode: "deferred",
+    });
+    runtimeState.pendingScoreEffects = createEmptyScoreEffectsBucket();
+  } else {
+    renderStudentGrid({ force: true });
+    renderTodayRank();
+    playPendingPetUpgradeAnimations();
+  }
+
+  runtimeState.stalePages?.delete("classroom");
+}
+
+function flushStalePageUpdates(pageKey) {
+  if (pageKey === "classroom" && runtimeState.stalePages?.has("classroom")) {
+    flushClassroomStaleUpdates({
+      animationMode:
+        runtimeState.pendingScoreEffects?.eventCount > 0 ? "deferred" : "none",
+    });
+    return;
+  }
+  if (pageKey === "leaderboard" && runtimeState.stalePages?.has("leaderboard")) {
+    refreshLeaderboardOnly().finally(() => {
+      runtimeState.stalePages.delete("leaderboard");
+    });
+    return;
+  }
+  if (pageKey === "exchange" && runtimeState.stalePages?.has("exchange")) {
+    if (typeof currentExchangeItem !== "undefined" && currentExchangeItem) {
+      initiateExchange(currentExchangeItem, currentExchangeCost);
+    }
+    runtimeState.stalePages.delete("exchange");
+  }
+}
+
+function handleClassLeaderboardChanged() {
+  markPageStale("leaderboard");
+  if (getActiveDisplayPage() === "page-leaderboard") {
+    refreshLeaderboardOnly().finally(() => {
+      runtimeState.stalePages?.delete("leaderboard");
+    });
+  }
+}
+
+function handleClassConfigChanged(payload) {
+  patchHomeFromConfigPayload(payload);
+  markPageStale("classroom");
+  if (isClassroomPageActive()) {
+    syncClassroomMeta();
+    renderClassCountdown();
+    runtimeState.stalePages.delete("classroom");
+  }
+}
+
+function handleClassScoreChanged(payload) {
+  patchStudentsFromScorePayload(payload);
+
+  markPageStale("classroom");
+  markPageStale("leaderboard");
+  markPageStale("exchange");
+
+  if (isClassroomPageActive()) {
+    accumulateScoreEffects(ensureImmediateScoreBatch(), payload);
+    scheduleScoreRealtimeFlush();
+    return;
+  }
+
+  accumulateScoreEffects(ensurePendingScoreEffects(), payload);
+}
+
+async function handleClassStudentOrGroupChanged() {
+  markPageStale("classroom");
+  markPageStale("leaderboard");
+  markPageStale("exchange");
+  if (isClassroomPageActive()) {
+    await refreshStudentRoster();
+    renderStudentGrid({ force: true });
+    runtimeState.stalePages.delete("classroom");
+  }
+}
+
+function handleRewardOrderCreated(payload) {
+  if (payload?.scoreSummary) {
+    patchHomeFromConfigPayload({ scoreSummary: payload.scoreSummary });
+  }
+  markPageStale("classroom");
+  markPageStale("exchange");
+  if (isClassroomPageActive()) {
+    refreshStudentRoster()
+      .then(() => {
+        syncClassroomMeta();
+        renderStudentGrid({ force: true });
+        renderTodayRank();
+      })
+      .catch(() => {});
+    runtimeState.stalePages.delete("classroom");
+  }
+}
+
+function scheduleScoreRealtimeFlush() {
+  if (!runtimeState.classId || !isClassroomPageActive()) return;
+  if (runtimeState.scoreRealtimeFlushTimer) {
+    clearTimeout(runtimeState.scoreRealtimeFlushTimer);
+  }
+  runtimeState.scoreRealtimeFlushTimer = setTimeout(() => {
+    runtimeState.scoreRealtimeFlushTimer = null;
+    const batch = runtimeState.immediateScoreBatch;
+    runtimeState.immediateScoreBatch = null;
+    if (!batch || batch.eventCount === 0) return;
+    flushClassroomScoreVisuals(batch, { mode: "immediate" });
+    runtimeState.stalePages?.delete("classroom");
+    refreshLeaderboardOnly().catch(() => {});
+  }, getDisplayEffectBudget().realtimeRefreshDelay);
+}
+
+function startClassMetaPoll() {
+  stopClassMetaPoll();
+  if (!isClassroomPageActive()) return;
+  runtimeState.metaPollTimer = window.setInterval(() => {
+    if (runtimeState.socket?.connected || !isClassroomPageActive()) return;
+    refreshClassMeta().catch(() => {});
+  }, 60000);
+}
+
+function stopClassMetaPoll() {
+  if (runtimeState.metaPollTimer) {
+    clearInterval(runtimeState.metaPollTimer);
+    runtimeState.metaPollTimer = null;
+  }
+}
+
 function connectRealtime() {
   if (runtimeState.socket || typeof window.io !== "function") return;
   const socket = window.io(`${getSocketBase()}/ws`, {
@@ -3886,21 +4635,56 @@ function connectRealtime() {
 
   socket.on("connect", () => {
     subscribeRealtimeRooms();
+    stopClassMetaPoll();
+    if (runtimeState.stalePages?.size) {
+      const active = getActiveDisplayPage();
+      if (active === "page-classroom") {
+        flushClassroomStaleUpdates({
+          animationMode:
+            runtimeState.pendingScoreEffects?.eventCount > 0 ? "deferred" : "none",
+        });
+      }
+    }
   });
   socket.on("connect_error", (error) => {
     console.warn("[display-realtime] connect_error:", error?.message || error);
   });
   socket.on("disconnect", (reason) => {
     console.warn("[display-realtime] disconnected:", reason);
+    startClassMetaPoll();
   });
 
-  [
-    "class.score.changed",
-    "class.leaderboard.changed",
-    "reward.order.created",
-    "class.student.changed",
-    "class.group.changed",
-  ].forEach((eventName) => {
+  socket.on("class.config.changed", (payload) => {
+    if (
+      payload?.classId &&
+      Number(payload.classId) !== Number(runtimeState.classId)
+    ) {
+      return;
+    }
+    handleClassConfigChanged(payload);
+  });
+
+  socket.on("class.score.changed", (payload) => {
+    if (
+      payload?.classId &&
+      Number(payload.classId) !== Number(runtimeState.classId)
+    ) {
+      return;
+    }
+    handleClassScoreChanged(payload);
+  });
+
+  socket.on("class.leaderboard.changed", (payload) => {
+    if (
+      payload?.classId &&
+      Number(payload.classId) !== Number(runtimeState.classId)
+    ) {
+      return;
+    }
+    handleClassLeaderboardChanged();
+  });
+
+  ["class.student.changed", "class.group.changed"].forEach((eventName) => {
     socket.on(eventName, (payload) => {
       if (
         payload?.classId &&
@@ -3908,11 +4692,18 @@ function connectRealtime() {
       ) {
         return;
       }
-      if (eventName === "class.score.changed") {
-        queuePetUpgradeAnimations(payload?.upgrades);
-      }
-      scheduleRealtimeRefresh(eventName);
+      handleClassStudentOrGroupChanged().catch(() => {});
     });
+  });
+
+  socket.on("reward.order.created", (payload) => {
+    if (
+      payload?.classId &&
+      Number(payload.classId) !== Number(runtimeState.classId)
+    ) {
+      return;
+    }
+    handleRewardOrderCreated(payload);
   });
 
   socket.on("display.unlock.changed", (payload) => {
@@ -3977,27 +4768,15 @@ function subscribeRealtimeRooms() {
 
 function scheduleRealtimeRefresh(eventName = "unknown") {
   if (!runtimeState.classId) return;
-  runtimeState.pendingRealtimeEvents.add(eventName);
-  if (runtimeState.realtimeRefreshTimer) {
-    clearTimeout(runtimeState.realtimeRefreshTimer);
+  if (eventName === "class.config.changed") {
+    handleClassConfigChanged({});
+    return;
   }
-  runtimeState.realtimeRefreshTimer = setTimeout(() => {
-    runtimeState.realtimeRefreshTimer = null;
-    if (runtimeState.realtimeRefreshPromise) {
-      scheduleRealtimeRefresh("queued");
-      return;
-    }
-    runtimeState.pendingRealtimeEvents.clear();
-    runtimeState.realtimeRefreshPromise = bootstrapDisplayData({
-      authenticated: Boolean(runtimeState.token && runtimeState.user),
-      silent: true,
-      reason: "realtime",
-    })
-      .catch(() => {})
-      .finally(() => {
-        runtimeState.realtimeRefreshPromise = null;
-      });
-  }, getDisplayEffectBudget().realtimeRefreshDelay);
+  bootstrapDisplayData({
+    authenticated: Boolean(runtimeState.token && runtimeState.user),
+    silent: true,
+    reason: "realtime-fallback",
+  }).catch(() => {});
 }
 
 function goSetupStep(step) {
@@ -4560,6 +5339,7 @@ function applyLockOverlay() {
   }
 
   updateLockMeta(metaLines);
+  scheduleDisplayMaskProbe("display-lock-overlay", 800);
 }
 
 function ensureOperationUnlocked() {
@@ -4579,6 +5359,20 @@ function escapeHtml(value) {
 
 function petImg(s) {
   return petImgVariant(s, 400);
+}
+
+function leaderboardPetImg(row, localStudent) {
+  if (localStudent) return petImg(localStudent);
+  return petImg({
+    hasPet:
+      row.hasPet !== undefined
+        ? row.hasPet
+        : Boolean(row.petImageUrl || row.petName),
+    petImageUrl: row.petImageUrl || null,
+    avatarUrl: row.avatarUrl || null,
+    petName: row.petName,
+    name: row.name,
+  });
 }
 
 function getRankedStudentsByScore() {
@@ -4838,6 +5632,7 @@ function renderClassCountdown() {
   const deadlineAt = countdown?.deadlineAt ? new Date(countdown.deadlineAt) : null;
   if (!countdown?.title || !deadlineAt || Number.isNaN(deadlineAt.getTime())) {
     card.hidden = true;
+    card.classList.remove("is-ended");
     return;
   }
 
@@ -4846,19 +5641,22 @@ function renderClassCountdown() {
   if (title) title.textContent = countdown.title;
   if (deadline) deadline.textContent = `截止时间 ${formatClassCountdownDeadline(deadlineAt)}`;
   card.hidden = false;
+  card.classList.remove("is-ended");
+
+  const ended = document.getElementById("classCountdownEnded");
+  if (ended) ended.setAttribute("aria-hidden", "true");
 
   const tick = () => {
     const remaining = deadlineAt.getTime() - Date.now();
-    const grid = document.getElementById("classCountdownGrid");
-    const ended = document.getElementById("classCountdownEnded");
     if (remaining <= 0) {
-      if (grid) grid.hidden = true;
-      if (ended) ended.hidden = false;
+      card.classList.add("is-ended");
+      if (ended) ended.setAttribute("aria-hidden", "false");
+      clearClassCountdownTimer();
       return;
     }
 
-    if (grid) grid.hidden = false;
-    if (ended) ended.hidden = true;
+    card.classList.remove("is-ended");
+    if (ended) ended.setAttribute("aria-hidden", "true");
     const totalSeconds = Math.floor(remaining / 1000);
     const days = Math.floor(totalSeconds / 86400);
     const hours = Math.floor((totalSeconds % 86400) / 3600);
@@ -4886,9 +5684,7 @@ function renderLeaderboardTop3() {
     const row = runtimeState.leaderboardRows[podiumOrder[slotIndex]];
     if (!row) return;
     const localStudent = students.find((item) => item.id === row.id);
-    const displayImage =
-      row.avatarUrl ||
-      (localStudent ? petImg(localStudent) : "images/logo.svg");
+    const displayImage = leaderboardPetImg(row, localStudent);
     const image = slot.querySelector(".podium-avatar");
     const name = slot.querySelector(".podium-name");
     const petName = slot.querySelector(".podium-pet-name");
@@ -4926,9 +5722,7 @@ function renderLeaderboardList() {
     .slice(3, 10)
     .map((s) => {
       const localStudent = students.find((item) => item.id === s.id);
-      const displayImage =
-        s.avatarUrl ||
-        (localStudent ? petImg(localStudent) : "images/logo.svg");
+      const displayImage = leaderboardPetImg(s, localStudent);
       const value =
         runtimeState.leaderboardType === "score"
           ? s.currentScore || 0
@@ -4958,6 +5752,327 @@ function academicNumber(value, digits = 0) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return "--";
   return digits > 0 ? numeric.toFixed(digits) : String(Math.round(numeric));
+}
+
+/**
+ * 未来感增强：数字跳动动画
+ * 在非低性能设备上，关键数字从0/旧值跳动到目标值。
+ * 对于无法解析为纯数字的文本（如 "较上次 +3.2"），直接赋值。
+ */
+function animateAcademicNumber(el, targetValue, duration) {
+  if (!el) return;
+  /* 低性能设备直接赋值 */
+  if (isStandardDisplay()) {
+    el.textContent = targetValue;
+    return;
+  }
+  /* 如果文本不是纯数字（如 "较上次 +3.2" 或 "28人"），直接赋值 */
+  const stripped = String(targetValue).replace(/[,，]/g, "");
+  const numTarget = parseFloat(stripped);
+  if (!Number.isFinite(numTarget) || stripped !== String(numTarget)) {
+    el.textContent = targetValue;
+    return;
+  }
+  /* 如果已有取消句柄，先清除 */
+  if (el._academicCountRAF) {
+    cancelAnimationFrame(el._academicCountRAF);
+    el._academicCountRAF = null;
+  }
+  const start = performance.now();
+  const isInt = Number.isInteger(numTarget);
+  const dur = duration || 800;
+  function tick(now) {
+    const elapsed = now - start;
+    const progress = Math.min(elapsed / dur, 1);
+    const eased = 1 - Math.pow(1 - progress, 3);
+    const current = numTarget * eased;
+    el.textContent = isInt ? Math.round(current) : current.toFixed(1);
+    if (progress < 1) {
+      el._academicCountRAF = requestAnimationFrame(tick);
+    } else {
+      el._academicCountRAF = null;
+      el.textContent = targetValue;
+    }
+  }
+  el._academicCountRAF = requestAnimationFrame(tick);
+}
+
+/**
+ * 未来感增强：粒子星网 Canvas
+ * 在学业成长页背景绘制缓慢移动的粒子点阵 + 连线网络（类 particles.js），
+ * 模拟神经网络/星座图效果。仅在高性能设备上运行。
+ */
+let _academicParticlesRAF = null;
+function initAcademicParticles() {
+  cleanupAcademicParticles();
+  const canvas = document.getElementById("academicParticles");
+  if (!canvas || isStandardDisplay()) return;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+
+  let w, h;
+  function resize() {
+    const rect = canvas.parentElement?.getBoundingClientRect();
+    w = canvas.width = rect?.width || canvas.offsetWidth || 1920;
+    h = canvas.height = rect?.height || canvas.offsetHeight || 1080;
+  }
+  resize();
+
+  const budget = getDisplayEffectBudget();
+  const PARTICLE_COUNT = budget.academicParticles || 55;
+  const CONNECTION_DIST = budget.academicConnectionDist || 140;
+  const particles = [];
+
+  for (let i = 0; i < PARTICLE_COUNT; i++) {
+    particles.push({
+      x: Math.random() * w,
+      y: Math.random() * h,
+      vx: (Math.random() - 0.5) * 0.35,
+      vy: (Math.random() - 0.5) * 0.35,
+      r: Math.random() * 1.8 + 0.8,
+      /* 70%青色、20%金色、10%橙红 */
+      hue: Math.random() < 0.7 ? 175 : Math.random() < 0.85 ? 42 : 15,
+    });
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, w, h);
+
+    /* 更新粒子位置 */
+    for (const p of particles) {
+      p.x += p.vx;
+      p.y += p.vy;
+      if (p.x < 0 || p.x > w) p.vx *= -1;
+      if (p.y < 0 || p.y > h) p.vy *= -1;
+    }
+
+    /* 绘制连线 */
+    for (let i = 0; i < particles.length; i++) {
+      for (let j = i + 1; j < particles.length; j++) {
+        const dx = particles[i].x - particles[j].x;
+        const dy = particles[i].y - particles[j].y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < CONNECTION_DIST) {
+          const alpha = (1 - dist / CONNECTION_DIST) * 0.22;
+          ctx.beginPath();
+          ctx.moveTo(particles[i].x, particles[i].y);
+          ctx.lineTo(particles[j].x, particles[j].y);
+          ctx.strokeStyle = `rgba(44, 238, 226, ${alpha})`;
+          ctx.lineWidth = 0.6;
+          ctx.stroke();
+        }
+      }
+    }
+
+    /* 绘制粒子 */
+    for (const p of particles) {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fillStyle = `hsla(${p.hue}, 80%, 65%, 0.7)`;
+      ctx.fill();
+      /* 发光光晕 */
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r * 3, 0, Math.PI * 2);
+      ctx.fillStyle = `hsla(${p.hue}, 80%, 65%, 0.08)`;
+      ctx.fill();
+    }
+
+    _academicParticlesRAF = requestAnimationFrame(draw);
+  }
+
+  _academicParticlesRAF = requestAnimationFrame(draw);
+
+  /* 窗口 resize 时更新 canvas 尺寸 */
+  canvas._resizeHandler = () => resize();
+  window.addEventListener("resize", canvas._resizeHandler);
+}
+
+function cleanupAcademicParticles() {
+  if (_academicParticlesRAF) {
+    cancelAnimationFrame(_academicParticlesRAF);
+    _academicParticlesRAF = null;
+  }
+  const canvas = document.getElementById("academicParticles");
+  if (canvas?._resizeHandler) {
+    window.removeEventListener("resize", canvas._resizeHandler);
+    canvas._resizeHandler = null;
+  }
+}
+
+/**
+ * 未来感增强：黑客帝国数字雨 (Matrix Rain)
+ * 在过场动画中用数字/符号瀑布流覆盖全屏，2.5秒后淡出，
+ * 自然过渡到数据面板——像是数据正在"解码加载"。
+ * 复用 _academicParticlesRAF 和 cleanupAcademicParticles 进行生命周期管理。
+ */
+function initAcademicMatrixRain() {
+  cleanupAcademicParticles();
+  const canvas = document.getElementById("academicParticles");
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+
+  const rect = canvas.parentElement?.getBoundingClientRect();
+  const w = (canvas.width = rect?.width || 1920);
+  const h = (canvas.height = rect?.height || 1080);
+
+  /* 性能分级：低内存设备用更大字体（更少列数） */
+  const fontSize = isStandardDisplay() ? 20 : 15;
+  const columns = Math.floor(w / fontSize);
+
+  /* 字符池：数字 + 十六进制 + 数学符号 + 希腊字母 + 百分号 */
+  const chars = "0123456789ABCDEFabcdef+-=∑∫√∞%ΔσμπλΩ<>{}[]#";
+
+  /* 每列的下落位置和速度 */
+  const drops = [];
+  const speeds = [];
+  for (let i = 0; i < columns; i++) {
+    drops[i] = Math.random() * -40; /* 初始在屏幕上方随机高度 */
+    speeds[i] = 0.32 + Math.random() * 0.45;
+  }
+
+  function draw() {
+    /* 半透明深色遮罩 → 经典拖尾效果 */
+    ctx.fillStyle = "rgba(7, 21, 34, 0.065)";
+    ctx.fillRect(0, 0, w, h);
+
+    for (let i = 0; i < columns; i++) {
+      const x = i * fontSize;
+      const y = drops[i] * fontSize;
+
+      if (y > -fontSize && y < h + fontSize) {
+        const char = chars[Math.floor(Math.random() * chars.length)];
+
+        /* 8% 概率出现金色字符，增加视觉层次 */
+        const isGold = Math.random() > 0.92;
+        if (isGold) {
+          ctx.fillStyle = "rgba(240, 180, 41, 0.85)";
+          ctx.font = `bold ${fontSize}px "Courier New", monospace`;
+        } else {
+          /* 首字符（最前端）更亮 */
+          ctx.fillStyle = `rgba(44, 238, 226, ${0.78 + Math.random() * 0.22})`;
+          ctx.font = `${fontSize}px "Courier New", monospace`;
+        }
+        ctx.fillText(char, x, y);
+
+        /* 首字符发光效果 */
+        ctx.shadowColor = isGold
+          ? "rgba(240, 180, 41, 0.6)"
+          : "rgba(44, 238, 226, 0.5)";
+        ctx.shadowBlur = 8;
+        ctx.fillText(char, x, y);
+        ctx.shadowBlur = 0;
+      }
+
+      /* 越过底部后重置到顶部 */
+      if (drops[i] * fontSize > h + 40) {
+        drops[i] = Math.random() * -18;
+        speeds[i] = 0.32 + Math.random() * 0.45;
+      }
+
+      drops[i] += speeds[i];
+    }
+
+    _academicParticlesRAF = requestAnimationFrame(draw);
+  }
+
+  _academicParticlesRAF = requestAnimationFrame(draw);
+}
+
+
+/**
+ * 未来感增强：过场动画编排
+ * 进入学业成长页时的完整过场流程：
+ * 1. 隐藏数据面板
+ * 2. 启动粒子星网Canvas + 全屏展示标题
+ * 3. 2.5秒后淡出过场
+ * 4. 数据面板阶梯入场
+ */
+let _academicSplashTimer1 = null;
+let _academicSplashTimer2 = null;
+
+function startAcademicSplash(pageEl) {
+  /* 清理可能残留的上一次过场 */
+  cleanupAcademicSplash();
+
+  const canvas = document.getElementById("academicParticles");
+  const splash = document.getElementById("academicSplash");
+  const panels = pageEl.querySelectorAll(".academic-panel");
+
+  /* 1. 先隐藏面板（透明度0，不影响布局） */
+  panels.forEach((p) => {
+    p.style.opacity = "0";
+    p.classList.remove("academic-panel-enter");
+  });
+
+  /* 2. 启动数字雨效果（黑客帝国风格） */
+  initAcademicMatrixRain();
+
+  /* 3. 激活过场模式 — Canvas全屏 + 标题覆盖 */
+  if (canvas) {
+    canvas.classList.remove("splash-fade");
+    canvas.classList.add("splash-active");
+  }
+  if (splash) {
+    splash.classList.remove("fade");
+    /* 重置子元素动画 */
+    splash.querySelectorAll("[class^='academic-splash-']").forEach((el) => {
+      el.style.animation = "none";
+      void el.offsetWidth;
+      el.style.animation = "";
+    });
+    splash.classList.add("active");
+  }
+
+  /* 4. 2.5秒后开始淡出过场 */
+  _academicSplashTimer1 = setTimeout(() => {
+    if (canvas) {
+      canvas.classList.remove("splash-active");
+      canvas.classList.add("splash-fade");
+    }
+    if (splash) {
+      splash.classList.remove("active");
+      splash.classList.add("fade");
+    }
+
+    /* 5. 淡出过渡结束后，面板阶梯入场 */
+    _academicSplashTimer2 = setTimeout(() => {
+      panels.forEach((p, i) => {
+        p.style.opacity = "";
+        p.style.animationDelay = `${i * 0.12}s`;
+        p.classList.add("academic-panel-enter");
+      });
+
+      /* 粒子Canvas完全结束后停止RAF（节省性能） */
+      setTimeout(() => cleanupAcademicParticles(), 1500);
+
+      _academicSplashTimer1 = null;
+      _academicSplashTimer2 = null;
+    }, 500);
+  }, 2500);
+}
+
+function cleanupAcademicSplash() {
+  if (_academicSplashTimer1) {
+    clearTimeout(_academicSplashTimer1);
+    _academicSplashTimer1 = null;
+  }
+  if (_academicSplashTimer2) {
+    clearTimeout(_academicSplashTimer2);
+    _academicSplashTimer2 = null;
+  }
+  const canvas = document.getElementById("academicParticles");
+  const splash = document.getElementById("academicSplash");
+  if (canvas) {
+    canvas.classList.remove("splash-active", "splash-fade");
+  }
+  if (splash) {
+    splash.classList.remove("active", "fade");
+  }
+  /* 恢复面板可见性 */
+  document.querySelectorAll(".academic-panel").forEach((p) => {
+    p.style.opacity = "";
+  });
 }
 
 function academicDeltaText(value) {
@@ -5120,7 +6235,10 @@ function renderAcademicGrowth() {
   const metrics = data.metrics || {};
   const setText = (id, value) => {
     const el = document.getElementById(id);
-    if (el) el.textContent = value;
+    if (el) {
+      /* 未来感增强：对纯数字值应用跳动动画 */
+      animateAcademicNumber(el, value);
+    }
   };
   renderAcademicHeadline(data);
   const examSelect = document.getElementById("academicExamSelect");
@@ -5263,7 +6381,7 @@ function renderAcademicScoreTable(data, limits = getAcademicRenderLimits()) {
     "<th>变化</th>",
   ].join("");
   const body = rows
-    .map((row, rowIndex) => {
+    .map((row) => {
       const rankDelta = academicRankDeltaValue(row.rankDelta);
       const deltaClass = rankDelta === null ? "" : rankDelta >= 0 ? "up" : "down";
       const selectedClass = academicStudentKey(row.studentId) === academicStudentKey(runtimeState.selectedAcademicStudentId) ? " selected" : "";
@@ -5271,7 +6389,7 @@ function renderAcademicScoreTable(data, limits = getAcademicRenderLimits()) {
         .map((_, columnIndex) => `<td>${row.subjectScores?.[columnIndex] ?? "--"}</td>`)
         .join("");
       return `<tr class="academic-student-row${selectedClass}" data-student-id="${escapeHtml(row.studentId)}">
-        <td class="rank">${row.classRank || rowIndex + 1}</td>
+        <td class="rank">${row.classRank ?? "--"}</td>
         <td class="name">${escapeHtml(row.studentName)}</td>
         <td class="group-col">${escapeHtml(row.groupName || "-")}</td>
         ${cells}
@@ -5533,37 +6651,27 @@ async function loadAcademicAiSummary(studentId, options = {}) {
   if (!options.regenerate && runtimeState.academicAiCache.has(cacheKey)) {
     return runtimeState.academicAiCache.get(cacheKey);
   }
-  if (!runtimeState.token) {
-    if (options.regenerate) {
-      const generated = await apiFetch(`/display/classes/${runtimeState.classId}/academic-ai/${studentId}/generate`, {
-        method: "POST",
-        body: JSON.stringify({ periodType }),
-      });
-      runtimeState.academicAiCache.set(cacheKey, generated);
-      return generated;
-    }
-    const cached = await apiFetch(`/display/classes/${runtimeState.classId}/academic-ai/${studentId}/summary?periodType=${periodType}`);
-    if (cached) {
-      runtimeState.academicAiCache.set(cacheKey, cached);
-      return cached;
-    }
-    throw new Error("当前学生暂无 AI 学情摘要。可直接点击“重新生成”创建最新分析。");
-  }
   if (!options.regenerate && runtimeState.academicAiRequests.has(cacheKey)) {
     return runtimeState.academicAiRequests.get(cacheKey);
   }
+  // 始终走 display 公开接口，不校验登录账号、角色或锁定状态
   const request = (async () => {
     if (!options.regenerate) {
-      const cached = await apiFetch(`/ai/students/${studentId}/summary?periodType=${periodType}`);
+      const cached = await apiFetch(
+        `/display/classes/${runtimeState.classId}/academic-ai/${studentId}/summary?periodType=${periodType}`,
+      );
       if (cached) {
         runtimeState.academicAiCache.set(cacheKey, cached);
         return cached;
       }
     }
-    const generated = await apiFetch(`/ai/students/${studentId}/generate-summary`, {
-      method: "POST",
-      body: JSON.stringify({ periodType }),
-    });
+    const generated = await apiFetch(
+      `/display/classes/${runtimeState.classId}/academic-ai/${studentId}/generate`,
+      {
+        method: "POST",
+        body: JSON.stringify({ periodType }),
+      },
+    );
     runtimeState.academicAiCache.set(cacheKey, generated);
     return generated;
   })();
@@ -5664,54 +6772,119 @@ function enableAcademicSelectionEvents() {
 
 function enableAcademicDragScroll() {
   document
-    .querySelectorAll(".academic-table, .academic-class-list, .academic-student-subjects")
+    .querySelectorAll(
+      ".academic-table, .academic-side-column, .academic-class-list, .academic-student-subjects",
+    )
     .forEach((el) => {
       if (el.dataset.dragScrollReady === "1") return;
       el.dataset.dragScrollReady = "1";
-      let dragging = false;
-      let startX = 0;
-      let startY = 0;
-      let scrollLeft = 0;
-      let scrollTop = 0;
-      let pendingStudentTarget = null;
-      el.addEventListener("pointerdown", (event) => {
-        dragging = true;
-        el.dataset.dragMoved = "0";
-        const hit = academicEventTargetElement(event);
-        pendingStudentTarget = hit?.closest("[data-student-id]") ?? null;
-        el.classList.add("dragging");
-        startX = event.clientX;
-        startY = event.clientY;
-        scrollLeft = el.scrollLeft;
-        scrollTop = el.scrollTop;
-        try {
-          // 成绩矩阵：capture 会导致后续 pointerup 的 target 指向容器，姓名格无法识别，故不捕获
-          if (el.id !== "academicScoreTable") {
-            el.setPointerCapture?.(event.pointerId);
+      const state = {
+        dragging: false,
+        moved: false,
+        pointerId: null,
+        startX: 0,
+        startY: 0,
+        lastX: 0,
+        lastY: 0,
+        lastTime: 0,
+        scrollLeft: 0,
+        scrollTop: 0,
+        velocityX: 0,
+        velocityY: 0,
+        inertiaFrame: 0,
+      };
+
+      const stopInertia = () => {
+        if (!state.inertiaFrame) return;
+        cancelAnimationFrame(state.inertiaFrame);
+        state.inertiaFrame = 0;
+      };
+
+      const startInertia = () => {
+        if (!state.moved) return;
+        let vx = state.velocityX;
+        let vy = state.velocityY;
+        if (Math.abs(vx) < 0.02 && Math.abs(vy) < 0.02) return;
+        let previousTime = performance.now();
+        const step = (now) => {
+          const elapsed = Math.min(32, now - previousTime);
+          previousTime = now;
+          const beforeLeft = el.scrollLeft;
+          const beforeTop = el.scrollTop;
+          el.scrollLeft += vx * elapsed;
+          el.scrollTop += vy * elapsed;
+          if (el.scrollLeft === beforeLeft) vx = 0;
+          if (el.scrollTop === beforeTop) vy = 0;
+          vx *= 0.92;
+          vy *= 0.92;
+          if (Math.abs(vx) < 0.02 && Math.abs(vy) < 0.02) {
+            state.inertiaFrame = 0;
+            return;
           }
+          state.inertiaFrame = requestAnimationFrame(step);
+        };
+        state.inertiaFrame = requestAnimationFrame(step);
+      };
+
+      el.addEventListener("pointerdown", (event) => {
+        if (event.button !== undefined && event.button !== 0) return;
+        if (event.target.closest("button,a,input,select,textarea")) return;
+        if (el.classList.contains("academic-side-column")) {
+          if (event.target.closest("[data-student-id], .academic-student-subjects, .academic-class-list")) return;
+        }
+        stopInertia();
+        state.dragging = true;
+        state.moved = false;
+        state.pointerId = event.pointerId;
+        el.dataset.dragMoved = "0";
+        el.dataset.dragSuppressClick = "0";
+        el.classList.add("dragging");
+        state.startX = event.clientX;
+        state.startY = event.clientY;
+        state.lastX = event.clientX;
+        state.lastY = event.clientY;
+        state.lastTime = performance.now();
+        state.scrollLeft = el.scrollLeft;
+        state.scrollTop = el.scrollTop;
+        state.velocityX = 0;
+        state.velocityY = 0;
+        try {
+          el.setPointerCapture?.(event.pointerId);
         } catch {
           // Some embedded browser shells reject capture on nested table targets.
         }
       });
       el.addEventListener("pointermove", (event) => {
-        if (!dragging) return;
-        const dx = event.clientX - startX;
-        const dy = event.clientY - startY;
-        if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+        if (!state.dragging || event.pointerId !== state.pointerId) return;
+        const dx = event.clientX - state.startX;
+        const dy = event.clientY - state.startY;
+        if (!state.moved && Math.hypot(dx, dy) > 4) {
+          state.moved = true;
           el.dataset.dragMoved = "1";
-          event.preventDefault();
+          el.dataset.dragSuppressClick = "1";
         }
-        el.scrollLeft = scrollLeft - dx;
-        el.scrollTop = scrollTop - dy;
+        if (state.moved) {
+          event.preventDefault();
+          event.stopPropagation();
+          el.scrollLeft = state.scrollLeft - dx;
+          el.scrollTop = state.scrollTop - dy;
+        }
+
+        const now = performance.now();
+        const elapsed = Math.max(8, now - state.lastTime);
+        state.velocityX = (state.lastX - event.clientX) / elapsed;
+        state.velocityY = (state.lastY - event.clientY) / elapsed;
+        state.lastX = event.clientX;
+        state.lastY = event.clientY;
+        state.lastTime = now;
       });
       const endDrag = (event) => {
-        const shouldSelect =
-          event?.type === "pointerup" &&
-          el.dataset.dragMoved !== "1" &&
-          pendingStudentTarget instanceof Element &&
-          el.contains(pendingStudentTarget);
-        const studentId = shouldSelect ? pendingStudentTarget.getAttribute("data-student-id") : null;
-        dragging = false;
+        if (!state.dragging || (event?.pointerId !== undefined && event.pointerId !== state.pointerId)) return;
+        if (state.moved) {
+          event?.preventDefault?.();
+          event?.stopPropagation?.();
+        }
+        state.dragging = false;
         el.classList.remove("dragging");
         if (event?.pointerId !== undefined) {
           try {
@@ -5722,16 +6895,24 @@ function enableAcademicDragScroll() {
             // Capture may already be released after pointerup/cancel.
           }
         }
-        pendingStudentTarget = null;
-        if (studentId && el.id !== "academicScoreTable") {
-          handleAcademicStudentPick(studentId);
-        }
+        state.pointerId = null;
+        startInertia();
         window.setTimeout(() => {
           el.dataset.dragMoved = "0";
+          el.dataset.dragSuppressClick = "0";
         }, 120);
       };
       el.addEventListener("pointerup", endDrag);
       el.addEventListener("pointercancel", endDrag);
+      el.addEventListener(
+        "click",
+        (event) => {
+          if (el.dataset.dragSuppressClick !== "1") return;
+          event.preventDefault();
+          event.stopImmediatePropagation();
+        },
+        true,
+      );
     });
 }
 
@@ -6561,6 +7742,7 @@ async function bootstrapDisplayData(options = {}) {
       });
     } else {
       runtimeState.lockStatus = "locked";
+      await refreshStudentRoster().catch(() => {});
     }
 
     syncClassroomMeta();
@@ -6665,6 +7847,10 @@ async function handleLogin() {
 
 document.addEventListener("DOMContentLoaded", () => {
   resolveRuntimeParams();
+  if (isMaskProbeEnabled()) {
+    window.__yypMaskProbe = captureDisplayMaskProbe;
+    scheduleDisplayMaskProbe("display-dom-ready", 1500);
+  }
   const performanceTier = getDisplayPerformanceTier();
   document.body.dataset.displayPerformance = performanceTier;
   document.body.classList.toggle("low-memory-display", isLowMemoryDisplay());

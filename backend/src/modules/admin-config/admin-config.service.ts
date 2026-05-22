@@ -546,7 +546,12 @@ export class AdminConfigService {
           status: row.status,
           lastLoginAt: row.lastLoginAt,
           classIds: Array.from(
-            new Set(row.scopes.map((scope) => toNumber(scope.classId)).filter((item): item is number => item !== null)),
+            new Set(
+              row.scopes
+                .filter((scope) => scope.scopeType === 'class_scope' && scope.classId)
+                .map((scope) => toNumber(scope.classId))
+                .filter((item): item is number => item !== null),
+            ),
           ),
           subjectScopes,
           scopeDisplay: scopeNames.join('、') || '全校范围',
@@ -623,7 +628,9 @@ export class AdminConfigService {
         },
       });
 
-      await this.replaceUserScopes(tx, user.schoolId, BigInt(id), role.code, body);
+      await this.replaceUserScopes(tx, user.schoolId, BigInt(id), role.code, body, {
+        preserveSubjectScopesIfMissing: true,
+      });
     });
 
     await this.logAction(user, 'permission_user', 'update', BigInt(id), body);
@@ -1354,21 +1361,59 @@ export class AdminConfigService {
     );
   }
 
+  private async resolveSubjectScopes(
+    tx: Prisma.TransactionClient,
+    userId: bigint,
+    body: PermissionUserUpsertDto,
+    preserveIfMissing = false,
+  ) {
+    if (preserveIfMissing && body.subjectScopes === undefined) {
+      const existingScopes = await tx.userScope.findMany({
+        where: {
+          userId,
+          scopeType: 'subject_class',
+          classId: { not: null },
+          subjectCode: { not: null },
+        },
+        select: {
+          classId: true,
+          subjectCode: true,
+        },
+      });
+      return existingScopes
+        .map((item) => {
+          const classId = toNumber(item.classId);
+          const subjectCode = item.subjectCode?.trim();
+          if (!classId || !subjectCode) return null;
+          return { classId, subjectCode };
+        })
+        .filter((item): item is { classId: number; subjectCode: string } => item !== null);
+    }
+
+    return this.normalizeSubjectScopes(body);
+  }
+
   private async replaceUserScopes(
     tx: Prisma.TransactionClient,
     schoolId: bigint,
     userId: bigint,
     roleCode: string,
     body: PermissionUserUpsertDto,
+    options?: { preserveSubjectScopesIfMissing?: boolean },
   ) {
+    const subjectScopes = await this.resolveSubjectScopes(
+      tx,
+      userId,
+      body,
+      options?.preserveSubjectScopesIfMissing,
+    );
+
     await tx.userScope.deleteMany({ where: { userId } });
     await tx.teacherClassAssignment.deleteMany({ where: { teacherId: userId } });
     await tx.classroom.updateMany({
       where: { schoolId, homeroomTeacherId: userId },
       data: { homeroomTeacherId: null },
     });
-
-    const subjectScopes = this.normalizeSubjectScopes(body);
 
     if (['super_admin', 'school_admin', 'academic_admin', 'moral_admin'].includes(roleCode)) {
       await tx.userScope.create({
@@ -1456,17 +1501,16 @@ export class AdminConfigService {
           data: { homeroomTeacherId: userId },
         });
 
-        const filteredSubjectScopes = subjectScopes.filter((item) => classIds.includes(item.classId));
-        if (filteredSubjectScopes.length > 0) {
+        if (subjectScopes.length > 0) {
           await tx.userScope.createMany({
-            data: filteredSubjectScopes.map((item) => ({
+            data: subjectScopes.map((item) => ({
               userId,
               scopeType: 'subject_class',
               classId: BigInt(item.classId),
               subjectCode: item.subjectCode,
             })),
           });
-          await this.createSubjectTeacherAssignments(tx, schoolId, userId, filteredSubjectScopes);
+          await this.createSubjectTeacherAssignments(tx, schoolId, userId, subjectScopes);
         }
       }
       return;

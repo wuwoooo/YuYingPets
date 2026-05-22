@@ -255,7 +255,7 @@ export function RewardsPage({
       const scoreCostText = form.scoreCost.trim();
       const stockQtyText = form.stockQty.trim();
 
-      if (!form.code.trim() || !name || !scoreCostText) {
+      if (!name || !scoreCostText) {
         throw new Error('请填写完整的奖励名称和所需积分');
       }
       if (!/^\d+$/.test(scoreCostText)) {

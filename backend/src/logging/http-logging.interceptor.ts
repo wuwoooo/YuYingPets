@@ -21,14 +21,23 @@ export class HttpLoggingInterceptor implements NestInterceptor {
     return next.handle().pipe(
       finalize(() => {
         const durationMs = Date.now() - started;
-        accessLogger.info({
+        const payload = {
           msg: 'request_completed',
           requestId: req.requestId,
           method: req.method,
           path: httpLogPath(req.originalUrl ?? req.url),
           statusCode: res.statusCode,
           durationMs,
-        });
+        };
+        if (res.statusCode >= 500) {
+          accessLogger.error(payload);
+          return;
+        }
+        if (res.statusCode >= 400) {
+          accessLogger.warn(payload);
+          return;
+        }
+        accessLogger.info(payload);
       }),
     );
   }

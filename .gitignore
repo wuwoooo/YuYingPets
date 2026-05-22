@@ -1,9 +1,14 @@
 # Node
 node_modules/
+**/node_modules/
 dist/
+**/dist/
 build/
+**/build/
 coverage/
+**/coverage/
 .npm/
+*.tsbuildinfo
 
 # Logs
 *.log
@@ -26,6 +31,9 @@ pnpm-debug.log*
 release/
 **/release/
 
+# Deploy staging
+.deploy/
+
 # Frontend cache
 .vite/
 **/.vite/
@@ -35,3 +43,26 @@ tmp/
 **/tmp/
 .cache/
 **/.cache/
+logs/
+**/logs/
+
+# Python / local env
+.venv/
+**/.venv/
+.codex-venv/
+.venv-imagegen/
+
+# Electron / packaging
+**/release/
+display-app/desktop/release/
+
+# Local database / runtime
+backend/prisma/dev.db
+*.db-shm
+*.db-wal
+
+# Generated test artifacts
+display-app/e2e/artifacts/
+
+# Generated asset archives
+backend/public/assets/pets/1024/*.zip

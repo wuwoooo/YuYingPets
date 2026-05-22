@@ -115,6 +115,102 @@ async function run() {
     }, watched.name);
     log(`前端实时积分刷新通过：${watched.name} ${watched.pts} -> ${result.scoreRefresh.pts}`);
 
+    const adminSlogan = `实时口号${suffix}`;
+    await api(`/classes/${CLASS_ID}`, {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${teacherLogin.token}` },
+      body: JSON.stringify({
+        slogan: adminSlogan,
+      }),
+    });
+    await browserB.page.waitForFunction(
+      (expected) => {
+        const el = document.getElementById("classroomSlogan");
+        return Boolean(el && el.textContent.includes(expected));
+      },
+      adminSlogan,
+      { timeout: 15000 },
+    );
+    result.configRefresh = await browserB.page.evaluate(() => ({
+      slogan: document.getElementById("classroomSlogan")?.textContent?.trim() || "",
+    }));
+    log(`班级口号实时刷新通过：${result.configRefresh.slogan}`);
+
+    const ptsBeforeAdmin = result.scoreRefresh.pts;
+    await api("/score-records", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${teacherLogin.token}` },
+      body: JSON.stringify({
+        classId: CLASS_ID,
+        studentId: watched.id,
+        ruleId: 1,
+        sourceTerminal: "admin",
+        remark: "admin-web 实时加分测试",
+      }),
+    });
+    await browserB.page.waitForFunction(
+      ([name, previous]) => {
+        const student = students.find((row) => row.name === name);
+        return Boolean(student && student.pts > previous);
+      },
+      [watched.name, ptsBeforeAdmin],
+      { timeout: 15000 },
+    );
+    await browserB.page.waitForSelector(".point-float-anim", { timeout: 15000 });
+    result.adminScoreRefresh = await browserB.page.evaluate((name) => {
+      const student = students.find((row) => row.name === name);
+      return {
+        name: student?.name,
+        pts: student?.pts,
+        hasFloatAnim: Boolean(document.querySelector(".point-float-anim")),
+      };
+    }, watched.name);
+    log(
+      `admin-web 加分实时刷新通过：${result.adminScoreRefresh.name} ${ptsBeforeAdmin} -> ${result.adminScoreRefresh.pts}`,
+    );
+
+    await browserB.page.evaluate(() => navigateTo("leaderboard"));
+    await browserB.page.waitForFunction(
+      () => document.querySelector("#page-leaderboard")?.classList.contains("active"),
+      null,
+      { timeout: 10000 },
+    );
+    const deferredPts = result.adminScoreRefresh.pts;
+    for (let i = 0; i < 3; i += 1) {
+      await api("/score-records", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${teacherLogin.token}` },
+        body: JSON.stringify({
+          classId: CLASS_ID,
+          studentId: watched.id,
+          ruleId: 1,
+          sourceTerminal: "admin",
+          remark: `离屏累积测试-${i + 1}`,
+        }),
+      });
+      await browserB.page.waitForTimeout(300);
+    }
+    await browserB.page.evaluate(() => navigateTo("classroom"));
+    await browserB.page.waitForFunction(
+      ([name, previous]) => {
+        const student = students.find((row) => row.name === name);
+        return Boolean(student && student.pts >= previous + 3);
+      },
+      [watched.name, deferredPts],
+      { timeout: 20000 },
+    );
+    result.deferredScoreRefresh = await browserB.page.evaluate((name) => {
+      const student = students.find((row) => row.name === name);
+      return {
+        name: student?.name,
+        pts: student?.pts,
+        floatCount: document.querySelectorAll(".point-float-anim").length,
+      };
+    }, watched.name);
+    log(
+      `离屏累积补刷通过：${result.deferredScoreRefresh.name} -> ${result.deferredScoreRefresh.pts}，浮动动画 ${result.deferredScoreRefresh.floatCount} 个`,
+    );
+
     await api(`/students/${watched.id}/adopt-pet`, {
       method: "POST",
       headers: { Authorization: `Bearer ${teacherLogin.token}` },

@@ -795,7 +795,13 @@ export class DisplayService {
         profile: true,
         studentPet: {
           include: {
-            pet: true,
+            pet: {
+              include: {
+                stages: {
+                  orderBy: { stageNo: 'asc' },
+                },
+              },
+            },
           },
         },
       },
@@ -808,17 +814,123 @@ export class DisplayService {
 
     const rows = [...students]
       .sort((a, b) => metric(b) - metric(a))
-      .map((student, index) => ({
-        rank: index + 1,
-        id: toNumber(student.id),
-        name: student.name,
-        avatarUrl: student.avatarUrl,
-        currentScore: student.profile?.currentScore ?? 0,
-        currentPetLevel: student.profile?.currentPetLevel ?? 1,
-        petName: student.studentPet?.pet.name ?? null,
-      }));
+      .map((student, index) => {
+        const studentPet = student.studentPet;
+        const petImageUrl = studentPet
+          ? (studentPet.pet.stages.find((stage) => stage.stageNo === studentPet.currentStageNo)?.imageUrl ??
+            studentPet.pet.coverUrl ??
+            null)
+          : null;
+
+        return {
+          rank: index + 1,
+          id: toNumber(student.id),
+          name: student.name,
+          avatarUrl: student.avatarUrl,
+          currentScore: student.profile?.currentScore ?? 0,
+          currentPetLevel: student.profile?.currentPetLevel ?? 1,
+          petName: studentPet?.pet.name ?? null,
+          petImageUrl,
+          hasPet: Boolean(studentPet),
+        };
+      });
 
     return { code: 0, message: 'ok', data: { classId, type: type === 'pet-level' ? 'pet-level' : 'score', rows } };
+  }
+
+  async roster(classId: number) {
+    const classroom = await this.prisma.classroom.findFirst({
+      where: {
+        id: BigInt(classId),
+        deletedAt: null,
+        status: 'enabled',
+      },
+      select: { id: true },
+    });
+    if (!classroom) {
+      throw new NotFoundException('班级不存在');
+    }
+
+    const [students, groups] = await Promise.all([
+      this.prisma.student.findMany({
+        where: {
+          classId: BigInt(classId),
+          deletedAt: null,
+          status: 'enabled',
+        },
+        include: {
+          profile: true,
+          groupRel: {
+            include: {
+              classGroup: true,
+            },
+          },
+          studentPet: {
+            include: {
+              pet: {
+                include: {
+                  stages: {
+                    orderBy: { stageNo: 'asc' },
+                  },
+                },
+              },
+            },
+          },
+        },
+        orderBy: [{ studentNo: 'asc' }, { id: 'asc' }],
+      }),
+      this.prisma.classGroup.findMany({
+        where: { classId: BigInt(classId), status: 'enabled' },
+        select: { id: true, groupNo: true, name: true },
+        orderBy: [{ groupNo: 'asc' }, { id: 'asc' }],
+      }),
+    ]);
+
+    return {
+      code: 0,
+      message: 'ok',
+      data: {
+        classId,
+        groups: groups.map((group) => ({
+          id: toNumber(group.id),
+          groupNo: group.groupNo,
+          name: group.name,
+        })),
+        students: students.map((student) => {
+          const studentPet = student.studentPet;
+          const petImageUrl = studentPet
+            ? (studentPet.pet.stages.find((stage) => stage.stageNo === studentPet.currentStageNo)?.imageUrl ??
+              studentPet.pet.coverUrl ??
+              null)
+            : null;
+
+          return {
+            id: toNumber(student.id),
+            name: student.name,
+            studentNo: student.studentNo,
+            avatarUrl: student.avatarUrl,
+            currentScore: student.profile?.currentScore ?? 0,
+            totalScore: student.profile?.totalScore ?? 0,
+            currentPetLevel: student.profile?.currentPetLevel ?? 1,
+            groupNo: student.groupRel?.classGroup?.groupNo ?? null,
+            groupName: student.groupRel?.classGroup?.name ?? null,
+            pet: studentPet
+              ? {
+                  id: toNumber(studentPet.pet.id),
+                  name: studentPet.pet.name,
+                  coverUrl: studentPet.pet.coverUrl,
+                  currentImageUrl: petImageUrl,
+                  currentLevel: studentPet.currentLevel,
+                  currentStageName:
+                    studentPet.pet.stages.find((stage) => stage.stageNo === studentPet.currentStageNo)?.name ??
+                    null,
+                  totalScore: studentPet.totalScore,
+                }
+              : null,
+          };
+        }),
+      },
+    };
   }
 
   async classScoreRanking(classId: number) {
@@ -1034,16 +1146,16 @@ export class DisplayService {
     ]);
 
     const latestTotalRows = totalRows.filter((row) => row.examId === currentExam.id && row.score !== null);
-    const latestClassRows = latestTotalRows.filter((row) => row.classId === currentClass.id);
+    const allStudents = classrooms.flatMap((item) => item.students);
+    const currentClassStudents = classrooms.find((item) => item.id === currentClass.id)?.students ?? [];
+    const latestClassRows = this.buildRosterScoreRows(latestTotalRows, currentClassStudents);
     const previousByStudent = new Map(
       totalRows
         .filter((row) => previousExam && row.examId === previousExam.id && row.score !== null)
         .map((row) => [row.studentId.toString(), row]),
     );
-    const allStudents = classrooms.flatMap((item) => item.students);
-    const currentClassStudents = classrooms.find((item) => item.id === currentClass.id)?.students ?? [];
     const studentById = new Map(allStudents.map((item) => [item.id.toString(), item]));
-    const classById = new Map(classrooms.map((item) => [item.id.toString(), item]));
+    const currentClassStudentIdSet = new Set(currentClassStudents.map((student) => student.id.toString()));
 
     const latestAverage = this.averageNumber(latestClassRows.map((row) => Number(row.score)));
     const progressCount = latestClassRows.filter((row) => (this.resolveAcademicClassRankDelta(row) ?? 0) > 0).length;
@@ -1055,16 +1167,29 @@ export class DisplayService {
     const previousTotalRows = previousExam
       ? totalRows.filter((row) => row.examId === previousExam.id && row.score !== null)
       : [];
-    const previousClassRows = previousExam ? previousTotalRows.filter((row) => row.classId === currentClass.id) : [];
+    const previousClassRows = previousExam
+      ? this.buildRosterScoreRows(previousTotalRows, currentClassStudents)
+      : [];
     const previousAverage = this.averageNumber(previousClassRows.map((row) => Number(row.score)));
     const previousGradeAverage = this.averageNumber(previousTotalRows.map((row) => Number(row.score)));
     const previousGrowthIndex = previousGradeAverage > 0 ? Math.round((previousAverage / previousGradeAverage) * 1000) / 10 : 0;
     const indexDelta = previousExam ? Math.round((academicIndex - previousGrowthIndex) * 10) / 10 : 0;
 
-    const latestSubjectRows = subjectRows.filter((row) => row.examId === currentExam.id && row.classId === currentClass.id && row.score !== null);
+    const latestSubjectRows = subjectRows.filter(
+      (row) =>
+        row.examId === currentExam.id &&
+        row.score !== null &&
+        currentClassStudentIdSet.has(row.studentId.toString()),
+    );
     const previousSubjectByStudentAndSubject = new Map(
       subjectRows
-        .filter((row) => previousExam && row.examId === previousExam.id && row.classId === currentClass.id && row.score !== null)
+        .filter(
+          (row) =>
+            previousExam &&
+            row.examId === previousExam.id &&
+            row.score !== null &&
+            currentClassStudentIdSet.has(row.studentId.toString()),
+        )
         .map((row) => [`${row.studentId}:${row.subjectCode}`, row]),
     );
     const latestSubjectByStudentAndSubject = new Map(
@@ -1098,7 +1223,7 @@ export class DisplayService {
 
     const classSummaries = classrooms
       .map((classroom) => {
-        const rows = latestTotalRows.filter((row) => row.classId === classroom.id);
+        const rows = this.buildRosterScoreRows(latestTotalRows, classroom.students);
         const classProgress = rows.filter((row) => (this.resolveAcademicClassRankDelta(row) ?? 0) > 0).length;
         const classDecline = rows.filter((row) => (this.resolveAcademicClassRankDelta(row) ?? 0) < 0).length;
         const classAverage = this.averageNumber(rows.map((row) => Number(row.score)));
@@ -1120,6 +1245,9 @@ export class DisplayService {
       .sort((left, right) => right.academicIndex - left.academicIndex || right.averageScore - left.averageScore);
 
     const subjectColumns = subjects.slice(0, 8).map((item) => ({ subjectCode: item.subjectCode, subjectName: item.subjectName }));
+    const displayClassRankByStudentId = this.buildRosterClassRanks(
+      latestClassRows.map((row) => ({ studentId: row.studentId, totalScore: Number(row.score) })),
+    );
     const studentRows = latestClassRows
       .map((row) => {
         const student = studentById.get(row.studentId.toString());
@@ -1131,14 +1259,14 @@ export class DisplayService {
         });
         return {
           studentId: toNumber(row.studentId),
-          studentNo: row.studentNo,
-          studentName: row.studentName,
-          classId: toNumber(row.classId),
-          className: row.className,
+          studentNo: student?.studentNo ?? row.studentNo,
+          studentName: student?.name ?? row.studentName,
+          classId: toNumber(currentClass.id),
+          className: currentClass.name,
           groupName: student?.groupRel?.classGroup?.name ?? null,
           totalScore: score,
           rankDelta,
-          classRank: row.classRank,
+          classRank: displayClassRankByStudentId.get(row.studentId.toString()) ?? null,
           schoolRank: row.schoolRank,
           behaviorScore: student?.profile?.currentScore ?? 0,
           subjectScores,
@@ -1148,17 +1276,16 @@ export class DisplayService {
 
     const signalRows = latestClassRows.map((row) => {
       const student = studentById.get(row.studentId.toString());
-      const classInfo = classById.get(row.classId.toString());
       const score = Number(row.score);
       const rankDelta = this.resolveAcademicClassRankDelta(row);
       return {
         studentId: toNumber(row.studentId),
-        studentName: row.studentName,
-        classId: toNumber(row.classId),
-        className: classInfo?.name ?? currentClass.name,
+        studentName: student?.name ?? row.studentName,
+        classId: toNumber(currentClass.id),
+        className: currentClass.name,
         totalScore: score,
         rankDelta,
-        classRank: row.classRank,
+        classRank: displayClassRankByStudentId.get(row.studentId.toString()) ?? null,
         schoolRank: row.schoolRank,
         behaviorScore: student?.profile?.currentScore ?? 0,
       };
@@ -1174,7 +1301,10 @@ export class DisplayService {
 
     const trend = exams
       .map((exam) => {
-        const rows = totalRows.filter((row) => row.examId === exam.id && row.classId === currentClass.id && row.score !== null);
+        const rows = this.buildRosterScoreRows(
+          totalRows.filter((row) => row.examId === exam.id && row.score !== null),
+          currentClassStudents,
+        );
         const gradeRows = totalRows.filter((row) => row.examId === exam.id && row.score !== null);
         const classAverage = this.averageNumber(rows.map((row) => Number(row.score)));
         const gradeAverageForExam = this.averageNumber(gradeRows.map((row) => Number(row.score)));
@@ -1254,26 +1384,11 @@ export class DisplayService {
   }
 
   async academicAiSummary(classId: number, studentId: number, periodType: 'weekly' | 'monthly' = 'weekly') {
-    const student = await this.prisma.student.findFirst({
-      where: {
-        id: BigInt(studentId),
-        classId: BigInt(classId),
-        deletedAt: null,
-        status: 'enabled',
-      },
-      select: {
-        id: true,
-        classId: true,
-      },
-    });
-    if (!student) {
-      throw new NotFoundException('学生不存在或不属于当前大屏班级');
-    }
+    const student = await this.resolveDisplayAccessibleStudent(classId, studentId);
 
     const snapshot = await this.prisma.aiStudentSnapshot.findFirst({
       where: {
         studentId: student.id,
-        classId: student.classId,
         periodType,
       },
       orderBy: { createdAt: 'desc' },
@@ -1301,22 +1416,8 @@ export class DisplayService {
   }
 
   async academicAiGenerate(classId: number, studentId: number, periodType: 'weekly' | 'monthly' = 'weekly') {
-    const student = await this.prisma.student.findFirst({
-      where: {
-        id: BigInt(studentId),
-        classId: BigInt(classId),
-        deletedAt: null,
-        status: 'enabled',
-      },
-      select: {
-        id: true,
-      },
-    });
-    if (!student) {
-      throw new NotFoundException('学生不存在或不属于当前大屏班级');
-    }
-
-    return this.aiService.generateForDisplay(classId, studentId, periodType);
+    await this.resolveDisplayAccessibleStudent(classId, studentId);
+    return this.aiService.generateForDisplay(studentId, periodType);
   }
 
   async petCatalog() {
@@ -1413,6 +1514,72 @@ export class DisplayService {
         })),
       },
     };
+  }
+
+  /** 大屏 AI：当前在班，或在该班有学业成绩记录（调班后仍可查看历史名单中的学情） */
+  private async resolveDisplayAccessibleStudent(classId: number, studentId: number) {
+    const student = await this.prisma.student.findFirst({
+      where: {
+        id: BigInt(studentId),
+        deletedAt: null,
+        status: 'enabled',
+      },
+      select: {
+        id: true,
+        classId: true,
+      },
+    });
+    if (!student) {
+      throw new NotFoundException('学生不存在或不属于当前大屏班级');
+    }
+
+    if (Number(student.classId) === classId) {
+      return student;
+    }
+
+    const academicRecord = await this.prisma.academicScoreRecord.findFirst({
+      where: {
+        studentId: student.id,
+        classId: BigInt(classId),
+      },
+      select: { id: true },
+    });
+    if (!academicRecord) {
+      throw new NotFoundException('学生不存在或不属于当前大屏班级');
+    }
+
+    return student;
+  }
+
+  /** 按当前在班学生的考试总分重算展示班排（同分同名次，与班级积分榜规则一致） */
+  private buildRosterClassRanks(rows: Array<{ studentId: bigint; totalScore: number }>) {
+    const sorted = [...rows].sort((left, right) => right.totalScore - left.totalScore);
+    let lastScore: number | null = null;
+    let currentRank = 0;
+    const rankByStudentId = new Map<string, number>();
+    sorted.forEach((row, index) => {
+      if (lastScore === null || row.totalScore !== lastScore) {
+        currentRank = index + 1;
+        lastScore = row.totalScore;
+      }
+      rankByStudentId.set(row.studentId.toString(), currentRank);
+    });
+    return rankByStudentId;
+  }
+
+  /** 按当前在班名单聚合成绩：调班后旧班移除、新班纳入 */
+  private buildRosterScoreRows<T extends { studentId: bigint; score: unknown }>(
+    rows: T[],
+    rosterStudents: Array<{ id: bigint }>,
+  ): T[] {
+    const rowByStudentId = new Map(
+      rows
+        .filter((row) => row.score !== null && row.score !== undefined)
+        .map((row) => [row.studentId.toString(), row]),
+    );
+    return rosterStudents
+      .map((student) => rowByStudentId.get(student.id.toString()))
+      .filter((row): row is T => row != null);
   }
 
   private averageNumber(values: number[]) {

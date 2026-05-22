@@ -73,6 +73,11 @@ export class DisplayController {
     return this.displayService.leaderboard(Number(classId), type);
   }
 
+  @Get('classes/:classId/roster')
+  roster(@Param('classId') classId: string) {
+    return this.displayService.roster(Number(classId));
+  }
+
   @Get('classes/:classId/class-score-ranking')
   classScoreRanking(@Param('classId') classId: string) {
     return this.displayService.classScoreRanking(Number(classId));

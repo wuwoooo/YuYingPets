@@ -124,6 +124,8 @@ export class ClassesService {
       },
     });
 
+    this.emitClassConfigIfPresent(Number(created.id), created, user.name, ['slogan', 'targetScore', 'countdown']);
+
     return { code: 0, message: 'ok', data: { id: toNumber(created.id) } };
   }
 
@@ -205,7 +207,14 @@ export class ClassesService {
 
     const exists = await this.prisma.classroom.findFirst({
       where: { id: BigInt(id), schoolId: user.schoolId, deletedAt: null },
-      select: { id: true, homeroomTeacherId: true },
+      select: {
+        id: true,
+        homeroomTeacherId: true,
+        slogan: true,
+        targetScore: true,
+        countdownTitle: true,
+        countdownDeadlineAt: true,
+      },
     });
     if (!exists) {
       throw new NotFoundException('班级不存在');
@@ -285,7 +294,120 @@ export class ClassesService {
       },
     });
 
+    const changedFields = this.resolveClassConfigChangedFields(body, exists, updated, countdownData);
+    if (changedFields.length > 0) {
+      await this.emitClassConfigChanged(id, updated, user.name, changedFields);
+    }
+
     return { code: 0, message: 'ok', data: { id: toNumber(updated.id) } };
+  }
+
+  private resolveClassConfigChangedFields(
+    body: Record<string, unknown>,
+    before: {
+      slogan: string | null;
+      targetScore: number | null;
+      countdownTitle: string | null;
+      countdownDeadlineAt: Date | null;
+    },
+    after: {
+      slogan: string | null;
+      targetScore: number | null;
+      countdownTitle: string | null;
+      countdownDeadlineAt: Date | null;
+    },
+    countdownData?: { countdownTitle: string | null; countdownDeadlineAt: Date | null },
+  ) {
+    const changedFields: string[] = [];
+    if (body.slogan !== undefined && (before.slogan ?? null) !== (after.slogan ?? null)) {
+      changedFields.push('slogan');
+    }
+    if (body.targetScore !== undefined && (before.targetScore ?? null) !== (after.targetScore ?? null)) {
+      changedFields.push('targetScore');
+    }
+    if (
+      countdownData !== undefined &&
+      ((before.countdownTitle ?? null) !== (after.countdownTitle ?? null) ||
+        (before.countdownDeadlineAt?.getTime() ?? null) !== (after.countdownDeadlineAt?.getTime() ?? null))
+    ) {
+      changedFields.push('countdown');
+    }
+    return changedFields;
+  }
+
+  private emitClassConfigIfPresent(
+    classId: number,
+    classroom: {
+      slogan: string | null;
+      targetScore: number | null;
+      countdownTitle: string | null;
+      countdownDeadlineAt: Date | null;
+    },
+    operatorName: string,
+    candidateFields: string[],
+  ) {
+    const changedFields = candidateFields.filter((field) => {
+      if (field === 'slogan') return classroom.slogan !== null && classroom.slogan.trim().length > 0;
+      if (field === 'targetScore') return classroom.targetScore !== null;
+      if (field === 'countdown') {
+        return Boolean(classroom.countdownTitle && classroom.countdownDeadlineAt);
+      }
+      return false;
+    });
+    if (changedFields.length === 0) return;
+    void this.emitClassConfigChanged(classId, classroom, operatorName, changedFields);
+  }
+
+  private async emitClassConfigChanged(
+    classId: number,
+    classroom: {
+      slogan: string | null;
+      targetScore: number | null;
+      countdownTitle: string | null;
+      countdownDeadlineAt: Date | null;
+    },
+    operatorName: string,
+    changedFields: string[],
+  ) {
+    const scoreSummary = await this.buildClassScoreSummary(classId);
+    this.realtimeService.emitClassConfigChanged(classId, {
+      classId,
+      slogan: classroom.slogan,
+      targetScore: classroom.targetScore,
+      countdown:
+        classroom.countdownTitle && classroom.countdownDeadlineAt
+          ? {
+              title: classroom.countdownTitle,
+              deadlineAt: classroom.countdownDeadlineAt,
+            }
+          : null,
+      scoreSummary,
+      operatorName,
+      changedFields,
+    });
+  }
+
+  private async buildClassScoreSummary(classId: number) {
+    const [profiles, classScoreProfile] = await Promise.all([
+      this.prisma.studentProfile.findMany({
+        where: {
+          classId: BigInt(classId),
+          student: { deletedAt: null, status: 'enabled' },
+        },
+        select: { currentScore: true, totalScore: true },
+      }),
+      this.prisma.classScoreProfile.findUnique({
+        where: { classId: BigInt(classId) },
+        select: { currentScore: true, totalScore: true },
+      }),
+    ]);
+
+    return {
+      currentScoreTotal: profiles.reduce((sum, item) => sum + item.currentScore, 0),
+      totalScoreTotal: profiles.reduce((sum, item) => sum + item.totalScore, 0),
+      classScore: classScoreProfile?.currentScore ?? 0,
+      classTotalScore: classScoreProfile?.totalScore ?? 0,
+    };
   }
 
   private normalizeCountdownData(body: Record<string, unknown>, forCreate: boolean) {

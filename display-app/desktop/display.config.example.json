@@ -1,0 +1,5 @@
+{
+  "startUrl": "https://display.example.com/display/",
+  "fullscreen": true,
+  "clearCacheOnLaunch": true
+}

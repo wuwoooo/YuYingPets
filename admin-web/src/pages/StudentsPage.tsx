@@ -1110,15 +1110,7 @@ export function StudentsPage({
         }, new Map<string, number>()),
       ).find(([, count]) => count > 1)?.[0];
       if (duplicatedStudentNoInPayload) {
-        throw new Error(`准考证号重复：本次提交中存在重复准考证号 ${duplicatedStudentNoInPayload}`);
-      }
-
-      const existingStudentNos = new Set(students.map((item) => normalizeStudentNo(item.studentNo)));
-      const duplicatedExistingStudent = payloadStudents.find((item) =>
-        existingStudentNos.has(normalizeStudentNo(item.studentNo)),
-      );
-      if (duplicatedExistingStudent) {
-        throw new Error(`准考证号重复：${duplicatedExistingStudent.studentNo} 已存在`);
+        throw new Error(`上传文件内准考证号重复：${duplicatedStudentNoInPayload}`);
       }
 
       const payload: StudentImportPayload = {
@@ -2117,4 +2109,3 @@ export function StudentsPage({
     </Shell>
   );
 }
-

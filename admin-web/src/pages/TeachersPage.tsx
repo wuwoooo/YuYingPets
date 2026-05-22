@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent 
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import { Modal } from '../components/Modal';
+import { PermissionScopeTableCell } from '../components/PermissionScopeTableCell';
 import { PickerInput } from '../components/PickerInput';
 import { Shell } from '../components/Shell';
 import { TablePagination } from '../components/TablePagination';
@@ -18,11 +19,21 @@ import type {
 } from '../lib/api';
 import { adminApi } from '../lib/api';
 import type { PermissionUserFormState } from '../types/admin';
-import { createPermissionUserForm, formatEnabledStatus, formatPermissionScopeDisplay, normalizeKeyword } from '../utils/adminForms';
+import { createPermissionUserForm, formatEnabledStatus, normalizeKeyword } from '../utils/adminForms';
 import { canManageTeachers } from '../utils/adminPermissions';
 
 const teacherRoleCodes = ['homeroom_teacher', 'subject_teacher'];
-const staffRoleCodes = ['school_admin', 'academic_admin', 'moral_admin', 'homeroom_teacher', 'subject_teacher'];
+const managerRoleCodes = ['super_admin', 'school_admin', 'academic_admin', 'moral_admin'];
+const staffRoleCodes = [...managerRoleCodes, ...teacherRoleCodes];
+
+function isTeacherRoleCode(roleCode: string) {
+  return teacherRoleCodes.includes(roleCode);
+}
+
+function isManagerStaffRole(roleCode: string) {
+  return managerRoleCodes.includes(roleCode);
+}
+
 const teacherSubjectOptions = [
   { code: 'chinese', label: '语文' },
   { code: 'math', label: '数学' },
@@ -79,6 +90,18 @@ const weekdayLabels = ['星期一', '星期二', '星期三', '星期四', '星�
 
 function normalizeLoginUsername(value: string) {
   return value.trim().toLowerCase();
+}
+
+function hasTeachingDutyTag(dutyTags: string[]) {
+  return dutyTags.some((tag) => tag.includes('班主任') || tag.includes('任课教师'));
+}
+
+function shouldShowInTeacherList(row: PermissionUser) {
+  if (['school_admin', 'academic_admin', 'moral_admin', 'homeroom_teacher', 'subject_teacher'].includes(row.roleCode)) {
+    return true;
+  }
+  if (row.roleCode !== 'super_admin') return false;
+  return hasTeachingDutyTag(row.dutyTags) || row.classIds.length > 0 || row.subjectScopes.length > 0;
 }
 
 function getTodayDateInputValue() {
@@ -184,7 +207,7 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
       adminApi.teacherLiveStatus(token, query),
       adminApi.teacherScheduleSlots(token),
     ]);
-    const teacherRows = usersResponse.data.filter((row) => staffRoleCodes.includes(row.roleCode) && row.status === 'enabled');
+    const teacherRows = usersResponse.data.filter((row) => row.status === 'enabled' && shouldShowInTeacherList(row));
     setTeachers(teacherRows);
     setRoleTemplates(rolesResponse.data);
     const liveMap = Object.fromEntries(liveResponse.data.rows.map((item) => [item.teacherId, item]));
@@ -205,7 +228,7 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
     ])
       .then(([usersResponse, rolesResponse, liveResponse, slotResponse]) => {
         if (!active) return;
-        const teacherRows = usersResponse.data.filter((row) => staffRoleCodes.includes(row.roleCode) && row.status === 'enabled');
+        const teacherRows = usersResponse.data.filter((row) => row.status === 'enabled' && shouldShowInTeacherList(row));
         setTeachers(teacherRows);
         setRoleTemplates(rolesResponse.data);
         const liveMap = Object.fromEntries(liveResponse.data.rows.map((item) => [item.teacherId, item]));
@@ -390,30 +413,33 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
           }),
         ).values(),
       );
+      const isManagerStaff = isManagerStaffRole(form.roleCode);
       const payload: PermissionUserUpsertPayload = {
         name: form.name.trim(),
         username: form.username.trim(),
         roleCode: form.roleCode,
         phone: form.phone.trim() || undefined,
         classIds:
-          form.roleCode === 'subject_teacher'
+          isManagerStaff || form.roleCode === 'subject_teacher'
             ? Array.from(new Set(subjectScopes.map((item) => item.classId)))
             : form.classIds.map(Number),
-        subjectScopes: subjectScopes.length > 0 ? subjectScopes : undefined,
+        subjectScopes,
         resetPassword: form.resetPassword,
       };
 
       if (!payload.name || !payload.username) {
         throw new Error('请填写完整的教师姓名和登录账号');
       }
-      if (!teacherRoleCodes.includes(payload.roleCode)) {
-        throw new Error('教师管理仅支持班主任和任课教师岗位');
-      }
-      if (payload.roleCode === 'subject_teacher' && subjectScopes.length === 0) {
-        throw new Error('任课教师至少需要配置一个授课班级和学科');
-      }
-      if (payload.roleCode === 'homeroom_teacher' && payload.classIds?.length === 0) {
-        throw new Error('班主任至少需要负责一个班级');
+      if (!isManagerStaff) {
+        if (!isTeacherRoleCode(payload.roleCode)) {
+          throw new Error('教师管理仅支持班主任和任课教师岗位');
+        }
+        if (payload.roleCode === 'subject_teacher' && subjectScopes.length === 0) {
+          throw new Error('任课教师至少需要配置一个授课班级和学科');
+        }
+        if (payload.roleCode === 'homeroom_teacher' && payload.classIds?.length === 0) {
+          throw new Error('班主任至少需要负责一个班级');
+        }
       }
 
       const allUsersResponse = await adminApi.permissionUsers(token);
@@ -459,7 +485,7 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
       const matchesView =
         teacherView === 'all' ||
         row.roleCode === teacherView ||
-        (teacherView === 'manager' && ['school_admin', 'academic_admin', 'moral_admin'].includes(row.roleCode));
+        (teacherView === 'manager' && ['super_admin', 'school_admin', 'academic_admin', 'moral_admin'].includes(row.roleCode));
       const matchesKeyword =
         !keyword ||
         normalizeKeyword(row.name).includes(keyword) ||
@@ -510,13 +536,15 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
     sortedTeachers,
     `${searchKeyword}|${roleFilter}|${teacherView}|${focusFilter}|${liveStatusFilter}|${sortConfig?.key ?? 'default'}|${sortConfig?.direction ?? 'default'}|${teachers.length}`,
   );
-  const selectedRoleTemplate = teacherRoleTemplates.find((item) => item.code === form.roleCode);
-  const selectedTeacherRoleTemplate = teacherRoleTemplates.find((item) => item.code === selectedTeacher?.roleCode);
+  const selectedRoleTemplate = staffRoleTemplates.find((item) => item.code === form.roleCode);
+  const selectedTeacherRoleTemplate = staffRoleTemplates.find((item) => item.code === selectedTeacher?.roleCode);
+  const isManagerStaffEditor = isManagerStaffRole(form.roleCode);
+  const teachingRoleBadge = isManagerStaffEditor
+    ? '管理岗兼职任课'
+    : form.roleCode === 'homeroom_teacher'
+      ? '班主任主责'
+      : '任课教师';
 
-  const selectedHomeroomClasses = useMemo(
-    () => classes.filter((item) => form.classIds.includes(String(item.id))),
-    [classes, form.classIds],
-  );
   const selectedSubjectClassIds = useMemo(
     () => Array.from(new Set(form.subjectScopeKeys.map((item) => Number(item.split(':')[0])))),
     [form.subjectScopeKeys],
@@ -524,13 +552,14 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
   const selectedClassPreview = useMemo(
     () =>
       classes.filter((item) =>
-        form.roleCode === 'subject_teacher'
-          ? selectedSubjectClassIds.includes(item.id)
-          : form.classIds.includes(String(item.id)),
+        form.roleCode === 'homeroom_teacher'
+          ? form.classIds.includes(String(item.id))
+          : selectedSubjectClassIds.includes(item.id),
       ),
     [classes, form.classIds, form.roleCode, selectedSubjectClassIds],
   );
-  const subjectAssignableClasses = useMemo(() => selectedHomeroomClasses, [selectedHomeroomClasses]);
+  // 授课学科与班主任负责班级独立配置，学科侧展示全校班级供直接勾选
+  const subjectAssignableClasses = useMemo(() => classes, [classes]);
   const editorGradeOptions = useMemo(
     () => Array.from(new Set(subjectAssignableClasses.map((item) => item.gradeName))),
     [subjectAssignableClasses],
@@ -571,24 +600,6 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
   function getTeacherClassSummary(row: PermissionUser | null) {
     if (!row) return [];
     return classes.filter((item) => row.classIds.includes(item.id));
-  }
-
-  function formatTeacherScopeForTable(row: PermissionUser) {
-    if (row.subjectScopes.length > 0) {
-      return Array.from(
-        new Set(
-          row.subjectScopes.map((item) => {
-            const classLabel = item.className ?? `班级${item.classId}`;
-            return `${classLabel}·${item.subjectLabel}`;
-          }),
-        ),
-      ).join('、');
-    }
-
-    const classNames = classes
-      .filter((item) => row.classIds.includes(item.id))
-      .map((item) => item.name);
-    return classNames.join('、') || formatPermissionScopeDisplay(row.scopeDisplay) || '未分配负责范围';
   }
 
   function toggleSubjectScope(classId: number, subjectCode: string, checked: boolean) {
@@ -1075,8 +1086,12 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
 
       {showEditor ? (
         <Modal
-          title={editingTeacher ? '编辑教师' : '新增教师'}
-          subtitle="统一维护教师身份、班级主责与授课学科"
+          title={editingTeacher && isManagerStaffEditor ? '编辑兼课配置' : editingTeacher ? '编辑教师' : '新增教师'}
+          subtitle={
+            isManagerStaffEditor
+              ? '管理岗位保持不变，此处仅维护兼职授课班级与学科'
+              : '统一维护教师身份、班级主责与授课学科'
+          }
           onClose={closeEditor}
         >
           <form className="settings-form teacher-editor-form" onSubmit={handleSubmit}>
@@ -1086,18 +1101,23 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
                   <span className="teacher-editor-kicker">{editingTeacher ? '编辑分工' : '新增教师'}</span>
                   <h4>{form.name.trim() || '填写教师信息并配置任教范围'}</h4>
                   <p>
-                    先确定岗位，再设置主负责班级与授课学科。班主任也可以补充兼教学科，用于展示端学科规则和后续权限判断。
+                    {isManagerStaffEditor
+                      ? '系统角色保持不变。直接在下方选择班级并勾选兼教学科，用于任课工作视角与展示端规则。'
+                      : '先确定岗位，再设置主负责班级与授课学科。班主任也可以补充兼教学科，用于展示端学科规则和后续权限判断。'}
                   </p>
                   <div className="teacher-editor-meta-row">
-                    <span className="teacher-editor-meta-pill">{form.roleCode === 'homeroom_teacher' ? '班主任主责' : '任课教师'}</span>
-                    <span className="teacher-editor-meta-pill">已选班级 {form.classIds.length} 个</span>
+                    <span className="teacher-editor-meta-pill">{teachingRoleBadge}</span>
+                    <span className="teacher-editor-meta-pill">
+                      {form.roleCode === 'homeroom_teacher' ? '已选班级' : '已选授课班级'}{' '}
+                      {form.roleCode === 'homeroom_teacher' ? form.classIds.length : selectedSubjectClassIds.length} 个
+                    </span>
                     <span className="teacher-editor-meta-pill">已选学科 {selectedSubjectScopeItems.length} 组</span>
                   </div>
                 </div>
                 <div className="teacher-editor-hero-side">
                   <div className="teacher-editor-summary-card">
                     <span>岗位能力摘要</span>
-                    <strong>{selectedRoleTemplate?.name ?? '教师岗位'}</strong>
+                    <strong>{selectedRoleTemplate?.name ?? (isManagerStaffEditor ? '管理岗位' : '教师岗位')}</strong>
                     <div className="settings-tag-row compact">
                       {(selectedRoleTemplate?.permissions ?? []).map((item) => (
                         <span className="settings-tag" key={item}>{item}</span>
@@ -1122,14 +1142,18 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
                   </div>
                   <div className="s-row permission-row-2">
                     <div className="s-field">
-                      <label>教师岗位</label>
-                      <select value={form.roleCode} onChange={(event) => setForm((prev) => ({ ...prev, roleCode: event.target.value }))}>
-                        {teacherRoleTemplates.map((item) => (
-                          <option key={item.code} value={item.code}>
-                            {item.name}
-                          </option>
-                        ))}
-                      </select>
+                      <label>{isManagerStaffEditor ? '系统角色' : '教师岗位'}</label>
+                      {isManagerStaffEditor ? (
+                        <input type="text" value={selectedRoleTemplate?.name ?? form.roleCode} readOnly />
+                      ) : (
+                        <select value={form.roleCode} onChange={(event) => setForm((prev) => ({ ...prev, roleCode: event.target.value }))}>
+                          {teacherRoleTemplates.map((item) => (
+                            <option key={item.code} value={item.code}>
+                              {item.name}
+                            </option>
+                          ))}
+                        </select>
+                      )}
                     </div>
                     <div className="s-field">
                       <label>联系电话</label>
@@ -1138,39 +1162,43 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
                   </div>
                 </div>
 
-                <details className="detail-card span-2 teacher-editor-collapsible-card" open={!editingTeacher}>
-                  <summary className="teacher-editor-section-head">
-                    <div>
-                      <h4>{form.roleCode === 'homeroom_teacher' ? '班主任负责班级' : '授课班级'}</h4>
-                      <p>{form.roleCode === 'homeroom_teacher' ? '先勾选班主任主负责班级，再决定是否补充兼教学科。' : '任课教师通过班级-学科组合建立可用规则范围。'}</p>
+                {form.roleCode === 'homeroom_teacher' ? (
+                  <details className="detail-card span-2 teacher-editor-collapsible-card" open>
+                    <summary className="teacher-editor-section-head">
+                      <div>
+                        <h4>班主任负责班级</h4>
+                        <p>勾选班主任主负责班级；兼教学科在下方单独配置，可跨班选择。</p>
+                      </div>
+                      <b>{form.classIds.length} 个班级</b>
+                    </summary>
+                    <div className="teacher-class-grid">
+                      {classes.map((item) => {
+                        const selected = form.classIds.includes(String(item.id));
+                        return (
+                          <button
+                            key={item.id}
+                            type="button"
+                            className={`teacher-class-card${selected ? ' active' : ''}`}
+                            onClick={() => toggleHomeroomClass(item.id, !selected)}
+                          >
+                            <strong>{item.gradeName} {item.name}</strong>
+                            <span>{item.studentCount} 名学生</span>
+                            <b>{selected ? '已选择' : '点击选择'}</b>
+                          </button>
+                        );
+                      })}
                     </div>
-                    <b>{form.classIds.length} 个班级</b>
-                  </summary>
-                  <div className="teacher-class-grid">
-                    {classes.map((item) => {
-                      const selected = form.classIds.includes(String(item.id));
-                      return (
-                        <button
-                          key={item.id}
-                          type="button"
-                          className={`teacher-class-card${selected ? ' active' : ''}`}
-                          onClick={() => toggleHomeroomClass(item.id, !selected)}
-                        >
-                          <strong>{item.gradeName} {item.name}</strong>
-                          <span>{item.studentCount} 名学生</span>
-                          <b>{selected ? '已选择' : '点击选择'}</b>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </details>
+                  </details>
+                ) : null}
 
                 <div className="detail-card span-2">
                   <div className="teacher-editor-section-head">
                     <div>
                       <h4>{form.roleCode === 'homeroom_teacher' ? '授课学科（可选）' : '授课学科配置'}</h4>
                       <p>
-                        先筛班级，再为当前班勾选学科。这样可以在班级很多时保持操作可控。
+                        {form.roleCode === 'homeroom_teacher'
+                          ? '与上方负责班级独立：先筛班级，再为当前班勾选兼教学科。'
+                          : '先筛班级，再为当前班勾选学科。这样可以在班级很多时保持操作可控。'}
                       </p>
                     </div>
                     <b>{selectedSubjectScopeItems.length} 组班级-学科</b>
@@ -1263,14 +1291,12 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
                       </div>
                     </div>
                   ) : (
-                    <div className="teacher-editor-empty">
-                      {form.roleCode === 'homeroom_teacher' ? '请先选择班主任负责班级，再补充授课学科。' : '暂无可配置班级。'}
-                    </div>
+                    <div className="teacher-editor-empty">暂无可配置班级，请先在班级管理中创建班级。</div>
                   )}
                 </div>
 
                 <div className="detail-card">
-                  <h4>当前已选班级</h4>
+                  <h4>{form.roleCode === 'homeroom_teacher' ? '当前已选班级' : '当前已选授课班级'}</h4>
                   <div className="teacher-editor-selection-list">
                     {selectedClassPreview.map((item) => (
                       <div className="teacher-editor-selection-item" key={item.id}>
@@ -1308,7 +1334,11 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
                 取消
               </button>
               <button className="toolbar-button" type="submit">
-                {editingTeacher ? '保存修改' : '保存并开通'}
+                {editingTeacher
+                  ? isManagerStaffEditor
+                    ? '保存兼课配置'
+                    : '保存修改'
+                  : '保存并开通'}
               </button>
             </div>
           </form>
@@ -1606,12 +1636,14 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
                       </div>
                     ) : '-'}
                   </td>
-                  <td className="security-scope-cell">{formatTeacherScopeForTable(row)}</td>
+                  <PermissionScopeTableCell row={row} classes={classes} />
                   <td>{renderLiveStatusCell(row)}</td>
                   <td>
                     <button className="op-btn" type="button" onClick={() => openDetail(row)}>查看详情</button>
                     {allowManageTeachers ? (
-                      <button className="op-btn" type="button" onClick={() => openEdit(row)}>编辑教师</button>
+                      <button className="op-btn" type="button" onClick={() => openEdit(row)}>
+                        {isManagerStaffRole(row.roleCode) ? '编辑兼课' : '编辑教师'}
+                      </button>
                     ) : null}
                     <button className="op-btn" type="button" onClick={() => setSelectedScheduleTeacher(row)}>查看课程</button>
                   </td>

@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { AdminOpsPanel } from '../components/AdminOpsPanel';
 import { Modal } from '../components/Modal';
+import { PermissionScopeTableCell } from '../components/PermissionScopeTableCell';
 import { OperationAuditPanel } from '../components/OperationAuditPanel';
 import { Shell } from '../components/Shell';
 import { TablePagination } from '../components/TablePagination';
@@ -9,6 +11,7 @@ import type { AdminClass, PermissionUser, PermissionUserUpsertPayload, RoleTempl
 import { adminApi } from '../lib/api';
 import type { PermissionUserFormState } from '../types/admin';
 import { createPermissionUserForm, formatEnabledStatus, formatPermissionScopeDisplay, normalizeKeyword } from '../utils/adminForms';
+import { buildPermissionScopeDetail } from '../utils/permissionScopeDisplay';
 import { canViewOperationAudit } from '../utils/adminPermissions';
 
 const adminRoleCodes = ['super_admin', 'school_admin', 'academic_admin', 'moral_admin'];
@@ -34,7 +37,7 @@ const coreOrganizationTabs = [
 ] as const;
 
 type CoreOrganizationTab = (typeof coreOrganizationTabs)[number][0];
-type OrganizationTab = CoreOrganizationTab | 'audit';
+type OrganizationTab = CoreOrganizationTab | 'audit' | 'ops';
 
 type OrganizationPageProps = {
   token: string;
@@ -79,6 +82,7 @@ export function OrganizationPage({ token, user, classes, loading, error }: Organ
   const visibleTabs = useMemo(() => {
     const rows: Array<[OrganizationTab, string]> = [...coreOrganizationTabs] as Array<[OrganizationTab, string]>;
     if (canViewOperationAudit(user?.roleCode)) {
+      rows.push(['ops', '运行监控']);
       rows.push(['audit', '操作审计']);
     }
     return rows;
@@ -128,7 +132,7 @@ export function OrganizationPage({ token, user, classes, loading, error }: Organ
 
     const nextTab = nextTabRaw === 'admins' ? 'accounts' : nextTabRaw;
 
-    if (nextTab === 'audit' && !canViewOperationAudit(user?.roleCode)) {
+    if ((nextTab === 'audit' || nextTab === 'ops') && !canViewOperationAudit(user?.roleCode)) {
       const params = new URLSearchParams(searchParams);
       params.delete('activeTab');
       setSearchParams(params, { replace: true });
@@ -136,6 +140,7 @@ export function OrganizationPage({ token, user, classes, loading, error }: Organ
     } else if (
       nextTab === 'accounts' ||
       nextTab === 'roles' ||
+      (nextTab === 'ops' && canViewOperationAudit(user?.roleCode)) ||
       (nextTab === 'audit' && canViewOperationAudit(user?.roleCode))
     ) {
       setActiveTab(nextTab);
@@ -232,7 +237,7 @@ export function OrganizationPage({ token, user, classes, loading, error }: Organ
           form.roleCode === 'subject_teacher'
             ? Array.from(new Set(subjectScopes.map((item) => item.classId)))
             : form.classIds.map(Number),
-        subjectScopes: subjectScopes.length > 0 ? subjectScopes : undefined,
+        subjectScopes,
         resetPassword: form.resetPassword,
       };
 
@@ -479,7 +484,7 @@ export function OrganizationPage({ token, user, classes, loading, error }: Organ
       user={user}
       status={
         <>
-          {(loading || pageLoading) && activeTab !== 'audit' ? (
+          {(loading || pageLoading) && activeTab !== 'audit' && activeTab !== 'ops' ? (
             <div className="status-card">安全中心数据加载中...</div>
           ) : null}
           {error ? <div className="status-card error">{error}</div> : null}
@@ -493,7 +498,9 @@ export function OrganizationPage({ token, user, classes, loading, error }: Organ
         <div>
           <h2>安全中心</h2>
           <p className="page-desc">
-            {activeTab === 'audit'
+            {activeTab === 'ops'
+              ? '查看当前后端服务、数据库依赖、服务器资源与最近告警/错误日志，用于日常巡检和初步排障。'
+              : activeTab === 'audit'
               ? '默认展示「重点关注」范围（账号权限、学校与学期配置、批量导入、奖品删除等）。切换「全部记录」可浏览完整日志；展开行可查看系统内部标识与原始明细。'
               : activeTab === 'roles'
                 ? '查看各岗位的默认能力边界；账号绑定岗位后在「账号中心」列表中生效。'
@@ -625,7 +632,7 @@ export function OrganizationPage({ token, user, classes, loading, error }: Organ
                       <td className="permission-name security-name-cell">{row.name}</td>
                       <td className="security-muted-cell">{row.username}</td>
                       <td><span className="security-role-pill">{row.roleName}</span></td>
-                      <td className="security-scope-cell">{formatPermissionScopeDisplay(row.scopeDisplay)}</td>
+                      <PermissionScopeTableCell row={row} classes={classes} />
                       <td className="security-muted-cell">{formatLastLogin(row.lastLoginAt)}</td>
                       <td><span className={row.status === 'enabled' ? 'status-on' : 'status-off'}>{formatEnabledStatus(row.status)}</span></td>
                       <td className="security-actions-cell">
@@ -679,6 +686,7 @@ export function OrganizationPage({ token, user, classes, loading, error }: Organ
         </div>
       ) : null}
 
+      {activeTab === 'ops' ? <AdminOpsPanel token={token} loading={loading} error={error} /> : null}
       {activeTab === 'audit' ? <OperationAuditPanel token={token} loading={loading} error={error} /> : null}
 
       {showEditor ? (
@@ -982,7 +990,7 @@ export function OrganizationPage({ token, user, classes, loading, error }: Organ
               <div className="detail-list">
                 <div><span>岗位</span><strong>{selectedUser.roleName}</strong></div>
                 <div><span>账号状态</span><strong>{formatEnabledStatus(selectedUser.status)}</strong></div>
-                <div><span>负责范围</span><strong>{formatPermissionScopeDisplay(selectedUser.scopeDisplay)}</strong></div>
+                <div><span>负责范围</span><strong>{buildPermissionScopeDetail(selectedUser, classes)}</strong></div>
                 <div><span>岗位摘要</span><strong>{selectedUser.permissionSummary}</strong></div>
               </div>
             </div>

@@ -32,13 +32,71 @@
         line-height: 1.8;
         color: rgba(255, 255, 255, 0.84);
       }
+
+      pre {
+        margin: 18px 0 0;
+        padding: 16px;
+        border-radius: 16px;
+        white-space: pre-wrap;
+        word-break: break-word;
+        background: rgba(8, 22, 45, 0.38);
+        color: rgba(255, 255, 255, 0.92);
+      }
+
+      .actions {
+        display: flex;
+        gap: 12px;
+        margin-top: 24px;
+        flex-wrap: wrap;
+      }
+
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 168px;
+        padding: 14px 20px;
+        border-radius: 999px;
+        color: #fff;
+        text-decoration: none;
+        background: rgba(255, 255, 255, 0.18);
+        border: 1px solid rgba(255, 255, 255, 0.22);
+      }
     </style>
   </head>
   <body>
     <div class="card">
-      <h1>育英星宠 Display Desktop</h1>
-      <p>Electron 桌面壳已建立。下一步将接入 Display Web 构建产物，输出 Windows 安装程序。</p>
-      <p>开发模式可通过环境变量 <code>DISPLAY_WEB_URL</code> 指向本地 Display Web 服务。</p>
+      <h1 id="title">育英星宠 Display Desktop</h1>
+      <p id="message">Electron 桌面壳已建立。下一步将接入 Display Web 构建产物，输出 Windows 安装程序。</p>
+      <p>可通过环境变量 <code>DISPLAY_START_URL</code> 或同目录 <code>display.config.json</code> 指向线上 Display 页面。</p>
+      <pre id="detail" hidden></pre>
+      <div class="actions">
+        <a id="retry" class="button" href="#" hidden>重试打开线上地址</a>
+      </div>
     </div>
+    <script>
+      const params = new URLSearchParams(window.location.search);
+      const title = params.get('title');
+      const message = params.get('message');
+      const detail = params.get('detail');
+      const retryUrl = params.get('retryUrl');
+
+      if (title) {
+        document.getElementById('title').textContent = title;
+      }
+      if (message) {
+        document.getElementById('message').textContent = message;
+      }
+      if (detail) {
+        const detailNode = document.getElementById('detail');
+        detailNode.hidden = false;
+        detailNode.textContent = detail;
+      }
+      if (retryUrl) {
+        const retryNode = document.getElementById('retry');
+        retryNode.hidden = false;
+        retryNode.href = retryUrl;
+      }
+    </script>
   </body>
-  </html>
+</html>

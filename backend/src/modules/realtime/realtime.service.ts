@@ -47,6 +47,10 @@ export class RealtimeService {
     this.realtimeGateway.server.to(`class:${classId}`).emit('class.group.changed', payload);
   }
 
+  emitClassConfigChanged(classId: number, payload: Record<string, unknown>) {
+    this.realtimeGateway.server.to(`class:${classId}`).emit('class.config.changed', payload);
+  }
+
   emitAiSummaryGenerated(classId: number, payload: Record<string, unknown>) {
     this.realtimeGateway.server.to(`class:${classId}`).emit('ai.summary.generated', payload);
   }

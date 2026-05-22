@@ -1,5 +1,5 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
-import { NavLink } from 'react-router-dom';
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { NavLink, useLocation } from 'react-router-dom';
 import presentationLogo from '../assets/presentation-logo.svg';
 import { useAdminView } from '../context/AdminViewContext';
 import { adminApi, type SessionUser } from '../lib/api';
@@ -19,6 +19,7 @@ type ShellProps = {
 
 export function Shell({ title, subtitle: _subtitle, user, onLogout, status, children }: ShellProps) {
   const { originalUser, availableViews, activeView, setActiveViewKey, isActingSubjectView } = useAdminView();
+  const location = useLocation();
   const navIconMap: Record<NavKey, PresentationGlyphName> = {
     dashboard: 'display',
     classes: 'school',
@@ -53,6 +54,8 @@ export function Shell({ title, subtitle: _subtitle, user, onLogout, status, chil
       hour12: false,
     }).format(new Date()),
   );
+  const accountMenuRef = useRef<HTMLDivElement | null>(null);
+  const [accountPopoverOpen, setAccountPopoverOpen] = useState(false);
   const [accountMenuView, setAccountMenuView] = useState<'menu' | 'profile' | 'password'>('menu');
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: '',
@@ -78,6 +81,34 @@ export function Shell({ title, subtitle: _subtitle, user, onLogout, status, chil
 
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    setAccountPopoverOpen(false);
+    setAccountMenuView('menu');
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (!accountPopoverOpen) return;
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (accountMenuRef.current?.contains(event.target as Node)) return;
+      setAccountPopoverOpen(false);
+      setAccountMenuView('menu');
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      setAccountPopoverOpen(false);
+      setAccountMenuView('menu');
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [accountPopoverOpen]);
 
   const roleLabel = roleNameMap[user?.roleCode ?? ''] ?? '未分配角色';
   const originalRoleLabel = roleNameMap[originalUser?.roleCode ?? ''] ?? roleLabel;
@@ -200,8 +231,23 @@ export function Shell({ title, subtitle: _subtitle, user, onLogout, status, chil
               <PresentationGlyph name="bell" className="notif-icon" />
               <span className="notif-dot" />
             </span>
-            <div className="account-menu">
-              <button className="user-drop user-drop-button" type="button" onClick={() => setAccountMenuView('menu')}>
+            <div
+              ref={accountMenuRef}
+              className={`account-menu${accountPopoverOpen ? ' is-open' : ''}`}
+            >
+              <button
+                className="user-drop user-drop-button"
+                type="button"
+                onClick={() => {
+                  setAccountPopoverOpen((prev) => {
+                    const nextOpen = !prev;
+                    setAccountMenuView('menu');
+                    return nextOpen;
+                  });
+                }}
+                aria-haspopup="dialog"
+                aria-expanded={accountPopoverOpen}
+              >
                 <span className="av">{user?.name?.slice(0, 1) ?? '育'}</span>
                 <span className="user-drop-main">
                   <span className="user-drop-name">{user?.name ?? '未登录'}</span>

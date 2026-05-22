@@ -157,6 +157,7 @@ export class ScoreRecordsService {
       studentIds: [body.studentId],
       sourceTerminal: body.sourceTerminal,
       operatorName: user.name,
+      changes: this.buildStudentScoreChanges([result]),
       upgrades: result.petUpgrade.upgraded
         ? [
             {
@@ -254,6 +255,7 @@ export class ScoreRecordsService {
       sourceTerminal: body.sourceTerminal,
       operatorName: user.name,
       batchId: result.batchId,
+      changes: this.buildStudentScoreChanges(result.items),
       upgrades: result.items
         .filter((item) => item.petUpgrade?.upgraded)
         .map((item) => ({
@@ -576,6 +578,7 @@ export class ScoreRecordsService {
 
     return {
       scoreRecordId: Number(record.id),
+      scoreDelta,
       studentProfile: {
         studentId: toNumber(params.studentId),
         currentScore: profile.currentScore,
@@ -583,5 +586,21 @@ export class ScoreRecordsService {
       },
       petUpgrade,
     };
+  }
+
+  private buildStudentScoreChanges(
+    items: Array<{
+      scoreDelta: number;
+      studentProfile: { studentId: number | null; currentScore: number; currentPetLevel: number };
+    }>,
+  ) {
+    return items
+      .filter((item) => item.studentProfile.studentId != null)
+      .map((item) => ({
+        studentId: Number(item.studentProfile.studentId),
+        scoreDelta: item.scoreDelta,
+        currentScore: item.studentProfile.currentScore,
+        currentPetLevel: item.studentProfile.currentPetLevel,
+      }));
   }
 }

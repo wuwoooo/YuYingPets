@@ -1,0 +1,516 @@
+/* 任课教师工作台 */
+.subject-teacher-desk {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.subject-teacher-desk .teacher-hero-card {
+  margin-bottom: 0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background:
+    radial-gradient(circle at 85% 15%, rgba(93, 173, 226, 0.22), transparent 42%),
+    radial-gradient(circle at 10% 90%, rgba(224, 176, 0, 0.12), transparent 38%),
+    linear-gradient(145deg, #0c3554 0%, #124a72 45%, #1a5f8f 100%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.06) inset,
+    0 20px 50px rgba(12, 53, 84, 0.22);
+}
+
+.subject-teacher-hero-sep {
+  margin: 0 0.35em;
+  opacity: 0.55;
+  font-weight: 500;
+}
+
+.subject-teacher-hero-subject {
+  color: #ffd86b;
+  font-weight: 800;
+}
+
+/* 任课教师工作台 · 概览指标卡 */
+.std-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(0, 1.45fr);
+  gap: 14px;
+}
+
+.std-metric-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 132px;
+  padding: 18px 20px;
+  border-radius: 18px;
+  border: 1px solid rgba(15, 61, 99, 0.07);
+  background: #fff;
+  box-shadow:
+    0 1px 2px rgba(15, 61, 99, 0.04),
+    0 10px 28px rgba(15, 61, 99, 0.05);
+  overflow: hidden;
+  transition:
+    transform 0.22s ease,
+    box-shadow 0.22s ease,
+    border-color 0.22s ease;
+}
+
+.std-metric-card::after {
+  content: "";
+  position: absolute;
+  top: -40px;
+  right: -40px;
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.std-metric-card__top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.std-metric-card__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  flex-shrink: 0;
+}
+
+.std-metric-card__icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.std-metric-card__label {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.std-metric-card__badge {
+  margin-left: auto;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.std-metric-card__arrow {
+  margin-left: auto;
+  color: #94a3b8;
+  font-size: 16px;
+  font-weight: 700;
+  transition: transform 0.2s ease;
+}
+
+.std-metric-card__value {
+  color: #1e293b;
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+}
+
+.std-metric-card__value--text {
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.55;
+  letter-spacing: -0.01em;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.std-metric-card__unit {
+  margin-left: 4px;
+  color: #94a3b8;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.std-metric-card__hint {
+  margin-top: auto;
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.std-metric-card--action {
+  border: 0;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+
+.std-metric-card--action:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 1px 2px rgba(15, 61, 99, 0.04),
+    0 16px 36px rgba(15, 61, 99, 0.1);
+}
+
+.std-metric-card--action:hover .std-metric-card__arrow {
+  transform: translateX(3px);
+  color: #8e44ad;
+}
+
+.std-metric-card--blue {
+  background: linear-gradient(155deg, #ffffff 0%, #f3f9ff 100%);
+}
+
+.std-metric-card--blue::after {
+  background: radial-gradient(circle, rgba(52, 152, 219, 0.18), transparent 70%);
+}
+
+.std-metric-card--blue .std-metric-card__icon {
+  background: rgba(41, 128, 185, 0.12);
+  color: #2980b9;
+}
+
+.std-metric-card--blue .std-metric-card__value {
+  color: #2471a3;
+}
+
+.std-metric-card--green {
+  background: linear-gradient(155deg, #ffffff 0%, #f2fbf6 100%);
+}
+
+.std-metric-card--green::after {
+  background: radial-gradient(circle, rgba(46, 204, 113, 0.16), transparent 70%);
+}
+
+.std-metric-card--green .std-metric-card__icon {
+  background: rgba(39, 174, 96, 0.12);
+  color: #27ae60;
+}
+
+.std-metric-card--green .std-metric-card__value {
+  color: #219a52;
+}
+
+.std-metric-card--purple {
+  background: linear-gradient(155deg, #ffffff 0%, #f9f3fc 100%);
+}
+
+.std-metric-card--purple::after {
+  background: radial-gradient(circle, rgba(155, 89, 182, 0.16), transparent 70%);
+}
+
+.std-metric-card--purple .std-metric-card__icon {
+  background: rgba(142, 68, 173, 0.12);
+  color: #8e44ad;
+}
+
+.std-metric-card--purple .std-metric-card__value {
+  color: #7d3c98;
+}
+
+.std-metric-card--amber {
+  background: linear-gradient(155deg, #ffffff 0%, #fff9f0 100%);
+}
+
+.std-metric-card--amber::after {
+  background: radial-gradient(circle, rgba(243, 156, 18, 0.14), transparent 70%);
+}
+
+.std-metric-card--amber .std-metric-card__icon {
+  background: rgba(243, 156, 18, 0.12);
+  color: #e67e22;
+}
+
+.std-metric-card--amber .std-metric-card__value--text {
+  color: #b45309;
+}
+
+.std-metric-card--danger {
+  background: linear-gradient(155deg, #ffffff 0%, #fff5f5 100%);
+}
+
+.std-metric-card--danger::after {
+  background: radial-gradient(circle, rgba(231, 76, 60, 0.14), transparent 70%);
+}
+
+.std-metric-card--danger .std-metric-card__icon {
+  background: rgba(231, 76, 60, 0.12);
+  color: #c0392b;
+}
+
+.std-metric-card--danger .std-metric-card__value,
+.std-metric-card--danger .std-metric-card__value--text {
+  color: #b42318;
+}
+
+.subject-teacher-desk .panel {
+  border: 1px solid rgba(15, 61, 99, 0.06);
+  border-radius: 20px;
+  box-shadow: 0 4px 20px rgba(15, 61, 99, 0.05);
+}
+
+.subject-teacher-desk .row-2 {
+  margin-bottom: 0;
+}
+
+.subject-teacher-desk .teacher-hero-stat {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: background 0.2s ease;
+}
+
+.subject-teacher-desk .teacher-hero-stat:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.subject-teacher-desk .teacher-hero-main h3 {
+  font-size: clamp(24px, 3vw, 30px);
+  line-height: 1.25;
+}
+
+.subject-teacher-desk .analytics-ai-card {
+  border-radius: 16px;
+}
+
+.subject-teacher-desk .teacher-draft-card {
+  border-radius: 14px;
+  background: #f8fafc;
+  border: 1px solid rgba(15, 61, 99, 0.06);
+}
+
+@media (max-width: 1400px) {
+  .std-metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .std-metric-card--wide {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 768px) {
+  .std-metric-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .std-metric-card--wide {
+    grid-column: auto;
+  }
+}
+
+/* 班主任工作台 */
+.homeroom-desk {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.homeroom-desk .teacher-hero-card {
+  margin-bottom: 0;
+}
+
+.homeroom-desk .homeroom-hero {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background:
+    radial-gradient(circle at 88% 12%, rgba(93, 173, 226, 0.2), transparent 40%),
+    radial-gradient(circle at 8% 88%, rgba(46, 204, 113, 0.1), transparent 36%),
+    linear-gradient(145deg, #0c3554 0%, #13486f 48%, #1a5f8f 100%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.06) inset,
+    0 20px 50px rgba(12, 53, 84, 0.22);
+}
+
+.homeroom-desk .panel {
+  border: 1px solid rgba(15, 61, 99, 0.06);
+  border-radius: 20px;
+  box-shadow: 0 4px 20px rgba(15, 61, 99, 0.05);
+}
+
+.homeroom-desk .homeroom-desk-row {
+  margin-bottom: 0;
+}
+
+.homeroom-insight-banner {
+  padding: 16px 18px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #f0f7ff 0%, #f8fbff 100%);
+  border: 1px solid rgba(52, 152, 219, 0.12);
+}
+
+.homeroom-insight-banner--soft {
+  background: linear-gradient(135deg, #f7fafc 0%, #f2f6fa 100%);
+  border-color: rgba(15, 61, 99, 0.08);
+}
+
+.homeroom-insight-banner p {
+  margin: 0;
+  color: #334155;
+  font-size: 14px;
+  line-height: 1.75;
+}
+
+.std-metric-grid--3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.std-metric-grid--4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.homeroom-tip-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.homeroom-tip-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #f8fafc;
+  border: 1px solid rgba(15, 61, 99, 0.06);
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.homeroom-tip-item__dot {
+  width: 8px;
+  height: 8px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #3498db, #5dade2);
+  flex-shrink: 0;
+}
+
+.homeroom-ai-stack {
+  display: grid;
+  gap: 14px;
+}
+
+.homeroom-insight-card {
+  padding: 16px 18px;
+  border-radius: 16px;
+  background: #fff;
+  border: 1px solid rgba(15, 61, 99, 0.07);
+  box-shadow: 0 2px 12px rgba(15, 61, 99, 0.04);
+}
+
+.homeroom-insight-card--priority {
+  background: linear-gradient(135deg, #fffef8 0%, #fff9eb 100%);
+  border-color: rgba(243, 156, 18, 0.18);
+}
+
+.homeroom-insight-card--compact .mini-list {
+  margin-top: 4px;
+}
+
+.homeroom-insight-card__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.homeroom-insight-card__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: rgba(243, 156, 18, 0.12);
+  color: #e67e22;
+}
+
+.homeroom-insight-card__icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.homeroom-insight-card__icon--green {
+  background: rgba(39, 174, 96, 0.12);
+  color: #27ae60;
+}
+
+.homeroom-insight-card__icon--blue {
+  background: rgba(41, 128, 185, 0.12);
+  color: #2980b9;
+}
+
+.homeroom-insight-card__icon--purple {
+  background: rgba(142, 68, 173, 0.12);
+  color: #8e44ad;
+}
+
+.homeroom-insight-card p {
+  margin: 0;
+  color: #475569;
+  font-size: 14px;
+  line-height: 1.75;
+}
+
+.homeroom-action-list {
+  display: grid;
+  gap: 10px;
+}
+
+.homeroom-action-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.homeroom-action-item__step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 8px;
+  background: rgba(39, 174, 96, 0.12);
+  color: #27ae60;
+  font-size: 12px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+@media (max-width: 1400px) {
+  .std-metric-grid--4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .std-metric-grid--3 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .std-metric-grid--3,
+  .std-metric-grid--4 {
+    grid-template-columns: 1fr;
+  }
+}

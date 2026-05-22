@@ -96,11 +96,13 @@ async function bootstrap() {
   SwaggerModule.setup('api/docs', app, swaggerDocument);
 
   const port = process.env.PORT ? Number(process.env.PORT) : 3000;
-  await app.listen(port);
+  const host = process.env.HOST?.trim() || '127.0.0.1';
+  await app.listen(port, host);
 
   processLogger.info({
     msg: 'backend_started',
     port,
+    host,
     nodeEnv: process.env.NODE_ENV ?? 'unset',
   });
 }

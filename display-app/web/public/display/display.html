@@ -13,6 +13,7 @@
         window.performance || { now: function now() { return Date.now(); } };
     </script>
     <script src="./vendor/socket.io/socket.io.min.js"></script>
+    <script src="./vendor/morphdom/morphdom-umd.min.js"></script>
     <link rel="stylesheet" href="./styles/display.css" />
     <style>
       .pet-profile-actions {
@@ -903,25 +904,35 @@
                   <div class="class-countdown-title" id="classCountdownTitle">距离目标</div>
                 </div>
               </div>
-              <div class="class-countdown-grid" id="classCountdownGrid">
-                <div class="class-countdown-unit">
-                  <strong id="classCountdownDays">00</strong>
-                  <span>天</span>
+              <div class="class-countdown-body">
+                <div class="class-countdown-grid" id="classCountdownGrid">
+                  <div class="class-countdown-unit">
+                    <strong id="classCountdownDays">00</strong>
+                    <span>天</span>
+                  </div>
+                  <div class="class-countdown-unit">
+                    <strong id="classCountdownHours">00</strong>
+                    <span>时</span>
+                  </div>
+                  <div class="class-countdown-unit">
+                    <strong id="classCountdownMinutes">00</strong>
+                    <span>分</span>
+                  </div>
+                  <div class="class-countdown-unit">
+                    <strong id="classCountdownSeconds">00</strong>
+                    <span>秒</span>
+                  </div>
                 </div>
-                <div class="class-countdown-unit">
-                  <strong id="classCountdownHours">00</strong>
-                  <span>时</span>
-                </div>
-                <div class="class-countdown-unit">
-                  <strong id="classCountdownMinutes">00</strong>
-                  <span>分</span>
-                </div>
-                <div class="class-countdown-unit">
-                  <strong id="classCountdownSeconds">00</strong>
-                  <span>秒</span>
+                <div class="class-countdown-ended" id="classCountdownEnded" aria-hidden="true">
+                  <div class="class-countdown-ended-icon" aria-hidden="true">
+                    <i class="fa-solid fa-flag-checkered"></i>
+                  </div>
+                  <div class="class-countdown-ended-text">
+                    <strong>已结束</strong>
+                    <span>目标倒计时已完成</span>
+                  </div>
                 </div>
               </div>
-              <div class="class-countdown-ended" id="classCountdownEnded" hidden>已结束</div>
               <div class="class-countdown-deadline" id="classCountdownDeadline">截止时间 --</div>
             </div>
             <div class="lb-entry-card" onclick="navigateTo('leaderboard')">
@@ -1124,6 +1135,13 @@
     <div id="page-academic" class="page">
       <div class="academic-grid-bg" aria-hidden="true"></div>
       <div class="academic-scanline" aria-hidden="true"></div>
+      <div class="academic-vscan" aria-hidden="true"></div>
+      <canvas class="academic-particles" id="academicParticles" aria-hidden="true"></canvas>
+      <div class="academic-splash-overlay" id="academicSplash" aria-hidden="true">
+        <div class="academic-splash-kicker">ACADEMIC GROWTH COMMAND</div>
+        <div class="academic-splash-heading">学业成长数据驾驶舱</div>
+        <div class="academic-splash-sub">DECODING ACADEMIC DATA ···</div>
+      </div>
       <div class="academic-topbar">
         <div class="academic-brand">
           <img src="images/logo.svg" alt="育英星宠" />
@@ -1139,17 +1157,15 @@
           </div>
         </div>
         <div class="academic-clock">
-          <button type="button" class="academic-top-back" onclick="navigateTo('classroom')">
-            <i class="fa-solid fa-house" aria-hidden="true"></i>
-            返回主页
-          </button>
           <select id="academicExamSelect" class="academic-exam-select" onchange="handleAcademicExamChange(this.value)">
             <option value="">--</option>
           </select>
         </div>
       </div>
+      <div class="academic-topbar-glow" aria-hidden="true"></div>
 
       <div class="academic-layout">
+        <aside class="academic-side-column academic-side-left">
         <section class="academic-panel academic-overview">
           <div class="academic-panel-title">
             <span>核心态势</span>
@@ -1176,6 +1192,7 @@
           </div>
           <div class="academic-trajectory" id="academicTrajectory"></div>
         </section>
+        </aside>
 
         <section class="academic-panel academic-matrix">
           <div class="academic-panel-title">
@@ -1185,6 +1202,7 @@
           <div class="academic-table" id="academicScoreTable"></div>
         </section>
 
+        <aside class="academic-side-column academic-side-right">
         <section class="academic-panel academic-radar-panel">
           <div class="academic-panel-title">
             <span>科目雷达</span>
@@ -1221,8 +1239,13 @@
             </div>
           </div>
         </section>
+        </aside>
       </div>
 
+      <button type="button" class="academic-fab-back" onclick="navigateTo('classroom')">
+        <i class="fa-solid fa-house" aria-hidden="true"></i>
+        返回主页
+      </button>
     </div>
 
     <div class="academic-ai-overlay" id="academicAiModal">

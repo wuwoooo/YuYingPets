@@ -50,7 +50,14 @@ const TIME_RANGES = [
 ];
 
 const WEEKDAY_LABELS = ['星期一', '星期二', '星期三', '星期四', '星期五'];
-const TEACHER_ROLE_CODES = ['homeroom_teacher', 'subject_teacher'];
+// 课表导入按“可授课账号”匹配，学校管理岗位也可能兼任课程。
+const TEACHER_ROLE_CODES = [
+  'homeroom_teacher',
+  'subject_teacher',
+  'academic_admin',
+  'moral_admin',
+  'school_admin',
+];
 const SUBJECT_LABELS: Record<string, string> = {
   chinese: '语文',
   math: '数学',

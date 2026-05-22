@@ -5,6 +5,7 @@ import { AiModule } from './modules/ai/ai.module';
 import { AcademicRecordsModule } from './modules/academic-records/academic-records.module';
 import { AdminConfigModule } from './modules/admin-config/admin-config.module';
 import { AdminInsightsModule } from './modules/admin-insights/admin-insights.module';
+import { AdminOpsModule } from './modules/admin-ops/admin-ops.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { ClassesModule } from './modules/classes/classes.module';
@@ -33,6 +34,7 @@ import { CallQueueModule } from './modules/call-queue/call-queue.module';
     RealtimeModule,
     AcademicRecordsModule,
     AdminConfigModule,
+    AdminOpsModule,
     AuditModule,
     AdminInsightsModule,
     AuthModule,

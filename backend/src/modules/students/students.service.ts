@@ -760,10 +760,16 @@ export class StudentsService {
     const user = await this.authService.getAuthUserFromAuthorization(authorization);
     this.authService.ensureCanAccessClass(user, body.classId);
 
-    if (user.roleCode !== 'homeroom_teacher') {
+    if (
+      !['homeroom_teacher', 'school_admin', 'academic_admin', 'grade_admin', 'moral_admin', 'super_admin'].includes(
+        user.roleCode,
+      )
+    ) {
       throw new ForbiddenException('当前角色无权执行萌宠领养');
     }
-    await this.authService.ensureIsHomeroomOfClass(user, body.classId);
+    if (user.roleCode === 'homeroom_teacher') {
+      await this.authService.ensureIsHomeroomOfClass(user, body.classId);
+    }
 
     const result = await this.prisma.$transaction(async (tx) => {
       const student = await tx.student.findFirst({

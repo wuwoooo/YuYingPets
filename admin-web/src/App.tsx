@@ -3,7 +3,7 @@ import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { AdminViewProvider, useAdminView } from './context/AdminViewContext';
 import { useAdminData } from './hooks/useAdminData';
-import './styles.css';
+import { scheduleMaskProbe } from './utils/maskProbe';
 
 const LoginPage = lazy(() => import('./pages/LoginPage').then((module) => ({ default: module.LoginPage })));
 const DashboardPage = lazy(() => import('./pages/DashboardPage').then((module) => ({ default: module.DashboardPage })));
@@ -60,6 +60,16 @@ function AppRoutes({ adminData }: { adminData: ReturnType<typeof useAdminData> }
       adminData.refresh();
     }
     lastPathRef.current = location.pathname;
+  }, [location.pathname, token]);
+
+  useEffect(() => {
+    if (location.pathname === '/presentation') return;
+    if (!document.fullscreenElement) return;
+    void document.exitFullscreen?.().catch?.(() => {});
+  }, [location.pathname]);
+
+  useEffect(() => {
+    scheduleMaskProbe(`admin-route:${location.pathname}`, 1500);
   }, [location.pathname, token]);
 
   async function handleRefresh() {

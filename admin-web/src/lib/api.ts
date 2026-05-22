@@ -1314,6 +1314,86 @@ export type OperationAuditLogsPayload = {
   limit: number;
 };
 
+export type AdminOpsOverview = {
+  status: 'ok' | 'degraded';
+  checkedAt: string;
+  app: {
+    uptimeSeconds: number;
+    nodeVersion: string;
+  };
+  dependencies: {
+    database: 'ok' | 'error';
+  };
+  error: string | null;
+  server: {
+    hostname: string;
+    platform: string;
+    cpu: {
+      coreCount: number;
+      model: string;
+      loadAverage: number[];
+      usageRate: number | null;
+    };
+    memory: {
+      totalBytes: number;
+      usedBytes: number;
+      freeBytes: number;
+      usageRate: number | null;
+    };
+    disk: {
+      path: string;
+      totalBytes: number | null;
+      usedBytes: number | null;
+      availableBytes: number | null;
+      usageRate: number | null;
+      error?: string;
+    };
+  };
+  process: {
+    pid: number;
+    memoryBytes: number;
+    pm2:
+      | {
+          available: true;
+          status: string;
+          pid: number | null;
+          restarts: number;
+          unstableRestarts: number;
+          uptimeMs: number | null;
+          memoryBytes: number | null;
+          cpuPercent: number | null;
+        }
+      | {
+          available: false;
+          status: 'unavailable';
+          reason: string;
+        };
+  };
+};
+
+export type AdminOpsLogItem = {
+  id: string;
+  time: string | null;
+  level: 'info' | 'warn' | 'error' | 'fatal' | 'unknown';
+  source: string;
+  summary: string;
+  requestId: string | null;
+  raw: string;
+  detail: Record<string, unknown> | null;
+};
+
+export type AdminOpsLogsResponse = {
+  items: AdminOpsLogItem[];
+  total: number;
+  level: 'all' | 'warn' | 'error' | 'fatal';
+  sinceHours: number;
+  limit: number;
+  sources: {
+    errorLog: string | null;
+    outLog: string | null;
+  };
+};
+
 export const adminApi = {
   login(username: string, password: string) {
     return request<LoginResponse>('/auth/login', {
@@ -1793,6 +1873,26 @@ export const adminApi = {
     if (query?.scope) params.set('scope', query.scope);
     const suffix = params.size > 0 ? `?${params.toString()}` : '';
     return request<ApiObjectResponse<OperationAuditLogsPayload>>(`/admin/audit/operation-logs${suffix}`, {
+      token,
+    });
+  },
+  opsOverview(token: string) {
+    return request<ApiObjectResponse<AdminOpsOverview>>('/admin/ops/overview', { token });
+  },
+  opsLogs(
+    token: string,
+    query?: {
+      level?: 'all' | 'warn' | 'error' | 'fatal';
+      sinceHours?: number;
+      limit?: number;
+    },
+  ) {
+    const params = new URLSearchParams();
+    if (query?.level) params.set('level', query.level);
+    if (query?.sinceHours !== undefined) params.set('sinceHours', String(query.sinceHours));
+    if (query?.limit !== undefined) params.set('limit', String(query.limit));
+    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    return request<ApiObjectResponse<AdminOpsLogsResponse>>(`/admin/ops/logs${suffix}`, {
       token,
     });
   },

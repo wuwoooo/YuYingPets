@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { useNavigate } from "react-router-dom";
 import presentationLogo from "../assets/presentation-logo.svg";
 import { adminApi } from "../lib/api";
 import {
@@ -12,6 +13,7 @@ type LoginPageProps = {
 };
 
 export function LoginPage({ onLoggedIn }: LoginPageProps) {
+  const navigate = useNavigate();
   const storedCredentials = getAdminLoginCredentials();
   const [username, setUsername] = useState(
     storedCredentials?.username ?? "admin",
@@ -34,9 +36,7 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
       setAdminLoginCredentials(username, password);
       setAdminToken(response.data.token);
       onLoggedIn(response.data.token);
-      window.location.assign(
-        new URL("/dashboard", window.location.origin).toString(),
-      );
+      navigate("/dashboard", { replace: true });
     } catch (err) {
       setIsExiting(false);
       setError(err instanceof Error ? err.message : "登录失败");

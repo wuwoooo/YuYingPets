@@ -209,10 +209,17 @@ export class ClassScoreRecordsService {
     this.realtimeService.emitClassScoreChanged(body.classId, {
       classId: body.classId,
       gradeCode: result.gradeCode,
-      scoreDelta: result.scoreDelta,
-      currentScore: result.classScoreProfile.currentScore,
+      sourceTerminal: body.sourceTerminal,
+      classScoreDelta: result.scoreDelta,
+      classCurrentScore: result.classScoreProfile.currentScore,
       operatorName: user.name,
       studentIds: result.linkedScoreItems.map((item) => item.studentProfile.studentId),
+      changes: result.linkedScoreItems.map((item) => ({
+        studentId: item.studentProfile.studentId,
+        scoreDelta: item.scoreDelta,
+        currentScore: item.studentProfile.currentScore,
+        currentPetLevel: item.studentProfile.currentPetLevel,
+      })),
       upgrades: result.linkedScoreItems
         .filter((item) => item.petUpgrade?.upgraded)
         .map((item) => ({
@@ -307,10 +314,17 @@ export class ClassScoreRecordsService {
         classId: item.classId,
         gradeCode: item.gradeCode,
         batchId: result.batchId,
-        scoreDelta: item.scoreDelta,
-        currentScore: item.classScoreProfile.currentScore,
+        sourceTerminal: body.sourceTerminal,
+        classScoreDelta: item.scoreDelta,
+        classCurrentScore: item.classScoreProfile.currentScore,
         operatorName: user.name,
         studentIds: item.linkedScoreItems.map((linked) => linked.studentProfile.studentId),
+        changes: item.linkedScoreItems.map((linked) => ({
+          studentId: linked.studentProfile.studentId,
+          scoreDelta: linked.scoreDelta,
+          currentScore: linked.studentProfile.currentScore,
+          currentPetLevel: linked.studentProfile.currentPetLevel,
+        })),
         upgrades: item.linkedScoreItems
           .filter((linked) => linked.petUpgrade?.upgraded)
           .map((linked) => ({

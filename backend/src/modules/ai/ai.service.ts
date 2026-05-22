@@ -179,15 +179,10 @@ export class AiService {
   }
 
   async generateForDisplay(
-    classId: number,
     studentId: number,
     periodType: 'weekly' | 'monthly' = 'weekly',
   ) {
-    const student = await this.loadStudent(studentId);
-    if (Number(student.classId) !== classId) {
-      throw new NotFoundException('学生不存在或不属于当前大屏班级');
-    }
-
+    await this.loadStudent(studentId);
     return this.generateSnapshot(studentId, periodType, 'manual');
   }
 
