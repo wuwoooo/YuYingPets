@@ -15,6 +15,7 @@ import type {
   StudentImportPayload
 } from '../lib/api';
 import { adminApi } from '../lib/api';
+import { useCurrentSemesterName } from '../hooks/useCurrentSemesterName';
 import { buildAcademicGrowthSummary } from '../utils/academicGrowth';
 import { canManageDisplays } from '../utils/adminPermissions';
 import type {
@@ -73,6 +74,7 @@ export function PresentationModePage({
   const [academicExams, setAcademicExams] = useState<AcademicExamListItem[]>([]);
   const [academicScores, setAcademicScores] = useState<AcademicScoreListRow[]>([]);
   const clockText = snapshotData.clockText;
+  const currentSemesterName = useCurrentSemesterName(token);
   const gradeFilter = searchParams.get('gradeName') || 'all';
   const classFilter = searchParams.get('classId') || 'all';
   const returnTo = searchParams.get('returnTo');
@@ -871,7 +873,7 @@ export function PresentationModePage({
             <span className="presentation-live"><span className="presentation-live-dot" />LIVE</span>
           </div>
           <div className="presentation-meta">
-            <span>2026 春季学期</span>
+            <span>{currentSemesterName ?? '当前学期'}</span>
             <span>大理海东育英实验学校</span>
             <span>{user?.name ?? '管理员'}</span>
           </div>

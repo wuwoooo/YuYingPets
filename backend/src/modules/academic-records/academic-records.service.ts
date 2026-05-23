@@ -37,6 +37,8 @@ type StudentAcademicExamGroup = {
   examName: string;
   gradeName: string | null;
   sourceFile: string | null;
+  examDate: Date;
+  periodLabel: string | null;
   importedAt: Date;
   subjects: Array<{
     subjectCode: string;
@@ -57,6 +59,8 @@ type SchoolGrowthExamItem = {
   name: string;
   gradeName: string | null;
   sourceFile: string | null;
+  examDate: string;
+  periodLabel: string | null;
   importedAt: string;
   recordCount: number;
 };
@@ -124,34 +128,50 @@ export class AcademicRecordsService {
     const currentSemester = await this.prisma.semester.findFirst({
       where: { schoolId: user.schoolId, isCurrent: true, status: 'enabled' },
       orderBy: { id: 'desc' },
-      select: { id: true },
+      select: { id: true, name: true },
     });
     if (!currentSemester) {
       throw new BadRequestException('请先配置当前学期，再导入成绩');
     }
+    const requestedSemesterId = Number(body.semesterId);
+    const targetSemester =
+      Number.isInteger(requestedSemesterId) && requestedSemesterId > 0
+        ? await this.prisma.semester.findFirst({
+            where: { id: BigInt(requestedSemesterId), schoolId: user.schoolId, status: 'enabled' },
+            select: { id: true, name: true },
+          })
+        : currentSemester;
+    if (!targetSemester) {
+      throw new BadRequestException('所选学期不存在或不可用');
+    }
+    const examDate = this.parseExamDate(body.examDate);
+    const periodLabel =
+      String(body.periodLabel ?? '').trim() ||
+      this.inferAcademicPeriodLabel(`${examName} ${String(body.sourceFile ?? '')}`, examDate, targetSemester.name);
 
     const duplicatedExam = await this.prisma.academicExam.findFirst({
       where: {
         schoolId: user.schoolId,
-        semesterId: currentSemester.id,
+        semesterId: targetSemester.id,
         name: examName,
+        examDate,
       },
       select: { id: true },
     });
     if (duplicatedExam) {
-      throw new BadRequestException(`考试名称重复：${examName} 已导入`);
+      throw new BadRequestException(`考试重复：${examName}（${this.toDateOnly(examDate)}）已导入`);
     }
 
     const sameSemesterExams = await this.prisma.academicExam.findMany({
       where: {
         schoolId: user.schoolId,
-        semesterId: currentSemester.id,
+        semesterId: targetSemester.id,
       },
-      select: { id: true, name: true },
+      select: { id: true, name: true, examDate: true },
     });
-    const duplicatedByCleanName = sameSemesterExams.find((item) => this.cleanExamName(item.name) === examName);
+    const duplicatedByCleanName = sameSemesterExams.find((item) => this.cleanExamName(item.name) === examName && this.toDateOnly(item.examDate) === this.toDateOnly(examDate));
     if (duplicatedByCleanName) {
-      throw new BadRequestException(`考试名称重复：${examName} 已导入`);
+      throw new BadRequestException(`考试重复：${examName}（${this.toDateOnly(examDate)}）已导入`);
     }
 
     const unmatched: Array<{ row: number; studentNo: string; name: string; className: string; reason: string }> = [];
@@ -172,6 +192,7 @@ export class AcademicRecordsService {
       });
       const studentByNo = new Map(existingStudents.map((item) => [`${item.classId}:${this.normalizeText(item.studentNo)}`, item]));
       const studentByName = new Map(existingStudents.map((item) => [`${item.classId}:${this.normalizeText(item.name)}`, item]));
+      const studentByGlobalNo = new Map(existingStudents.map((item) => [this.normalizeText(item.studentNo), item]));
       const rows: Prisma.AcademicScoreRecordCreateManyInput[] = [];
       const touchedClassIds = new Set<string>();
       const createdClassIds = new Set<string>();
@@ -190,7 +211,7 @@ export class AcademicRecordsService {
 
         const gradeName = String(body.gradeName ?? '').trim() || this.extractGradeName(className);
         const matchedClass = this.findImportClass(classes, className, gradeName);
-        const classroom = matchedClass ?? await this.resolveImportClass(tx, user, classes, gradeConfigs, className, gradeName);
+        const classroom = matchedClass ?? await this.resolveImportClass(tx, user, classes, gradeConfigs, className, gradeName, targetSemester.id);
         if (!matchedClass) {
           createdClassCount += 1;
           createdClassIds.add(classroom.id.toString());
@@ -202,7 +223,8 @@ export class AcademicRecordsService {
 
         let student =
           studentByNo.get(`${classroom.id}:${this.normalizeText(studentNo)}`) ??
-          studentByName.get(`${classroom.id}:${this.normalizeText(name)}`);
+          studentByName.get(`${classroom.id}:${this.normalizeText(name)}`) ??
+          studentByGlobalNo.get(this.normalizeText(studentNo));
         if (!student) {
           student = await tx.student.create({
             data: {
@@ -222,6 +244,7 @@ export class AcademicRecordsService {
           });
           studentByNo.set(`${classroom.id}:${this.normalizeText(studentNo)}`, student);
           studentByName.set(`${classroom.id}:${this.normalizeText(name)}`, student);
+          studentByGlobalNo.set(this.normalizeText(studentNo), student);
           createdStudentCount += 1;
         }
 
@@ -231,7 +254,7 @@ export class AcademicRecordsService {
           if (!subjectName) return;
           rows.push({
             schoolId: user.schoolId,
-            semesterId: currentSemester.id,
+            semesterId: targetSemester.id,
             examId: BigInt(0),
             classId: classroom.id,
             studentId: student.id,
@@ -260,9 +283,11 @@ export class AcademicRecordsService {
       const exam = await tx.academicExam.create({
         data: {
           schoolId: user.schoolId,
-          semesterId: currentSemester.id,
+          semesterId: targetSemester.id,
           gradeName: String(body.gradeName ?? '').trim() || null,
           name: examName,
+          examDate,
+          periodLabel,
           sourceFile: String(body.sourceFile ?? '').trim() || null,
           importedBy: user.id,
           importedByName: user.name,
@@ -295,6 +320,8 @@ export class AcademicRecordsService {
       targetId: BigInt(result.examId),
       detail: {
         examName,
+        examDate: this.toDateOnly(examDate),
+        periodLabel,
         sourceFile: String(body.sourceFile ?? '').trim() || null,
         classCount: result.classCount,
         createdClassCount: result.createdClassCount,
@@ -338,7 +365,7 @@ export class AcademicRecordsService {
           select: { records: true },
         },
       },
-      orderBy: [{ importedAt: 'desc' }, { id: 'desc' }],
+      orderBy: [{ examDate: 'desc' }, { id: 'desc' }],
       take: 50,
     });
 
@@ -350,9 +377,118 @@ export class AcademicRecordsService {
         name: this.cleanExamName(row.name),
         gradeName: row.gradeName,
         sourceFile: row.sourceFile,
+        examDate: row.examDate,
+        periodLabel: row.periodLabel,
         importedAt: row.importedAt,
         recordCount: row._count.records,
       })),
+    };
+  }
+
+  async updateExam(authorization: string | undefined, examId: number, body: Record<string, unknown>) {
+    const user = await this.authService.getAuthUserFromAuthorization(authorization);
+    if (!['super_admin', 'school_admin', 'academic_admin', 'moral_admin', 'grade_admin', 'homeroom_teacher'].includes(user.roleCode)) {
+      throw new ForbiddenException('当前角色无权编辑考试信息');
+    }
+    if (!Number.isInteger(examId) || examId <= 0) {
+      throw new BadRequestException('考试 ID 无效');
+    }
+
+    const exam = await this.prisma.academicExam.findFirst({
+      where: { id: BigInt(examId), schoolId: user.schoolId },
+      include: {
+        records: {
+          select: { classId: true },
+          distinct: ['classId'],
+        },
+      },
+    });
+    if (!exam) {
+      throw new NotFoundException('考试不存在');
+    }
+
+    const classRestriction = this.getClassRestriction(user);
+    if (classRestriction) {
+      const allowed = new Set(classRestriction.map((classId) => classId.toString()));
+      const hasOutOfScopeClass = exam.records.some((record) => !allowed.has(record.classId.toString()));
+      if (hasOutOfScopeClass) {
+        throw new ForbiddenException('不能编辑包含其他班级成绩的考试批次');
+      }
+    }
+
+    const examName = this.cleanExamName(String(body.examName ?? body.name ?? '').trim());
+    if (!examName) {
+      throw new BadRequestException('缺少考试名称');
+    }
+    const examDate = this.parseExamDate(body.examDate);
+    const periodLabel =
+      String(body.periodLabel ?? '').trim() ||
+      this.inferAcademicPeriodLabel(`${examName} ${exam.sourceFile ?? ''}`, examDate, null);
+
+    const sameDayExams = await this.prisma.academicExam.findMany({
+      where: {
+        schoolId: user.schoolId,
+        semesterId: exam.semesterId,
+        examDate,
+        NOT: { id: exam.id },
+      },
+      select: { id: true, name: true },
+    });
+    const duplicated = sameDayExams.find((item) => this.cleanExamName(item.name) === examName);
+    if (duplicated) {
+      throw new BadRequestException(`考试重复：${examName}（${this.toDateOnly(examDate)}）已存在`);
+    }
+
+    const updated = await this.prisma.academicExam.update({
+      where: { id: exam.id },
+      data: {
+        name: examName,
+        examDate,
+        periodLabel,
+      },
+      include: {
+        _count: {
+          select: { records: true },
+        },
+      },
+    });
+
+    await this.operationLogService.create({
+      schoolId: user.schoolId,
+      userId: user.id,
+      roleCode: user.roleCode,
+      terminalType: 'admin',
+      module: 'academic',
+      action: 'update_exam',
+      targetType: 'exam',
+      targetId: exam.id,
+      detail: {
+        before: {
+          examName: exam.name,
+          examDate: this.toDateOnly(exam.examDate),
+          periodLabel: exam.periodLabel,
+        },
+        after: {
+          examName: updated.name,
+          examDate: this.toDateOnly(updated.examDate),
+          periodLabel: updated.periodLabel,
+        },
+      },
+    });
+
+    return {
+      code: 0,
+      message: 'ok',
+      data: {
+        id: toNumber(updated.id),
+        name: this.cleanExamName(updated.name),
+        gradeName: updated.gradeName,
+        sourceFile: updated.sourceFile,
+        examDate: updated.examDate,
+        periodLabel: updated.periodLabel,
+        importedAt: updated.importedAt,
+        recordCount: updated._count.records,
+      },
     };
   }
 
@@ -389,7 +525,7 @@ export class AcademicRecordsService {
                     }
                   : {}),
               },
-              orderBy: [{ importedAt: 'desc' }, { id: 'desc' }],
+              orderBy: [{ examDate: 'desc' }, { id: 'desc' }],
               take: 50,
               select: { id: true },
             })
@@ -425,11 +561,13 @@ export class AcademicRecordsService {
             name: true,
             gradeName: true,
             sourceFile: true,
+            examDate: true,
+            periodLabel: true,
             importedAt: true,
           },
         },
       },
-      orderBy: [{ exam: { importedAt: 'desc' } }, { classId: 'asc' }, { classRank: 'asc' }, { studentNo: 'asc' }],
+      orderBy: [{ exam: { examDate: 'desc' } }, { classId: 'asc' }, { classRank: 'asc' }, { studentNo: 'asc' }],
       take: includeSubjects ? 20000 : 10000,
     });
 
@@ -442,6 +580,8 @@ export class AcademicRecordsService {
         examName: this.cleanExamName(record.exam.name),
         examGradeName: record.exam.gradeName,
         sourceFile: record.exam.sourceFile,
+        examDate: record.exam.examDate,
+        periodLabel: record.exam.periodLabel,
         importedAt: record.exam.importedAt,
         classId: toNumber(record.classId),
         className: record.className,
@@ -473,7 +613,7 @@ export class AcademicRecordsService {
     const records = await this.prisma.academicScoreRecord.findMany({
       where: { studentId: student.id, schoolId: user.schoolId },
       include: { exam: true },
-      orderBy: [{ exam: { importedAt: 'desc' } }, { subjectCode: 'asc' }],
+      orderBy: [{ exam: { examDate: 'desc' } }, { subjectCode: 'asc' }],
       take: 120,
     });
 
@@ -486,6 +626,8 @@ export class AcademicRecordsService {
         examName: this.cleanExamName(record.exam.name),
         gradeName: record.exam.gradeName,
         sourceFile: record.exam.sourceFile,
+        examDate: record.exam.examDate,
+        periodLabel: record.exam.periodLabel,
         importedAt: record.exam.importedAt,
         subjects: [],
       };
@@ -534,11 +676,13 @@ export class AcademicRecordsService {
           },
         },
       },
-      orderBy: [{ importedAt: 'desc' }, { id: 'desc' }],
+      orderBy: [{ examDate: 'desc' }, { id: 'desc' }],
       take: 6,
       select: {
         id: true,
         name: true,
+        examDate: true,
+        periodLabel: true,
         importedAt: true,
         gradeName: true,
       },
@@ -567,6 +711,8 @@ export class AcademicRecordsService {
       examTrends.push({
         examId: Number(exam.id),
         examName: this.cleanExamName(exam.name),
+        examDate: exam.examDate,
+        periodLabel: exam.periodLabel,
         importedAt: exam.importedAt,
         classAverageScore: avgNum,
         participantCount: agg._count.id,
@@ -624,6 +770,8 @@ export class AcademicRecordsService {
             select: {
               id: true,
               name: true,
+              examDate: true,
+              periodLabel: true,
               importedAt: true,
               gradeName: true,
             },
@@ -756,6 +904,8 @@ export class AcademicRecordsService {
           select: {
             id: true,
             name: true,
+            examDate: true,
+            periodLabel: true,
             importedAt: true,
             gradeName: true,
           },
@@ -882,7 +1032,7 @@ export class AcademicRecordsService {
             select: { records: true },
           },
         },
-        orderBy: [{ importedAt: 'desc' }, { id: 'desc' }],
+        orderBy: [{ examDate: 'desc' }, { id: 'desc' }],
         take: 50,
       }),
     ]);
@@ -892,6 +1042,8 @@ export class AcademicRecordsService {
       name: this.cleanExamName(row.name),
       gradeName: row.gradeName,
       sourceFile: row.sourceFile,
+      examDate: row.examDate.toISOString(),
+      periodLabel: row.periodLabel,
       importedAt: row.importedAt.toISOString(),
       recordCount: row._count.records,
     }));
@@ -985,6 +1137,7 @@ export class AcademicRecordsService {
     gradeConfigs: Array<{ code: string; name: string }>,
     className: string,
     gradeName?: string,
+    targetSemesterId?: bigint,
   ) {
     const matched = this.findImportClass(classes, className, gradeName);
     if (matched) return matched;
@@ -994,12 +1147,18 @@ export class AcademicRecordsService {
       throw new BadRequestException(`班级 ${className} 不存在，请在成绩表中提供年级信息后再导入`);
     }
 
-    const currentSemester = await tx.semester.findFirst({
-      where: { schoolId: user.schoolId, isCurrent: true, status: 'enabled' },
-      orderBy: { id: 'desc' },
-      select: { id: true },
-    });
-    if (!currentSemester) {
+    const targetSemester =
+      targetSemesterId
+        ? await tx.semester.findFirst({
+            where: { id: targetSemesterId, schoolId: user.schoolId, status: 'enabled' },
+            select: { id: true },
+          })
+        : await tx.semester.findFirst({
+            where: { schoolId: user.schoolId, isCurrent: true, status: 'enabled' },
+            orderBy: { id: 'desc' },
+            select: { id: true },
+          });
+    if (!targetSemester) {
       throw new BadRequestException('请先配置当前学期，再创建缺失班级');
     }
 
@@ -1007,8 +1166,8 @@ export class AcademicRecordsService {
     const created = await tx.classroom.create({
       data: {
         schoolId: user.schoolId,
-        semesterId: currentSemester.id,
-        code: this.buildImportClassCode(currentSemester.id, gradeCode, className, classes),
+        semesterId: targetSemester.id,
+        code: this.buildImportClassCode(targetSemester.id, gradeCode, className, classes),
         gradeCode,
         gradeName: normalizedGradeName,
         name: className,
@@ -1363,5 +1522,61 @@ export class AcademicRecordsService {
     const numeric = Number(value);
     if (!Number.isFinite(numeric)) return null;
     return new Prisma.Decimal(numeric);
+  }
+
+  private inferAcademicPeriodLabel(sourceText: string, examDate: Date, fallback: string | null) {
+    const text = sourceText.replace(/\s+/g, '');
+    const explicitTerm = text.match(/(20\d{2})\s*[-—–~至]\s*(20\d{2})学年.*?(上学期|下学期|第一学期|第二学期)/);
+    if (explicitTerm) {
+      const term = explicitTerm[3] === '上学期' || explicitTerm[3] === '第一学期' ? '上学期' : '下学期';
+      return `${explicitTerm[1]}-${explicitTerm[2]}学年${term}`;
+    }
+
+    const schoolYear = text.match(/(20\d{2})\s*[-—–~至]\s*(20\d{2})学年/);
+    const termByText =
+      /上学期|第一学期|秋季学期|秋学期|秋期/.test(text)
+        ? '上学期'
+        : /下学期|第二学期|春季学期|春学期|春期/.test(text)
+          ? '下学期'
+          : null;
+    if (schoolYear && termByText) {
+      return `${schoolYear[1]}-${schoolYear[2]}学年${termByText}`;
+    }
+
+    const yearInText = text.match(/(20\d{2})年/);
+    if (yearInText && termByText) {
+      const year = Number(yearInText[1]);
+      return termByText === '上学期'
+        ? `${year}-${year + 1}学年上学期`
+        : `${year - 1}-${year}学年下学期`;
+    }
+
+    const year = examDate.getUTCFullYear();
+    const month = examDate.getUTCMonth() + 1;
+    if (month >= 9 && month <= 12) return `${year}-${year + 1}学年上学期`;
+    if (month === 1) return `${year - 1}-${year}学年上学期`;
+    if (month >= 2 && month <= 7) return `${year - 1}-${year}学年下学期`;
+    return fallback || null;
+  }
+
+  private parseExamDate(value: unknown) {
+    const raw = String(value ?? '').trim();
+    if (!raw) return this.dateOnly(new Date());
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+      throw new BadRequestException('考试日期格式应为 YYYY-MM-DD');
+    }
+    const parsed = new Date(`${raw}T00:00:00.000Z`);
+    if (!Number.isFinite(parsed.getTime())) {
+      throw new BadRequestException('考试日期无效');
+    }
+    return parsed;
+  }
+
+  private dateOnly(value: Date) {
+    return new Date(`${value.toISOString().slice(0, 10)}T00:00:00.000Z`);
+  }
+
+  private toDateOnly(value: Date) {
+    return value.toISOString().slice(0, 10);
   }
 }

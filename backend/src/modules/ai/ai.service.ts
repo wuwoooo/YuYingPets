@@ -16,6 +16,7 @@ type ScoreRecordWithRule = {
   scoreDelta: number;
   expDelta?: number;
   remark: string | null;
+  occurredAt: Date;
   createdAt: Date;
   rule: {
     name: string;
@@ -70,6 +71,8 @@ type EvidenceItem = {
 
 type AcademicSummaryItem = {
   examName: string;
+  examDate: string;
+  periodLabel: string | null;
   importedAt: string;
   totalScore: number | null;
   totalSchoolRank: number | null;
@@ -205,7 +208,7 @@ export class AiService {
           },
         },
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { occurredAt: 'desc' },
       take: periodType === 'weekly' ? 50 : 200,
     });
     const teacherObservations = await this.prisma.teacherObservation.findMany({
@@ -445,13 +448,13 @@ export class AiService {
       totalExpDelta,
       positiveRatio: records.length ? Number((positiveCount / records.length).toFixed(2)) : 0,
       recentTrend: recentTrendScore > 2 ? 'up' : recentTrendScore < -2 ? 'down' : 'flat',
-      activeDays: new Set(records.map((item) => item.createdAt.toISOString().slice(0, 10))).size,
+      activeDays: new Set(records.map((item) => item.occurredAt.toISOString().slice(0, 10))).size,
     };
   }
 
   private buildEvidence(records: ScoreRecordWithRule[]) {
     return records.slice(0, 8).map((item) => ({
-      date: item.createdAt.toISOString().slice(0, 10),
+      date: item.occurredAt.toISOString().slice(0, 10),
       subject: item.subjectCode || '通用',
       scene: item.sceneCode || '未标记',
       ruleName: item.rule.name,
@@ -466,7 +469,7 @@ export class AiService {
     const records = await this.prisma.academicScoreRecord.findMany({
       where: { studentId: BigInt(studentId) },
       include: { exam: true },
-      orderBy: [{ exam: { importedAt: 'desc' } }, { subjectCode: 'asc' }],
+      orderBy: [{ exam: { examDate: 'desc' } }, { subjectCode: 'asc' }],
       take: 80,
     });
     const grouped = new Map<string, AcademicSummaryItem>();
@@ -474,6 +477,8 @@ export class AiService {
       const key = record.examId.toString();
       const current = grouped.get(key) ?? {
         examName: record.exam.name,
+        examDate: record.exam.examDate.toISOString().slice(0, 10),
+        periodLabel: record.exam.periodLabel,
         importedAt: record.exam.importedAt.toISOString(),
         totalScore: null,
         totalSchoolRank: null,

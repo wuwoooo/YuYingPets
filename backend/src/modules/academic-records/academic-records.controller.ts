@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Post, Put, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { AcademicRecordsService } from './academic-records.service';
 
@@ -20,6 +20,15 @@ export class AcademicRecordsController {
   @Get('exams')
   exams(@Headers('authorization') authorization: string | undefined) {
     return this.academicRecordsService.exams(authorization);
+  }
+
+  @Put('exams/:examId')
+  updateExam(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('examId') examId: string,
+    @Body() body: Record<string, unknown>,
+  ) {
+    return this.academicRecordsService.updateExam(authorization, Number(examId), body);
   }
 
   @Get('desk-overview')

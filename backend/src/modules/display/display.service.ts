@@ -1075,7 +1075,7 @@ export class DisplayService {
           select: { records: true },
         },
       },
-      orderBy: [{ importedAt: 'desc' }, { id: 'desc' }],
+      orderBy: [{ examDate: 'desc' }, { id: 'desc' }],
       take: 6,
     });
 
@@ -1129,7 +1129,7 @@ export class DisplayService {
           classId: { in: classIds },
           subjectCode: 'total',
         },
-        orderBy: [{ exam: { importedAt: 'desc' } }, { classId: 'asc' }, { classRank: 'asc' }, { studentNo: 'asc' }],
+        orderBy: [{ exam: { examDate: 'desc' } }, { classId: 'asc' }, { classRank: 'asc' }, { studentNo: 'asc' }],
         take: 5000,
       }),
       this.prisma.academicScoreRecord.findMany({
@@ -1311,6 +1311,8 @@ export class DisplayService {
         return {
           examId: toNumber(exam.id),
           examName: exam.name,
+          examDate: exam.examDate,
+          periodLabel: exam.periodLabel,
           importedAt: exam.importedAt,
           averageScore: classAverage,
           gradeAverage: gradeAverageForExam,
@@ -1335,6 +1337,8 @@ export class DisplayService {
           id: toNumber(currentExam.id),
           name: currentExam.name,
           gradeName: currentExam.gradeName,
+          examDate: currentExam.examDate,
+          periodLabel: currentExam.periodLabel,
           importedAt: currentExam.importedAt,
           recordCount: currentExam._count.records,
         },
@@ -1343,6 +1347,8 @@ export class DisplayService {
               id: toNumber(previousExam.id),
               name: previousExam.name,
               gradeName: previousExam.gradeName,
+              examDate: previousExam.examDate,
+              periodLabel: previousExam.periodLabel,
               importedAt: previousExam.importedAt,
               recordCount: previousExam._count.records,
             }
@@ -1351,6 +1357,8 @@ export class DisplayService {
           id: toNumber(exam.id),
           name: exam.name,
           gradeName: exam.gradeName,
+          examDate: exam.examDate,
+          periodLabel: exam.periodLabel,
           importedAt: exam.importedAt,
           recordCount: exam._count.records,
           isLatest: exam.id === latestExam.id,

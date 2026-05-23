@@ -6,6 +6,7 @@ import { adminApi, type SessionUser } from '../lib/api';
 import { getAdminLoginCredentials, getAdminToken, setAdminLoginCredentials } from '../lib/session';
 import type { NavKey } from '../constants/admin';
 import { getAccessibleNavItems } from '../utils/adminPermissions';
+import { useCurrentSemesterName } from '../hooks/useCurrentSemesterName';
 import { PresentationGlyph, type PresentationGlyphName } from './PresentationGlyph';
 
 type ShellProps = {
@@ -113,6 +114,7 @@ export function Shell({ title, subtitle: _subtitle, user, onLogout, status, chil
   const roleLabel = roleNameMap[user?.roleCode ?? ''] ?? '未分配角色';
   const originalRoleLabel = roleNameMap[originalUser?.roleCode ?? ''] ?? roleLabel;
   const dutyTags = (user?.dutyTags ?? []).filter((tag) => tag.trim());
+  const currentSemesterName = useCurrentSemesterName(getAdminToken());
 
   function handleLogout() {
     if (onLogout) {
@@ -205,7 +207,7 @@ export function Shell({ title, subtitle: _subtitle, user, onLogout, status, chil
           <div className="breadcrumb">
             首页 / <b>{title}</b>
           </div>
-          <div className="semester">2026 春季学期</div>
+          <div className="semester">{currentSemesterName ?? '当前学期'}</div>
           <div className="right-area">
             <span>{nowText}</span>
             {availableViews.length > 1 ? (

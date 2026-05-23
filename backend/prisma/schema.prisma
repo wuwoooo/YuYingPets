@@ -645,6 +645,8 @@ model ScoreRecord {
   sourceRole     String?      @map("source_role") @db.VarChar(32)
   operatorId     BigInt       @map("operator_id")
   operatorName   String?      @map("operator_name") @db.VarChar(64)
+  occurredAt     DateTime     @default(now()) @map("occurred_at")
+  affectsProfile Boolean      @default(true) @map("affects_profile")
   createdAt      DateTime     @default(now()) @map("created_at")
 
   school       School                 @relation(fields: [schoolId], references: [id])
@@ -659,6 +661,8 @@ model ScoreRecord {
 
   @@index([studentId, createdAt])
   @@index([classId, createdAt])
+  @@index([studentId, occurredAt])
+  @@index([classId, occurredAt])
   @@index([ruleId])
   @@index([subjectCode, sceneCode])
   @@map("score_record")
@@ -704,6 +708,8 @@ model AcademicExam {
   semesterId     BigInt   @map("semester_id")
   gradeName      String?  @map("grade_name") @db.VarChar(32)
   name           String   @db.VarChar(255)
+  examDate       DateTime @default(now()) @map("exam_date") @db.Date
+  periodLabel    String?  @map("period_label") @db.VarChar(128)
   sourceFile     String?  @map("source_file") @db.VarChar(255)
   importedBy     BigInt?  @map("imported_by")
   importedByName String?  @map("imported_by_name") @db.VarChar(64)
@@ -716,6 +722,7 @@ model AcademicExam {
   records  AcademicScoreRecord[]
 
   @@index([schoolId, semesterId])
+  @@index([schoolId, examDate])
   @@index([gradeName])
   @@map("academic_exam")
 }

@@ -42,7 +42,7 @@ export class ScoreRecordsService {
             select: { name: true },
           },
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy: { occurredAt: 'desc' },
         take: 100,
       }),
       query.subjectCode
@@ -97,11 +97,12 @@ export class ScoreRecordsService {
       operatorId: toNumber(row.operatorId),
       operatorName: null,
       ruleName: `兑换奖励：${row.reward.name}`,
+      occurredAt: row.createdAt,
       createdAt: row.createdAt,
     }));
 
     const rows = [...scoreItems, ...rewardOrderItems]
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .sort((a, b) => (b.occurredAt ?? b.createdAt).getTime() - (a.occurredAt ?? a.createdAt).getTime())
       .slice(0, 100);
 
     return {

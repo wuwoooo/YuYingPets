@@ -173,6 +173,8 @@ export type AdminStudent = {
   latestAcademic: {
     examId: number;
     examName: string;
+    examDate: string;
+    periodLabel: string | null;
     importedAt: string;
     totalScore: number | null;
     schoolRank: number | null;
@@ -307,6 +309,9 @@ export type TeacherObservationAiPolishPayload = {
 
 export type AcademicScoreImportPayload = {
   examName: string;
+  examDate?: string;
+  periodLabel?: string;
+  semesterId?: number;
   gradeName?: string;
   sourceFile?: string;
   students: Array<{
@@ -341,11 +346,19 @@ export type AcademicScoreImportResult = {
   }>;
 };
 
+export type AcademicExamUpdatePayload = {
+  examName: string;
+  examDate: string;
+  periodLabel?: string | null;
+};
+
 export type AcademicExamListItem = {
   id: number;
   name: string;
   gradeName: string | null;
   sourceFile: string | null;
+  examDate: string;
+  periodLabel: string | null;
   importedAt: string;
   recordCount: number;
 };
@@ -356,6 +369,8 @@ export type AcademicScoreListRow = {
   examName: string;
   examGradeName: string | null;
   sourceFile: string | null;
+  examDate: string;
+  periodLabel: string | null;
   importedAt: string;
   classId: number;
   className: string;
@@ -374,6 +389,8 @@ export type AcademicScoreListRow = {
 export type AcademicDeskExamTrend = {
   examId: number;
   examName: string;
+  examDate: string;
+  periodLabel: string | null;
   importedAt: string;
   classAverageScore: number;
   participantCount: number;
@@ -473,6 +490,8 @@ export type SchoolAcademicGrowthPayload = {
   trend: Array<{
     examId: number;
     examName: string;
+    examDate: string;
+    periodLabel: string | null;
     importedAt: string;
     averageScore: number;
     progressRate: number;
@@ -491,6 +510,8 @@ export type StudentAcademicExam = {
   examName: string;
   gradeName: string | null;
   sourceFile: string | null;
+  examDate: string;
+  periodLabel: string | null;
   importedAt: string;
   subjects: Array<{
     subjectCode: string;
@@ -1455,6 +1476,13 @@ export const adminApi = {
   },
   academicExams(token: string) {
     return request<ApiListResponse<AcademicExamListItem>>('/academic-records/exams', { token });
+  },
+  updateAcademicExam(token: string, examId: number, body: AcademicExamUpdatePayload) {
+    return request<ApiObjectResponse<AcademicExamListItem>>(`/academic-records/exams/${examId}`, {
+      method: 'PUT',
+      token,
+      body,
+    });
   },
   academicScores(
     token: string,

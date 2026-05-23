@@ -84,7 +84,7 @@ const QUADRANT_LABELS: Record<TeacherDeskQuadrant["key"], string> = {
 };
 
 function examTime(exam: AcademicExamListItem) {
-  return new Date(exam.importedAt).getTime();
+  return new Date(exam.examDate || exam.importedAt).getTime();
 }
 
 function avg(values: number[]) {

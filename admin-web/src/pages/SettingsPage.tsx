@@ -11,6 +11,7 @@ import type {
   TeacherOccupancyRule,
 } from "../lib/api";
 import { adminApi } from "../lib/api";
+import { notifySettingsUpdated } from "../hooks/useCurrentSemesterName";
 import type {
   DisplayFormState,
   PetGrowthFormState,
@@ -171,6 +172,7 @@ export function SettingsPage({
       };
       await adminApi.updateSemesterSettings(token, payload);
       await loadSettings();
+      notifySettingsUpdated();
       setSubmitSuccess("学期配置已保存");
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : "学期配置保存失败");

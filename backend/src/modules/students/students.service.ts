@@ -120,6 +120,8 @@ export class StudentsService {
     const summaries = new Map<string, {
       examId: number;
       examName: string;
+      examDate: Date;
+      periodLabel: string | null;
       importedAt: Date;
       totalScore: number | null;
       schoolRank: number | null;
@@ -139,11 +141,13 @@ export class StudentsService {
           select: {
             id: true,
             name: true,
+            examDate: true,
+            periodLabel: true,
             importedAt: true,
           },
         },
       },
-      orderBy: [{ exam: { importedAt: 'desc' } }, { id: 'desc' }],
+      orderBy: [{ exam: { examDate: 'desc' } }, { id: 'desc' }],
     });
 
     records.forEach((record) => {
@@ -152,6 +156,8 @@ export class StudentsService {
       summaries.set(key, {
         examId: Number(record.examId),
         examName: this.cleanExamName(record.exam.name),
+        examDate: record.exam.examDate,
+        periodLabel: record.exam.periodLabel,
         importedAt: record.exam.importedAt,
         totalScore: record.score === null ? null : Number(record.score),
         schoolRank: record.schoolRank,

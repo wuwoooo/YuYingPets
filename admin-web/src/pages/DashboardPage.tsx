@@ -1642,8 +1642,8 @@ export function DashboardPage({
     () =>
       [...academicExams].sort(
         (left, right) =>
-          new Date(right.importedAt).getTime() -
-          new Date(left.importedAt).getTime(),
+          new Date(right.examDate || right.importedAt).getTime() -
+          new Date(left.examDate || left.importedAt).getTime(),
       ),
     [academicExams],
   );
@@ -3830,8 +3830,8 @@ export function DashboardPage({
             {academicTrendPanelItems.map((row) => {
               if (row.kind === "exam") {
                 const item = row.item;
-                const examDate = item.importedAt
-                  ? new Date(item.importedAt).toLocaleDateString("zh-CN", {
+                const examDate = item.examDate || item.importedAt
+                  ? new Date(item.examDate || item.importedAt).toLocaleDateString("zh-CN", {
                       month: "numeric",
                       day: "numeric",
                     })

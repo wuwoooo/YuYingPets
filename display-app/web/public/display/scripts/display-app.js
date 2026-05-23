@@ -239,167 +239,6 @@ const students = [
   },
 ];
 
-/* ========== 开发期遮罩诊断 ========== */
-function isMaskProbeEnabled() {
-  return ["localhost", "127.0.0.1"].includes(window.location.hostname);
-}
-
-function escapeProbeSelector(value) {
-  if (window.CSS && typeof window.CSS.escape === "function") {
-    return window.CSS.escape(value);
-  }
-  return String(value).replace(/[^a-zA-Z0-9_-]/g, "\\$&");
-}
-
-function probeCssPath(element) {
-  if (!element) return "";
-  if (element.id) return `#${escapeProbeSelector(element.id)}`;
-  const parts = [];
-  let current = element;
-  while (current && current !== document.body) {
-    let part = current.tagName.toLowerCase();
-    const classNames = Array.from(current.classList || []).slice(0, 3);
-    if (classNames.length) {
-      part += `.${classNames.map(escapeProbeSelector).join(".")}`;
-    }
-    const parent = current.parentElement;
-    if (parent) {
-      const siblings = Array.from(parent.children).filter(
-        (item) => item.tagName === current.tagName,
-      );
-      if (siblings.length > 1) {
-        part += `:nth-of-type(${siblings.indexOf(current) + 1})`;
-      }
-    }
-    parts.unshift(part);
-    current = current.parentElement;
-  }
-  return `body > ${parts.join(" > ")}`;
-}
-
-function summarizeProbeElement(element) {
-  const style = window.getComputedStyle(element);
-  const rect = element.getBoundingClientRect();
-  return {
-    selector: probeCssPath(element),
-    tag: element.tagName.toLowerCase(),
-    id: element.id || "",
-    className: String(element.className || "").slice(0, 180),
-    text: (element.textContent || "").trim().replace(/\s+/g, " ").slice(0, 120),
-    position: style.position,
-    zIndex: style.zIndex,
-    pointerEvents: style.pointerEvents,
-    opacity: style.opacity,
-    visibility: style.visibility,
-    display: style.display,
-    rect: {
-      x: Math.round(rect.x),
-      y: Math.round(rect.y),
-      width: Math.round(rect.width),
-      height: Math.round(rect.height),
-    },
-  };
-}
-
-function isProbeViewportBlocker(element) {
-  const style = window.getComputedStyle(element);
-  const rect = element.getBoundingClientRect();
-  return (
-    ["fixed", "absolute", "sticky"].includes(style.position) &&
-    style.display !== "none" &&
-    style.visibility !== "hidden" &&
-    style.pointerEvents !== "none" &&
-    rect.width >= window.innerWidth * 0.9 &&
-    rect.height >= window.innerHeight * 0.9
-  );
-}
-
-function isProbeActiveLayer(element) {
-  const className = String(element.className || "");
-  return (
-    element.getAttribute("aria-modal") === "true" ||
-    element.getAttribute("role") === "dialog" ||
-    className.includes("active") ||
-    /modal|mask|overlay|popover|drawer|backdrop|loading/i.test(className)
-  );
-}
-
-function getProbeStorageKeys(storage) {
-  const keys = [];
-  for (let index = 0; index < storage.length; index += 1) {
-    const key = storage.key(index);
-    if (key) keys.push(key);
-  }
-  return keys.sort();
-}
-
-function captureDisplayMaskProbe(reason = "manual") {
-  if (!isMaskProbeEnabled()) return null;
-  const bodyStyle = window.getComputedStyle(document.body);
-  const htmlStyle = window.getComputedStyle(document.documentElement);
-  const centerStack = document
-    .elementsFromPoint(window.innerWidth / 2, window.innerHeight / 2)
-    .map(summarizeProbeElement);
-  const allElements = Array.from(document.querySelectorAll("body *"));
-  const viewportBlockers = allElements
-    .filter(isProbeViewportBlocker)
-    .map(summarizeProbeElement)
-    .sort(
-      (a, b) =>
-        (Number.parseInt(b.zIndex, 10) || 0) -
-        (Number.parseInt(a.zIndex, 10) || 0),
-    );
-  const activeLayers = allElements.filter(isProbeActiveLayer).map(summarizeProbeElement);
-  const snapshot = {
-    ts: new Date().toISOString(),
-    reason,
-    url: window.location.href,
-    title: document.title,
-    hasFocus: document.hasFocus(),
-    fullscreen: Boolean(getDisplayFullscreenElement?.()),
-    activePageId: document.querySelector(".page.active")?.id || "",
-    activeElement: document.activeElement
-      ? document.activeElement.outerHTML.slice(0, 400)
-      : null,
-    lockStatus: runtimeState?.lockStatus,
-    lockOverlayForced: runtimeState?.lockOverlayForced,
-    body: {
-      className: document.body.className,
-      style: document.body.getAttribute("style") || "",
-      pointerEvents: bodyStyle.pointerEvents,
-      overflow: bodyStyle.overflow,
-    },
-    html: {
-      className: document.documentElement.className,
-      style: document.documentElement.getAttribute("style") || "",
-      pointerEvents: htmlStyle.pointerEvents,
-      overflow: htmlStyle.overflow,
-    },
-    centerStack,
-    viewportBlockers,
-    activeLayers,
-    storageKeys: {
-      localStorage: getProbeStorageKeys(window.localStorage),
-      sessionStorage: getProbeStorageKeys(window.sessionStorage),
-    },
-  };
-
-  const logs = (window.__yypMaskProbeLogs ||= []);
-  logs.push(snapshot);
-  if (logs.length > 40) logs.splice(0, logs.length - 40);
-
-  window.__yypMaskProbe = captureDisplayMaskProbe;
-  const level = viewportBlockers.length > 0 ? "warn" : "info";
-  console[level]("[yyp-mask-probe]", reason, snapshot);
-  return snapshot;
-}
-
-function scheduleDisplayMaskProbe(reason, delay = 1200) {
-  if (!isMaskProbeEnabled()) return;
-  window.__yypMaskProbe = captureDisplayMaskProbe;
-  window.setTimeout(() => captureDisplayMaskProbe(reason), delay);
-}
-
 /* 未领养学生默认无宠；学生默认不自动分组 */
 students.forEach((s) => {
   if (s.hasPet == null) s.hasPet = true;
@@ -727,16 +566,6 @@ function renderAdoptPetGrid() {
         </div>
         <div class="adopt-pet-card-body">
           <div class="adopt-pet-card-name">${escapeHtml(pet.name)}</div>
-          <div class="adopt-pet-card-tags">
-            <span class="adopt-pet-tag">${escapeHtml(familyLabel)}</span>
-            ${
-              familyLabel !== categoryLabel
-                ? `<span class="adopt-pet-tag adopt-pet-tag--subtle">${escapeHtml(categoryLabel)}</span>`
-                : ""
-            }
-          </div>
-          <div class="adopt-stage-dots">${dots}</div>
-          <div class="adopt-pet-card-link">查看进化图谱</div>
         </div>
       </div>`;
     })
@@ -2036,6 +1865,47 @@ function showGlobalPetUpgradeAnimation(student, afterLevel, onComplete) {
   if (energyContainer) energyContainer.innerHTML = "";
   void overlay.offsetWidth;
 
+  /* 提取并设置专属色彩属性 */
+  let petH = null, petS = null, petL = null;
+  if (window.PET_THEME_COLORS) {
+    let extractId = null;
+    
+    // 优先从图片 URL 中提取前缀数字（如 "/assets/pets/400/056_森歌獭_5.png" -> "056"）
+    // 因为色彩映射字典 (pet-colors.js) 是根据图片文件名生成的，文件名对应的数字最准确
+    if (student.petImageUrl) {
+      const match = student.petImageUrl.match(/(?:^|\/)(\d{3})_/);
+      if (match) {
+        extractId = match[1];
+      }
+    }
+    
+    // 如果从 URL 提取失败，再退而求其次使用学生对象的 petId
+    if (!extractId && student.petId) {
+      extractId = String(student.petId).padStart(3, '0');
+    }
+
+    if (extractId && window.PET_THEME_COLORS[extractId]) {
+      const theme = window.PET_THEME_COLORS[extractId];
+      petH = theme.h;
+      petS = theme.s;
+      petL = theme.l;
+    }
+  }
+
+  if (petH !== null) {
+    overlay.style.setProperty('--pet-theme-h', petH);
+    overlay.style.setProperty('--pet-theme-s', `${petS}%`);
+    overlay.style.setProperty('--pet-theme-l', `${petL}%`);
+    overlay.style.setProperty('--pet-theme-energy', `hsla(${petH}, ${petS}%, ${Math.min(100, petL + 20)}%, 0.9)`);
+    overlay.style.setProperty('--pet-theme-energy-fade', `hsla(${petH}, ${petS}%, ${Math.min(100, petL + 20)}%, 0)`);
+  } else {
+    overlay.style.removeProperty('--pet-theme-h');
+    overlay.style.removeProperty('--pet-theme-s');
+    overlay.style.removeProperty('--pet-theme-l');
+    overlay.style.removeProperty('--pet-theme-energy');
+    overlay.style.removeProperty('--pet-theme-energy-fade');
+  }
+
   /* 设置内容 */
   const showcaseImageSize = getShowcasePetImageSize();
   if (seed) {
@@ -2068,6 +1938,93 @@ function showGlobalPetUpgradeAnimation(student, afterLevel, onComplete) {
     const particles = [];
     const startTime = performance.now();
 
+    // 识别宠物题材流派 (用于生成不同的专属粒子物理与绘制形态)
+    let archetype = "default";
+    const petNameStr = student.petName || "";
+    const isZodiac = student.category === "zodiac" || (student.petId && Number(student.petId) >= 74);
+    
+    if (/机|电|雷|极|兽/.test(petNameStr)) {
+      archetype = "electric";
+    } else if (/潮汐|海|豚|泡泡|露|鲨|獭/.test(petNameStr)) {
+      archetype = "water";
+    } else if (/烈焰|炎|火|牛|曜/.test(petNameStr)) {
+      archetype = "fire";
+    } else if (/星|月|云|砂|尘|粉/.test(petNameStr)) {
+      archetype = "star";
+    } else if (isZodiac || /宝|喵|兔|猫|绒|幼/.test(petNameStr)) {
+      archetype = "cute";
+    }
+    console.log("[Animation Debug] Resolved archetype:", archetype);
+
+    // Canvas绘制辅助函数
+    function drawStar(c, px, py, spikes, outerRadius, innerRadius) {
+      let rot = Math.PI / 2 * 3;
+      let x = px;
+      let y = py;
+      let step = Math.PI / spikes;
+      c.moveTo(px, py - outerRadius);
+      for (let i = 0; i < spikes; i++) {
+        x = px + Math.cos(rot) * outerRadius;
+        y = py + Math.sin(rot) * outerRadius;
+        c.lineTo(x, y);
+        rot += step;
+        x = px + Math.cos(rot) * innerRadius;
+        y = py + Math.sin(rot) * innerRadius;
+        c.lineTo(x, y);
+        rot += step;
+      }
+      c.closePath();
+    }
+
+    function drawHeart(c, px, py, size) {
+      c.moveTo(px, py + size / 4);
+      c.quadraticCurveTo(px, py - size / 2, px - size / 2, py - size / 2);
+      c.quadraticCurveTo(px - size, py - size / 2, px - size, py + size / 4);
+      c.quadraticCurveTo(px - size, py + size, px, py + size * 1.5);
+      c.quadraticCurveTo(px + size, py + size, px + size, py + size / 4);
+      c.quadraticCurveTo(px + size, py - size / 2, px + size / 2, py - size / 2);
+      c.quadraticCurveTo(px, py - size / 2, px, py + size / 4);
+      c.closePath();
+    }
+
+    function drawParticleShape(c, p, size, alpha, elapsed) {
+      c.beginPath();
+      if (archetype === "star") {
+        // 闪烁的十字星
+        drawStar(c, p.x, p.y, 4, size * 2.2, size * 0.5);
+        c.fillStyle = p.color + alpha.toFixed(3) + ")";
+        c.fill();
+      } else if (archetype === "cute") {
+        // 萌宠心形
+        drawHeart(c, p.x, p.y, size * 1.3);
+        c.fillStyle = p.color + alpha.toFixed(3) + ")";
+        c.fill();
+      } else if (archetype === "electric") {
+        // 闪电线段
+        c.strokeStyle = p.color + alpha.toFixed(3) + ")";
+        c.lineWidth = size * 0.8;
+        c.moveTo(p.x - p.vx * 1.5, p.y - p.vy * 1.5);
+        c.lineTo(p.x, p.y);
+        c.stroke();
+      } else if (archetype === "water") {
+        // 水系气泡
+        c.arc(p.x, p.y, size * 1.4, 0, Math.PI * 2);
+        c.strokeStyle = p.color + (alpha * 0.85).toFixed(3) + ")";
+        c.lineWidth = 1.2 * canvasScale;
+        c.stroke();
+        
+        c.beginPath();
+        c.arc(p.x - size * 0.4, p.y - size * 0.4, size * 0.35, 0, Math.PI * 2);
+        c.fillStyle = `rgba(255, 255, 255, ${alpha.toFixed(3)})`;
+        c.fill();
+      } else {
+        // 默认圆形
+        c.arc(p.x, p.y, size, 0, Math.PI * 2);
+        c.fillStyle = p.color + alpha.toFixed(3) + ")";
+        c.fill();
+      }
+    }
+
     /* 爆发粒子 — 从中心向外迸射 */
     const burstCount = effectBudget.upgradeBurstParticles;
     for (let i = 0; i < burstCount; i++) {
@@ -2081,9 +2038,11 @@ function showGlobalPetUpgradeAnimation(student, afterLevel, onComplete) {
         r: (1.5 + Math.random() * 3) * canvasScale,
         life: 0.6 + Math.random() * 0.6,
         born: 0.4 + Math.random() * 0.3,
-        color: isGold
-          ? `hsla(${40 + Math.random() * 15}, 90%, ${55 + Math.random() * 20}%, `
-          : `hsla(0, 0%, ${85 + Math.random() * 15}%, `,
+        color: petH !== null 
+          ? `hsla(${petH + (Math.random() - 0.5) * 20}, ${petS}%, ${petL + (Math.random() - 0.5) * 15}%, `
+          : (isGold
+            ? `hsla(${40 + Math.random() * 15}, 90%, ${55 + Math.random() * 20}%, `
+            : `hsla(0, 0%, ${85 + Math.random() * 15}%, `),
         type: "burst",
         decay: 0.97 + Math.random() * 0.02,
         sparkle: Math.random(),
@@ -2100,7 +2059,9 @@ function showGlobalPetUpgradeAnimation(student, afterLevel, onComplete) {
         r: (0.8 + Math.random() * 2) * canvasScale,
         life: 999,
         born: 0,
-        color: `hsla(${38 + Math.random() * 12}, 80%, ${60 + Math.random() * 20}%, `,
+        color: petH !== null 
+          ? `hsla(${petH + (Math.random() - 0.5) * 10}, ${Math.max(0, petS - 10)}%, ${Math.min(100, petL + 10)}%, `
+          : `hsla(${38 + Math.random() * 12}, 80%, ${60 + Math.random() * 20}%, `,
         type: "drift",
         phase: Math.random() * Math.PI * 2,
         decay: 1,
@@ -2123,27 +2084,61 @@ function showGlobalPetUpgradeAnimation(student, afterLevel, onComplete) {
           if (elapsed < p.born) return;
           const age = elapsed - p.born;
           if (age > p.life) return;
-          p.x += p.vx;
-          p.y += p.vy;
+
+          // 物理更新 - 根据题材进行运动特征调整
+          if (archetype === "electric") {
+            // 闪电型折线突变
+            if (Math.random() > 0.82) {
+              p.vx += (Math.random() - 0.5) * 4.5 * canvasScale;
+              p.vy += (Math.random() - 0.5) * 4.5 * canvasScale;
+            }
+            p.x += p.vx * 1.25;
+            p.y += p.vy * 1.25;
+          } else if (archetype === "water") {
+            // 水滴漂浮阻尼大
+            p.x += p.vx * 0.72 + Math.sin(elapsed * 4 + p.sparkle * 10) * 0.45;
+            p.y += p.vy * 0.72;
+          } else if (archetype === "fire") {
+            // 火焰受浮力上升
+            p.x += p.vx * 0.9;
+            p.y += p.vy * 0.9 - 0.16 * canvasScale;
+          } else {
+            p.x += p.vx;
+            p.y += p.vy;
+          }
+
           p.vx *= p.decay;
           p.vy *= p.decay;
-          p.vy += 0.04;
+          p.vy += archetype === "fire" ? 0.015 : 0.04; // 火焰微粒几乎不受重力影响下坠
+
           const alpha = Math.max(0, (1 - age / p.life)) * globalFade;
           const sparkleAlpha = alpha * (0.6 + 0.4 * Math.sin(elapsed * 8 + p.sparkle * 10));
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, p.r * (1 - age / p.life * 0.5), 0, Math.PI * 2);
-          ctx.fillStyle = p.color + sparkleAlpha.toFixed(3) + ")";
-          ctx.fill();
+          const currentRadius = p.r * (1 - age / p.life * 0.5);
+
+          drawParticleShape(ctx, p, currentRadius, sparkleAlpha, elapsed);
         } else {
-          p.x += p.vx + Math.sin(elapsed * 1.5 + p.phase) * 0.3;
-          p.y += p.vy;
+          // drift 粒子 (背景徐徐升起的光粉)
+          if (archetype === "electric") {
+            p.x += p.vx + (Math.random() - 0.5) * 0.5;
+            p.y += p.vy * 1.25;
+          } else if (archetype === "water") {
+            // 水系气泡摇晃上升
+            p.x += p.vx + Math.sin(elapsed * 1.8 + p.phase) * 0.75;
+            p.y += p.vy * 0.85;
+          } else if (archetype === "fire") {
+            // 灰烬火焰粒子快速上升
+            p.x += p.vx + Math.sin(elapsed * 1.2 + p.phase) * 0.4;
+            p.y += p.vy * 1.4;
+          } else {
+            p.x += p.vx + Math.sin(elapsed * 1.5 + p.phase) * 0.3;
+            p.y += p.vy;
+          }
+
           if (p.y < -30) { p.y = h + 30; p.x = Math.random() * w; }
           const baseAlpha = 0.3 + 0.3 * Math.sin(elapsed * 2.5 + p.phase);
           const alpha = baseAlpha * globalFade;
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-          ctx.fillStyle = p.color + alpha.toFixed(3) + ")";
-          ctx.fill();
+
+          drawParticleShape(ctx, p, p.r, alpha, elapsed);
         }
       });
       particleRAF = requestAnimationFrame(drawParticles);
@@ -2300,7 +2295,6 @@ function navigateTo(key) {
     applyLockOverlay();
   }
   flushStalePageUpdates(key);
-  scheduleDisplayMaskProbe(`display-navigate:${key}`, 1500);
 }
 
 function syncBottomUserName() {
@@ -3461,6 +3455,8 @@ const runtimeState = {
   pendingScoreEffects: null,
   immediateScoreBatch: null,
   scoreRealtimeFlushTimer: null,
+  scoreGridReorderTimer: null,
+  scoreGridReorderDueAt: 0,
   metaPollTimer: null,
 };
 
@@ -4316,6 +4312,76 @@ function patchStudentsFromScorePayload(payload) {
   }
 }
 
+const SCORE_ANIM_STAGGER_MS = 120;
+const SCORE_FLOAT_ANIM_MS = 1400;
+const SCORE_FLOAT_TAIL_MS = 180;
+
+function computeScoreAnimDuration(animCount) {
+  const count = Math.max(0, Number(animCount) || 0);
+  if (count <= 0) return 0;
+  return (count - 1) * SCORE_ANIM_STAGGER_MS + SCORE_FLOAT_ANIM_MS + SCORE_FLOAT_TAIL_MS;
+}
+
+function patchScoreCardFields(card, student) {
+  if (!card || !student) return;
+  const pointsEl = card.querySelector(".card-points");
+  if (pointsEl) pointsEl.textContent = `${student.pts}分`;
+  const levelEl = card.querySelector(".card-level");
+  if (levelEl) {
+    levelEl.textContent = `Lv.${student.lv}`;
+    levelEl.setAttribute("data-lv", lvCategory(student.lv));
+  }
+}
+
+function cancelPendingScoreGridReorder() {
+  if (runtimeState.scoreGridReorderTimer) {
+    clearTimeout(runtimeState.scoreGridReorderTimer);
+    runtimeState.scoreGridReorderTimer = null;
+  }
+  runtimeState.scoreGridReorderDueAt = 0;
+}
+
+function isScoreVisualsPending() {
+  return Boolean(
+    runtimeState.scoreGridReorderTimer ||
+    runtimeState.scoreRealtimeFlushTimer ||
+    runtimeState.scoreGridReorderDueAt ||
+    runtimeState.immediateScoreBatch?.eventCount,
+  );
+}
+
+function applyPendingScoreGridReorder() {
+  cancelPendingScoreGridReorder();
+  reorderStudents();
+  if (!isClassroomPageActive()) return;
+  renderStudentGrid({ force: true });
+  renderTodayRank();
+}
+
+function scheduleScoreGridReorderAfterAnim(animCount) {
+  const delay = computeScoreAnimDuration(animCount);
+  if (delay <= 0) {
+    applyPendingScoreGridReorder();
+    return;
+  }
+
+  const dueAt = Date.now() + delay;
+  if (dueAt > (runtimeState.scoreGridReorderDueAt || 0)) {
+    runtimeState.scoreGridReorderDueAt = dueAt;
+  }
+
+  if (runtimeState.scoreGridReorderTimer) {
+    clearTimeout(runtimeState.scoreGridReorderTimer);
+  }
+
+  const remaining = Math.max(0, runtimeState.scoreGridReorderDueAt - Date.now());
+  runtimeState.scoreGridReorderTimer = setTimeout(() => {
+    runtimeState.scoreGridReorderTimer = null;
+    runtimeState.scoreGridReorderDueAt = 0;
+    applyPendingScoreGridReorder();
+  }, remaining);
+}
+
 function playSingleStudentScoreAnim(row) {
   const studentId = Number(row?.studentId);
   const netDelta = Number(row?.netDelta || 0);
@@ -4328,10 +4394,7 @@ function playSingleStudentScoreAnim(row) {
 
   const card = document.querySelector(`[data-student-id="${studentId}"]`);
   if (card) {
-    const pointsEl = card.querySelector(".card-points");
-    if (pointsEl) {
-      pointsEl.textContent = `${student.pts}分`;
-    }
+    patchScoreCardFields(card, student);
     const petImgEl = card.querySelector(".card-pet-img");
     if (petImgEl) {
       petImgEl.classList.remove("card-hit-flash");
@@ -4374,8 +4437,7 @@ function playRemoteScoreAnimations(rows, options = {}) {
     if (row.currentPetLevel != null) student.lv = Number(row.currentPetLevel);
     if (animatedIds.has(studentId)) return;
     const card = document.querySelector(`[data-student-id="${studentId}"]`);
-    const pointsEl = card?.querySelector(".card-points");
-    if (pointsEl) pointsEl.textContent = `${student.pts}分`;
+    patchScoreCardFields(card, student);
   });
 
   toAnimate.forEach((row, index) => {
@@ -4383,9 +4445,7 @@ function playRemoteScoreAnimations(rows, options = {}) {
   });
 
   syncClassroomMeta();
-  reorderStudents();
-  renderStudentGrid({ force: true });
-  renderTodayRank();
+  scheduleScoreGridReorderAfterAnim(toAnimate.length);
 }
 
 function queueScoreUpgradesFromBucket(bucket) {
@@ -4406,6 +4466,7 @@ async function refreshClassMeta() {
 }
 
 function syncStudentCollectionFromRoster(rosterData) {
+  cancelPendingScoreGridReorder();
   const rosterGroups = Array.isArray(rosterData?.groups) ? rosterData.groups : [];
   const rosterStudents = Array.isArray(rosterData?.students) ? rosterData.students : [];
   runtimeState.groups = rosterGroups.map((group) => ({
@@ -4474,15 +4535,15 @@ async function refreshLeaderboardOnly() {
 function flushClassroomScoreVisuals(batch, options = {}) {
   const mode = options.mode || "immediate";
   const rows = scoreEffectsToRows(batch);
+  const activeRows = rows.filter((row) => row.netDelta !== 0);
+  const cap = isStandardDisplay() ? 3 : 8;
+  const animCount =
+    mode === "deferred" && activeRows.length > cap ? cap : activeRows.length;
   playRemoteScoreAnimations(rows, { mode });
   queueScoreUpgradesFromBucket(batch);
-  const delay =
-    rows.length > 0
-      ? Math.min(rows.length, isStandardDisplay() ? 3 : 8) * 120 + 300
-      : 0;
   setTimeout(() => {
     playPendingPetUpgradeAnimations();
-  }, delay);
+  }, computeScoreAnimDuration(animCount));
 }
 
 function flushClassroomStaleUpdates(options = {}) {
@@ -4603,7 +4664,7 @@ function scheduleScoreRealtimeFlush() {
     flushClassroomScoreVisuals(batch, { mode: "immediate" });
     runtimeState.stalePages?.delete("classroom");
     refreshLeaderboardOnly().catch(() => {});
-  }, getDisplayEffectBudget().realtimeRefreshDelay);
+  }, 100);
 }
 
 function startClassMetaPoll() {
@@ -5339,7 +5400,6 @@ function applyLockOverlay() {
   }
 
   updateLockMeta(metaLines);
-  scheduleDisplayMaskProbe("display-lock-overlay", 800);
 }
 
 function ensureOperationUnlocked() {
@@ -6248,7 +6308,7 @@ function renderAcademicGrowth() {
       ? options
           .map(
             (item) =>
-              `<option value="${escapeHtml(item.id)}"${item.id === data.latestExam?.id ? " selected" : ""}>${escapeHtml(item.name || "考试")}</option>`,
+              `<option value="${escapeHtml(item.id)}"${item.id === data.latestExam?.id ? " selected" : ""}>${escapeHtml([item.periodLabel, item.name || "考试", item.examDate ? String(item.examDate).slice(0, 10) : ""].filter(Boolean).join(" · "))}</option>`,
           )
           .join("")
       : '<option value="">等待成绩导入</option>';
@@ -7291,42 +7351,24 @@ async function applyQuickRule(ruleId) {
   try {
     if (currentFocusStudent.type === "single") {
       const student = students[currentFocusStudent.idx];
-      const result = await apiFetch("/score-records", {
+      await apiFetch("/score-records", {
         method: "POST",
         body: JSON.stringify({
           ...payloadBase,
           studentId: student.id,
         }),
       });
-      if (result?.petUpgrade?.upgraded) {
-        queuePetUpgradeAnimations([
-          {
-            studentId: result?.studentProfile?.studentId || student.id,
-            afterLevel: result?.petUpgrade?.afterLevel,
-          },
-        ]);
-      }
     } else if (currentFocusStudent.type === "batch") {
       const ids = students
         .filter((item) => currentFocusStudent.names.includes(item.name))
         .map((item) => item.id);
-      const result = await apiFetch("/score-records/batch", {
+      await apiFetch("/score-records/batch", {
         method: "POST",
         body: JSON.stringify({
           ...payloadBase,
           studentIds: ids,
         }),
       });
-      queuePetUpgradeAnimations(
-        Array.isArray(result?.items)
-          ? result.items
-              .filter((item) => item?.petUpgrade?.upgraded)
-              .map((item) => ({
-                studentId: item?.studentProfile?.studentId,
-                afterLevel: item?.petUpgrade?.afterLevel,
-              }))
-          : [],
-      );
     } else if (currentFocusStudent.type === "group") {
       const group = runtimeState.groups.find(
         (item) => item.groupNo === currentFocusStudent.group,
@@ -7334,27 +7376,19 @@ async function applyQuickRule(ruleId) {
       if (!group) {
         throw new Error("当前小组不存在");
       }
-      const result = await apiFetch("/score-records/group", {
+      await apiFetch("/score-records/group", {
         method: "POST",
         body: JSON.stringify({
           ...payloadBase,
           classGroupId: group.id,
         }),
       });
-      queuePetUpgradeAnimations(
-        Array.isArray(result?.items)
-          ? result.items
-              .filter((item) => item?.petUpgrade?.upgraded)
-              .map((item) => ({
-                studentId: item?.studentProfile?.studentId,
-                afterLevel: item?.petUpgrade?.afterLevel,
-              }))
-          : [],
-      );
     }
 
     closePointModal();
-    await bootstrapDisplayData({ authenticated: true, silent: true });
+    if (!runtimeState.socket?.connected) {
+      await bootstrapDisplayData({ authenticated: true, silent: true });
+    }
   } catch (error) {
     showDisplayToast(error.message || "加减分失败");
   }
@@ -7696,6 +7730,8 @@ async function bootstrapDisplayData(options = {}) {
     options.authenticated ?? Boolean(runtimeState.token && runtimeState.user);
   const silent = options.silent ?? false;
 
+  cancelPendingScoreGridReorder();
+
   try {
     if (!runtimeState.classId) {
       updateLockMeta([
@@ -7748,9 +7784,11 @@ async function bootstrapDisplayData(options = {}) {
     syncClassroomMeta();
     renderClassCountdown();
     syncTodayStar();
-    renderStudentGrid();
-    playPendingPetUpgradeAnimations();
-    renderTodayRank();
+    if (!isScoreVisualsPending()) {
+      renderStudentGrid();
+      playPendingPetUpgradeAnimations();
+      renderTodayRank();
+    }
     renderRewardCenter();
     renderAcademicGrowth();
     await fetchLeaderboard(runtimeState.leaderboardType || "score");
@@ -7847,10 +7885,6 @@ async function handleLogin() {
 
 document.addEventListener("DOMContentLoaded", () => {
   resolveRuntimeParams();
-  if (isMaskProbeEnabled()) {
-    window.__yypMaskProbe = captureDisplayMaskProbe;
-    scheduleDisplayMaskProbe("display-dom-ready", 1500);
-  }
   const performanceTier = getDisplayPerformanceTier();
   document.body.dataset.displayPerformance = performanceTier;
   document.body.classList.toggle("low-memory-display", isLowMemoryDisplay());

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Modal } from '../components/Modal';
+import { PresentationGlyph } from '../components/PresentationGlyph';
 import { Shell } from '../components/Shell';
 import { TablePagination } from '../components/TablePagination';
 import { usePagination } from '../hooks/usePagination';
@@ -10,6 +11,7 @@ import type {
   AdminStudent,
   AcademicExamListItem,
   AcademicScoreImportPayload,
+  AcademicExamUpdatePayload,
   AcademicScoreListRow,
   AiStudentSummary,
   ScoreRecord,
@@ -18,6 +20,7 @@ import type {
   StudentDetail,
   StudentImportPayload,
   StudentUpdatePayload,
+  SystemSettings,
 } from '../lib/api';
 import { adminApi } from '../lib/api';
 import {
@@ -42,6 +45,58 @@ type SortDirection = 'asc' | 'desc';
 type StudentEntryMode = 'single' | 'batch';
 type StudentDraft = { studentNo: string; name: string; gender: string };
 type StudentListTab = 'students' | 'scores';
+
+function todayDateInputValue() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function dateInputValue(value: string | null | undefined) {
+  if (!value) return '';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return String(value).slice(0, 10);
+  return parsed.toISOString().slice(0, 10);
+}
+
+function inferAcademicPeriodLabel(sourceText: string, examDate?: string, fallback?: string | null) {
+  const text = sourceText.replace(/\s+/g, '');
+  const explicitTerm = text.match(/(20\d{2})\s*[-—–~至]\s*(20\d{2})学年.*?(上学期|下学期|第一学期|第二学期)/);
+  if (explicitTerm) {
+    const term = explicitTerm[3] === '上学期' || explicitTerm[3] === '第一学期' ? '上学期' : '下学期';
+    return `${explicitTerm[1]}-${explicitTerm[2]}学年${term}`;
+  }
+
+  const schoolYear = text.match(/(20\d{2})\s*[-—–~至]\s*(20\d{2})学年/);
+  const termByText =
+    /上学期|第一学期|秋季学期|秋学期|秋期/.test(text)
+      ? '上学期'
+      : /下学期|第二学期|春季学期|春学期|春期/.test(text)
+        ? '下学期'
+        : null;
+  if (schoolYear && termByText) {
+    return `${schoolYear[1]}-${schoolYear[2]}学年${termByText}`;
+  }
+
+  const yearInText = text.match(/(20\d{2})年/);
+  if (yearInText && termByText) {
+    const year = Number(yearInText[1]);
+    return termByText === '上学期'
+      ? `${year}-${year + 1}学年上学期`
+      : `${year - 1}-${year}学年下学期`;
+  }
+
+  if (examDate) {
+    const date = new Date(examDate);
+    if (!Number.isNaN(date.getTime())) {
+      const year = date.getFullYear();
+      const month = date.getMonth() + 1;
+      if (month >= 9 && month <= 12) return `${year}-${year + 1}学年上学期`;
+      if (month === 1) return `${year - 1}-${year}学年上学期`;
+      if (month >= 2 && month <= 7) return `${year - 1}-${year}学年下学期`;
+    }
+  }
+
+  return fallback ?? '';
+}
 
 function trimText(text: string | null | undefined, maxLength: number) {
   const normalized = (text || '').trim();
@@ -100,6 +155,7 @@ export function StudentsPage({
   const [showOverview, setShowOverview] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [showAcademicImport, setShowAcademicImport] = useState(false);
+  const [showAcademicExamEdit, setShowAcademicExamEdit] = useState(false);
   const [listTab, setListTab] = useState<StudentListTab>('students');
   const [entryMode, setEntryMode] = useState<StudentEntryMode>('batch');
   const [editingStudent, setEditingStudent] = useState<AdminStudent | null>(null);
@@ -135,7 +191,18 @@ export function StudentsPage({
   const [importFileName, setImportFileName] = useState('');
   const [academicImportFileName, setAcademicImportFileName] = useState('');
   const [academicImportData, setAcademicImportData] = useState<AcademicScoreImportPayload | null>(null);
+  const [academicImportExamDate, setAcademicImportExamDate] = useState(todayDateInputValue());
+  const [academicImportPeriodLabel, setAcademicImportPeriodLabel] = useState('');
+  const [academicImportPeriodLabelEdited, setAcademicImportPeriodLabelEdited] = useState(false);
+  const [editingAcademicExam, setEditingAcademicExam] = useState<AcademicExamListItem | null>(null);
+  const [academicExamDraft, setAcademicExamDraft] = useState<AcademicExamUpdatePayload>({
+    examName: '',
+    examDate: todayDateInputValue(),
+    periodLabel: '',
+  });
+  const [currentSemester, setCurrentSemester] = useState<SystemSettings['semester'] | null>(null);
   const [academicImportSubmitting, setAcademicImportSubmitting] = useState(false);
+  const [academicExamEditSubmitting, setAcademicExamEditSubmitting] = useState(false);
   const [academicExams, setAcademicExams] = useState<AcademicExamListItem[]>([]);
   const [academicScores, setAcademicScores] = useState<AcademicScoreListRow[]>([]);
   const [academicScoresLoading, setAcademicScoresLoading] = useState(false);
@@ -153,6 +220,9 @@ export function StudentsPage({
   const [sortConfig, setSortConfig] = useState<{ key: StudentSortKey; direction: SortDirection } | null>(null);
   const allowImport = canImportStudents(user?.roleCode);
   const allowEdit = canEditStudents(user?.roleCode);
+  const selectedAcademicExam = examFilter === 'all'
+    ? null
+    : academicExams.find((item) => String(item.id) === examFilter) ?? null;
   const returnTo = searchParams.get('returnTo');
   const returnLabel = searchParams.get('returnLabel') || '返回来源页面';
   const gradeOptions = useMemo(
@@ -219,6 +289,21 @@ export function StudentsPage({
     academicScores,
     `${examFilter}|${searchKeyword}|${gradeFilter}|${classFilter}|${academicScores.length}`,
   );
+  const currentExamScoreStats = useMemo(() => {
+    if (!academicScores.length) return null;
+    const withTotal = academicScores.filter((row) => row.totalScore !== null && row.totalScore !== undefined);
+    const averageTotalScore = withTotal.length
+      ? Math.round((withTotal.reduce((sum, row) => sum + (row.totalScore ?? 0), 0) / withTotal.length) * 10) / 10
+      : null;
+    const progressCount = academicScores.filter((row) => (row.schoolRankDelta ?? 0) > 0).length;
+    const declineCount = academicScores.filter((row) => (row.schoolRankDelta ?? 0) < 0).length;
+    return {
+      studentCount: academicScores.length,
+      averageTotalScore,
+      progressCount,
+      declineCount,
+    };
+  }, [academicScores]);
   const studentsWithPetCount = students.filter((row) => row.pet).length;
   const averageCurrentScore = students.length
     ? Math.round(students.reduce((sum, row) => sum + row.currentScore, 0) / students.length)
@@ -229,7 +314,7 @@ export function StudentsPage({
   const latestAcademicRows = students.filter((row) => row.latestAcademic);
   const latestAcademicExamName = latestAcademicRows
     .map((row) => row.latestAcademic)
-    .sort((left, right) => new Date(right?.importedAt ?? 0).getTime() - new Date(left?.importedAt ?? 0).getTime())[0]?.examName;
+    .sort((left, right) => new Date(right?.examDate ?? right?.importedAt ?? 0).getTime() - new Date(left?.examDate ?? left?.importedAt ?? 0).getTime())[0]?.examName;
   const academicAverageTotalScore = latestAcademicRows.length
     ? Math.round(
         latestAcademicRows.reduce((sum, row) => sum + (row.latestAcademic?.totalScore ?? 0), 0) /
@@ -467,11 +552,11 @@ export function StudentsPage({
 
   useEffect(() => {
     let active = true;
-    adminApi
-      .academicExams(token)
-      .then((response) => {
+    Promise.all([adminApi.academicExams(token), adminApi.settings(token)])
+      .then(([examsResponse, settingsResponse]) => {
         if (!active) return;
-        setAcademicExams(response.data);
+        setAcademicExams(examsResponse.data);
+        setCurrentSemester(settingsResponse.data.semester);
       })
       .catch(() => {
         if (!active) return;
@@ -485,6 +570,12 @@ export function StudentsPage({
 
   useEffect(() => {
     if (listTab !== 'scores') return;
+    if (examFilter === 'all') {
+      setAcademicScores([]);
+      setAcademicScoresLoading(false);
+      setAcademicScoresError(null);
+      return;
+    }
 
     let active = true;
     setAcademicScoresLoading(true);
@@ -492,7 +583,7 @@ export function StudentsPage({
 
     adminApi
       .academicScores(token, {
-        examId: examFilter === 'all' ? undefined : Number(examFilter),
+        examId: Number(examFilter),
         classId: classFilter === 'all' ? undefined : Number(classFilter),
         gradeName: gradeFilter === 'all' ? undefined : gradeFilter,
         keyword: searchKeyword.trim() || undefined,
@@ -834,6 +925,21 @@ export function StudentsPage({
     return `较上次 ${value > 0 ? '+' : ''}${value}`;
   }
 
+  function renderRankDeltaChip(value: number | null) {
+    if (value === null) {
+      return <span className="rank-delta-chip rank-delta-chip--neutral">—</span>;
+    }
+    if (value === 0) {
+      return <span className="rank-delta-chip rank-delta-chip--neutral">持平</span>;
+    }
+    const isUp = value > 0;
+    return (
+      <span className={`rank-delta-chip rank-delta-chip--${isUp ? 'up' : 'down'}`}>
+        {isUp ? '↑' : '↓'} {Math.abs(value)}
+      </span>
+    );
+  }
+
   function formatDateTime(value: string) {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return '-';
@@ -842,6 +948,17 @@ export function StudentsPage({
       day: '2-digit',
       hour: '2-digit',
       minute: '2-digit',
+    });
+  }
+
+  function formatDate(value: string | null | undefined) {
+    if (!value) return '-';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '-';
+    return date.toLocaleDateString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
     });
   }
 
@@ -896,6 +1013,9 @@ export function StudentsPage({
     setShowAcademicImport(true);
     setAcademicImportFileName('');
     setAcademicImportData(null);
+    setAcademicImportExamDate(todayDateInputValue());
+    setAcademicImportPeriodLabel(inferAcademicPeriodLabel('', todayDateInputValue(), currentSemester?.name));
+    setAcademicImportPeriodLabelEdited(false);
     setSubmitError(null);
     setSubmitSuccess(null);
   }
@@ -905,7 +1025,93 @@ export function StudentsPage({
     setShowAcademicImport(false);
     setAcademicImportFileName('');
     setAcademicImportData(null);
+    setAcademicImportExamDate(todayDateInputValue());
+    setAcademicImportPeriodLabel('');
+    setAcademicImportPeriodLabelEdited(false);
     setSubmitError(null);
+  }
+
+  function openAcademicExamEditModal(exam: AcademicExamListItem | AcademicScoreListRow) {
+    const examInfo: AcademicExamListItem = 'recordCount' in exam
+      ? exam
+      : {
+          id: exam.examId,
+          name: exam.examName,
+          gradeName: exam.examGradeName,
+          sourceFile: exam.sourceFile,
+          examDate: exam.examDate,
+          periodLabel: exam.periodLabel,
+          importedAt: exam.importedAt,
+          recordCount: 0,
+        };
+    setEditingAcademicExam(examInfo);
+    setAcademicExamDraft({
+      examName: examInfo.name,
+      examDate: dateInputValue(examInfo.examDate) || todayDateInputValue(),
+      periodLabel: examInfo.periodLabel ?? '',
+    });
+    setShowAcademicExamEdit(true);
+    setSubmitError(null);
+    setSubmitSuccess(null);
+  }
+
+  function closeAcademicExamEditModal(force = false) {
+    if (academicExamEditSubmitting && !force) return;
+    setShowAcademicExamEdit(false);
+    setEditingAcademicExam(null);
+    setAcademicExamDraft({
+      examName: '',
+      examDate: todayDateInputValue(),
+      periodLabel: '',
+    });
+    setSubmitError(null);
+  }
+
+  async function handleAcademicExamUpdate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editingAcademicExam || academicExamEditSubmitting) return;
+    setAcademicExamEditSubmitting(true);
+    setSubmitError(null);
+    setSubmitSuccess(null);
+
+    try {
+      if (!academicExamDraft.examName.trim()) {
+        throw new Error('请填写考试标题');
+      }
+      if (!academicExamDraft.examDate) {
+        throw new Error('请填写考试日期');
+      }
+      const response = await adminApi.updateAcademicExam(token, editingAcademicExam.id, {
+        examName: academicExamDraft.examName.trim(),
+        examDate: academicExamDraft.examDate,
+        periodLabel: academicExamDraft.periodLabel?.trim() || null,
+      });
+      setAcademicExams((prev) =>
+        prev
+          .map((item) => (item.id === response.data.id ? { ...item, ...response.data } : item))
+          .sort((left, right) => new Date(right.examDate).getTime() - new Date(left.examDate).getTime() || right.id - left.id),
+      );
+      setAcademicScores((prev) =>
+        prev.map((item) =>
+          item.examId === response.data.id
+            ? {
+                ...item,
+                examName: response.data.name,
+                examDate: response.data.examDate,
+                periodLabel: response.data.periodLabel,
+                importedAt: response.data.importedAt,
+              }
+            : item,
+        ),
+      );
+      setAcademicReloadKey((prev) => prev + 1);
+      setSubmitSuccess('考试信息已更新');
+      closeAcademicExamEditModal(true);
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : '考试信息保存失败');
+    } finally {
+      setAcademicExamEditSubmitting(false);
+    }
   }
 
   async function handleAcademicExcelImport(event: React.ChangeEvent<HTMLInputElement>) {
@@ -923,6 +1129,14 @@ export function StudentsPage({
       }
       setAcademicImportData(parsed);
       setAcademicImportFileName(file.name);
+      setAcademicImportPeriodLabel(
+        inferAcademicPeriodLabel(
+          `${parsed.examName} ${parsed.sourceFile ?? file.name}`,
+          academicImportExamDate,
+          currentSemester?.name,
+        ),
+      );
+      setAcademicImportPeriodLabelEdited(false);
       setSubmitSuccess(`已读取 ${parsed.students.length} 名学生、${parsed.students.reduce((sum, item) => sum + item.subjects.length, 0)} 条科目成绩`);
     } catch (err) {
       setAcademicImportData(null);
@@ -942,8 +1156,16 @@ export function StudentsPage({
       if (!academicImportData) {
         throw new Error('请先上传成绩汇总表');
       }
+      if (!academicImportExamDate) {
+        throw new Error('请填写考试日期，历史成绩必须按实际考试日期归档');
+      }
 
-      const response = await adminApi.importAcademicScores(token, academicImportData);
+      const response = await adminApi.importAcademicScores(token, {
+        ...academicImportData,
+        examDate: academicImportExamDate,
+        periodLabel: academicImportPeriodLabel.trim() || currentSemester?.name || undefined,
+        semesterId: currentSemester?.id,
+      });
       await onSaved();
       setAcademicReloadKey((prev) => prev + 1);
       setListTab('scores');
@@ -1356,28 +1578,39 @@ export function StudentsPage({
               成绩列表
             </button>
           </div>
-          <p className="page-desc">
-            {listTab === 'students' ? '查看学生档案、积分与萌宠绑定情况。' : '查询历史考试总分、校次与班次变化。'}
-          </p>
-          {listTab === 'scores' ? (
-            <div className="page-actions" style={{ marginTop: 12 }}>
-              {!isSubjectTeacher ? (
-                <select className="filter-select" value={examFilter} onChange={(event) => setExamFilter(event.target.value)}>
-                  <option value="all">全部考试</option>
-                  {academicExams.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name}
-                    </option>
-                  ))}
-                </select>
-              ) : null}
-              {allowImport ? (
-                <button className="btn btn-outline" type="button" onClick={openAcademicImportModal}>
-                  导入成绩表
-                </button>
-              ) : null}
-            </div>
-          ) : null}
+          <div className="admin-list-tab-head">
+            <p className="page-desc">
+              {listTab === 'students'
+                ? '查看学生档案、积分与萌宠绑定情况。'
+                : selectedAcademicExam
+                  ? `查看 ${selectedAcademicExam.name} 的学生成绩明细。`
+                  : '按考试批次管理历史成绩，进入某次考试后查看学生明细。'}
+            </p>
+            {listTab === 'scores' ? (
+              <div className="academic-scores-toolbar">
+                {selectedAcademicExam ? (
+                  <button className="btn btn-ghost" type="button" onClick={() => setExamFilter('all')}>
+                    ← 返回历次考试
+                  </button>
+                ) : null}
+                {!isSubjectTeacher && selectedAcademicExam ? (
+                  <select className="filter-select" value={examFilter} onChange={(event) => setExamFilter(event.target.value)}>
+                    <option value="all">全部考试</option>
+                    {academicExams.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {[item.periodLabel, item.name, formatDate(item.examDate)].filter(Boolean).join(' · ')}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
+                {allowImport ? (
+                  <button className="btn btn-outline" type="button" onClick={openAcademicImportModal}>
+                    导入成绩表
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
         </div>
         {listTab === 'students' ? (
           <>
@@ -1409,7 +1642,7 @@ export function StudentsPage({
                         {row.latestAcademic ? (
                           <div className="table-main-sub">
                             <strong>{row.latestAcademic.totalScore ?? '-'}</strong>
-                            <span>{row.latestAcademic.examName}</span>
+                            <span>{row.latestAcademic.examName} · {formatDate(row.latestAcademic.examDate)}</span>
                           </div>
                         ) : (
                           '-'
@@ -1476,83 +1709,188 @@ export function StudentsPage({
           </>
         ) : (
           <>
-            {academicScoresError ? <div className="status-card error">{academicScoresError}</div> : null}
-            <div className="data-table-wrap security-table-wrap">
-              <table className="data-table security-table">
-                <thead>
-                  <tr>
-                    <th>考试</th>
-                    <th>学生</th>
-                    <th>班级</th>
-                    <th>总分</th>
-                    <th>校次</th>
-                    <th>班次</th>
-                    <th>导入时间</th>
-                    <th>操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {academicScorePagination.pagedItems.map((row) => (
-                    <tr key={row.id}>
-                      <td>
-                        <div className="table-main-sub">
-                          <strong>{row.examName}</strong>
-                          <span>{row.sourceFile ?? row.examGradeName ?? '-'}</span>
-                        </div>
-                      </td>
-                      <td>
-                        <div className="table-main-sub">
-                          <strong>{row.studentName}</strong>
-                          <span>{row.studentNo}</span>
-                        </div>
-                      </td>
-                      <td>{row.className}</td>
-                      <td>{row.totalScore ?? '-'}</td>
-                      <td>
-                        <div className="table-main-sub">
-                          <strong>{row.schoolRank ?? '-'}</strong>
-                          <span>{formatRankDelta(row.schoolRankDelta)}</span>
-                        </div>
-                      </td>
-                      <td>
-                        <div className="table-main-sub">
-                          <strong>{row.classRank ?? '-'}</strong>
-                          <span>{formatRankDelta(row.classRankDelta)}</span>
-                        </div>
-                      </td>
-                      <td>{formatDateTime(row.importedAt)}</td>
-                      <td>
-                        <button className="op-btn" type="button" onClick={() => openStudentDetail(row.studentId)}>
-                          详情
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                  {!academicScoresLoading && academicScores.length === 0 ? (
-                    <tr>
-                      <td colSpan={8} className="table-empty">
-                        当前筛选条件下没有成绩数据
-                      </td>
-                    </tr>
+            {examFilter === 'all' ? (
+              academicExams.length === 0 ? (
+                <div className="academic-empty-panel">
+                  <div className="academic-empty-panel__icon">
+                    <PresentationGlyph name="chart" />
+                  </div>
+                  <strong>暂无考试数据</strong>
+                  <span>导入成绩汇总表后，历次考试将按批次归档展示，便于回溯与对比。</span>
+                  {allowImport ? (
+                    <button className="btn btn-primary" type="button" onClick={openAcademicImportModal}>
+                      导入成绩表
+                    </button>
                   ) : null}
-                  {academicScoresLoading ? (
-                    <tr>
-                      <td colSpan={8} className="table-empty">
-                        成绩列表加载中...
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
-            <TablePagination
-              currentPage={academicScorePagination.currentPage}
-              pageSize={academicScorePagination.pageSize}
-              totalItems={academicScorePagination.totalItems}
-              totalPages={academicScorePagination.totalPages}
-              onPageChange={academicScorePagination.setCurrentPage}
-              onPageSizeChange={academicScorePagination.setPageSize}
-            />
+                </div>
+              ) : (
+                <div className="data-table-wrap security-table-wrap">
+                  <table className="data-table security-table academic-exam-list-table">
+                    <thead>
+                      <tr>
+                        <th>考试</th>
+                        <th>考试日期</th>
+                        <th>学期标签</th>
+                        <th>成绩记录</th>
+                        <th>导入时间</th>
+                        <th>操作</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {academicExams.map((exam) => (
+                        <tr key={exam.id}>
+                          <td>
+                            <div className="table-main-sub">
+                              <strong>{exam.name}</strong>
+                              <span>{exam.gradeName ?? exam.sourceFile ?? '-'}</span>
+                            </div>
+                          </td>
+                          <td>{formatDate(exam.examDate)}</td>
+                          <td>
+                            {exam.periodLabel ? (
+                              <span className="academic-meta-pill academic-meta-pill--accent">{exam.periodLabel}</span>
+                            ) : (
+                              '-'
+                            )}
+                          </td>
+                          <td>
+                            <span className="academic-record-badge">{exam.recordCount} 条</span>
+                          </td>
+                          <td className="security-muted-cell">{formatDateTime(exam.importedAt)}</td>
+                          <td className="security-actions-cell">
+                            <button className="op-btn" type="button" onClick={() => setExamFilter(String(exam.id))}>
+                              查看成绩
+                            </button>
+                            {allowImport ? (
+                              <button className="op-btn" type="button" onClick={() => openAcademicExamEditModal(exam)}>
+                                编辑信息
+                              </button>
+                            ) : null}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            ) : (
+              <>
+                {academicScoresError ? <div className="status-card error">{academicScoresError}</div> : null}
+                {selectedAcademicExam ? (
+                  <div className="academic-exam-hero">
+                    <div className="academic-exam-hero__main">
+                      <h4 className="academic-exam-hero__title">{selectedAcademicExam.name}</h4>
+                      <div className="academic-exam-hero__meta">
+                        <span className="academic-meta-pill">{formatDate(selectedAcademicExam.examDate)}</span>
+                        {selectedAcademicExam.periodLabel ? (
+                          <span className="academic-meta-pill academic-meta-pill--accent">{selectedAcademicExam.periodLabel}</span>
+                        ) : null}
+                        {selectedAcademicExam.gradeName ? (
+                          <span className="academic-meta-pill">{selectedAcademicExam.gradeName}</span>
+                        ) : null}
+                        <span className="academic-meta-pill">导入 {formatDateTime(selectedAcademicExam.importedAt)}</span>
+                      </div>
+                    </div>
+                    <div className="academic-exam-hero__stats">
+                      <div className="academic-exam-stat">
+                        <span>当前筛选</span>
+                        <strong>{currentExamScoreStats?.studentCount ?? 0}<small> 人</small></strong>
+                      </div>
+                      <div className="academic-exam-stat">
+                        <span>平均总分</span>
+                        <strong>{currentExamScoreStats?.averageTotalScore ?? '-'}<small> 分</small></strong>
+                      </div>
+                      <div className="academic-exam-stat academic-exam-stat--progress">
+                        <span>校次进步</span>
+                        <strong>{currentExamScoreStats?.progressCount ?? 0}<small> 人</small></strong>
+                      </div>
+                      <div className="academic-exam-stat academic-exam-stat--decline">
+                        <span>校次退步</span>
+                        <strong>{currentExamScoreStats?.declineCount ?? 0}<small> 人</small></strong>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+                <div className="data-table-wrap security-table-wrap">
+                  <table className="data-table security-table">
+                    <thead>
+                      <tr>
+                        <th>学生</th>
+                        <th>班级</th>
+                        <th>总分</th>
+                        <th>校次</th>
+                        <th>班次</th>
+                        <th>操作</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {academicScorePagination.pagedItems.map((row) => (
+                        <tr key={row.id}>
+                          <td className="security-name-cell">
+                            <div className="table-main-sub">
+                              <strong>{row.studentName}</strong>
+                              <span>{row.studentNo}</span>
+                            </div>
+                          </td>
+                          <td>{row.className}</td>
+                          <td>
+                            <span className="academic-score-value">
+                              {row.totalScore ?? '-'}
+                              {row.totalScore !== null && row.totalScore !== undefined ? <small>分</small> : null}
+                            </span>
+                          </td>
+                          <td>
+                            <div className="academic-rank-cell">
+                              <strong>{row.schoolRank ?? '-'}</strong>
+                              {renderRankDeltaChip(row.schoolRankDelta)}
+                            </div>
+                          </td>
+                          <td>
+                            <div className="academic-rank-cell">
+                              <strong>{row.classRank ?? '-'}</strong>
+                              {renderRankDeltaChip(row.classRankDelta)}
+                            </div>
+                          </td>
+                          <td className="security-actions-cell">
+                            <button className="op-btn" type="button" onClick={() => openStudentDetail(row.studentId)}>
+                              学生详情
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                      {!academicScoresLoading && academicScores.length === 0 ? (
+                        <tr>
+                          <td colSpan={6}>
+                            <div className="academic-empty-panel">
+                              <div className="academic-empty-panel__icon">
+                                <PresentationGlyph name="student" />
+                              </div>
+                              <strong>当前筛选条件下没有成绩数据</strong>
+                              <span>可调整顶部搜索、年级或班级筛选，或返回历次考试切换批次。</span>
+                            </div>
+                          </td>
+                        </tr>
+                      ) : null}
+                      {academicScoresLoading ? (
+                        <tr>
+                          <td colSpan={6} className="table-empty">
+                            成绩明细加载中...
+                          </td>
+                        </tr>
+                      ) : null}
+                    </tbody>
+                  </table>
+                </div>
+                <TablePagination
+                  currentPage={academicScorePagination.currentPage}
+                  pageSize={academicScorePagination.pageSize}
+                  totalItems={academicScorePagination.totalItems}
+                  totalPages={academicScorePagination.totalPages}
+                  onPageChange={academicScorePagination.setCurrentPage}
+                  onPageSizeChange={academicScorePagination.setPageSize}
+                />
+              </>
+            )}
           </>
         )}
       </div>
@@ -1713,34 +2051,148 @@ export function StudentsPage({
         </Modal>
       ) : null}
 
+      {allowImport && showAcademicExamEdit && editingAcademicExam ? (
+        <Modal
+          title="编辑考试信息"
+          subtitle="修改考试标题、日期与学期标签；已导入的成绩明细不会被重算"
+          onClose={closeAcademicExamEditModal}
+        >
+          <form className="form-grid" onSubmit={handleAcademicExamUpdate}>
+            <div className="academic-modal-layout span-2">
+              <div className="academic-modal-form-panel">
+                <h5 className="academic-modal-section-title">可编辑字段</h5>
+                <label className="span-2">
+                  <span>考试标题</span>
+                  <input
+                    value={academicExamDraft.examName}
+                    onChange={(event) => setAcademicExamDraft((prev) => ({ ...prev, examName: event.target.value }))}
+                    placeholder="例如：七年级上学期期中考试"
+                    required
+                  />
+                </label>
+                <label>
+                  <span>考试日期</span>
+                  <input
+                    type="date"
+                    value={academicExamDraft.examDate}
+                    onChange={(event) => setAcademicExamDraft((prev) => ({ ...prev, examDate: event.target.value }))}
+                    required
+                  />
+                </label>
+                <label>
+                  <span>学期标签</span>
+                  <input
+                    value={academicExamDraft.periodLabel ?? ''}
+                    onChange={(event) => setAcademicExamDraft((prev) => ({ ...prev, periodLabel: event.target.value }))}
+                    placeholder="例如：2025 秋季学期"
+                  />
+                </label>
+              </div>
+              <div className="academic-modal-ref-panel">
+                <h5 className="academic-modal-section-title">当前批次</h5>
+                <div className="detail-list">
+                  <div><span>原考试标题</span><strong>{editingAcademicExam.name}</strong></div>
+                  <div><span>原考试日期</span><strong>{formatDate(editingAcademicExam.examDate)}</strong></div>
+                  <div><span>成绩记录</span><strong>{editingAcademicExam.recordCount} 条</strong></div>
+                  <div><span>导入时间</span><strong>{formatDateTime(editingAcademicExam.importedAt)}</strong></div>
+                </div>
+                <div className="academic-modal-tip">
+                  此处仅更新考试元信息，不会重新解析 Excel 或修改学生各科得分、排名与进退步数据。
+                </div>
+              </div>
+            </div>
+            {submitError ? <div className="status-card error span-2">{submitError}</div> : null}
+            <div className="modal-actions span-2">
+              <button className="btn btn-ghost" type="button" onClick={() => closeAcademicExamEditModal()}>
+                取消
+              </button>
+              <button className="btn btn-primary" type="submit" disabled={academicExamEditSubmitting}>
+                {academicExamEditSubmitting ? '保存中...' : '保存考试信息'}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      ) : null}
+
       {allowImport && showAcademicImport ? (
         <Modal
           title="导入成绩表"
-          subtitle="按 doc/成绩汇总.xls 的格式导入学业成长数据，不影响学生积分和萌宠等级"
+          subtitle="按实际考试日期归档学业数据；历史成绩不会影响当前积分、萌宠等级和排行榜"
           onClose={closeAcademicImportModal}
         >
           <form className="form-grid" onSubmit={handleAcademicImport}>
+            <label>
+              <span>考试日期</span>
+              <input
+                type="date"
+                value={academicImportExamDate}
+                onChange={(event) => {
+                  const nextDate = event.target.value;
+                  setAcademicImportExamDate(nextDate);
+                  if (!academicImportPeriodLabelEdited) {
+                    setAcademicImportPeriodLabel(inferAcademicPeriodLabel(
+                      `${academicImportData?.examName ?? ''} ${academicImportData?.sourceFile ?? academicImportFileName}`,
+                      nextDate,
+                      currentSemester?.name,
+                    ));
+                  }
+                }}
+                required
+              />
+            </label>
+            <label>
+              <span>学期标签</span>
+              <input
+                value={academicImportPeriodLabel}
+                onChange={(event) => {
+                  setAcademicImportPeriodLabel(event.target.value);
+                  setAcademicImportPeriodLabelEdited(true);
+                }}
+                placeholder="例如：2025-2026学年上学期"
+              />
+            </label>
             <label className="span-2">
               <span>成绩汇总表</span>
-              <input type="file" accept=".xls,.xlsx" onChange={(event) => void handleAcademicExcelImport(event)} />
-              <div className="settings-note">
-                支持两层表头：准考证号、班级、姓名，以及语文/数学/英语等科目的得分、联考排名、校次、班次和进退步。
-                {academicImportFileName ? ` 当前文件：${academicImportFileName}` : ''}
+              <div className="academic-upload-field">
+                <input type="file" accept=".xls,.xlsx" onChange={(event) => void handleAcademicExcelImport(event)} />
+                <div className="settings-note">
+                  支持两层表头：准考证号、班级、姓名，以及语文/数学/英语等科目的得分、联考排名、校次、班次和进退步。
+                  {academicImportFileName ? ` 当前文件：${academicImportFileName}` : ' 请选择 .xls 或 .xlsx 文件。'}
+                </div>
               </div>
             </label>
             {academicImportData ? (
               <div className="detail-card span-2">
                 <h4>导入预览</h4>
-                <div className="detail-list">
-                  <div><span>考试名称</span><strong>{academicImportData.examName}</strong></div>
-                  <div><span>识别年级</span><strong>{academicImportData.gradeName ?? '-'}</strong></div>
-                  <div><span>学生数量</span><strong>{academicImportData.students.length} 人</strong></div>
-                  <div>
+                <div className="academic-import-preview-grid">
+                  <div className="academic-import-stat">
+                    <span>考试名称</span>
+                    <strong>{academicImportData.examName}</strong>
+                  </div>
+                  <div className="academic-import-stat">
+                    <span>考试日期</span>
+                    <strong>{formatDate(academicImportExamDate)}</strong>
+                  </div>
+                  <div className="academic-import-stat">
+                    <span>学期标签</span>
+                    <strong>{academicImportPeriodLabel || currentSemester?.name || '-'}</strong>
+                  </div>
+                  <div className="academic-import-stat">
+                    <span>识别年级</span>
+                    <strong>{academicImportData.gradeName ?? '-'}</strong>
+                  </div>
+                  <div className="academic-import-stat">
+                    <span>学生数量</span>
+                    <strong>{academicImportData.students.length} 人</strong>
+                  </div>
+                  <div className="academic-import-stat">
                     <span>成绩记录</span>
-                    <strong>{academicImportData.students.reduce((sum, item) => sum + item.subjects.length, 0)} 条</strong>
+                    <strong>
+                      {academicImportData.students.reduce((sum, item) => sum + item.subjects.length, 0)} 条
+                    </strong>
                   </div>
                 </div>
-                <div className="mini-list">
+                <div className="mini-list academic-import-preview-list">
                   {academicImportData.students.slice(0, 3).map((item) => (
                     <div className="mini-list-item" key={`${item.studentNo}-${item.name}`}>
                       <div>
@@ -1754,11 +2206,11 @@ export function StudentsPage({
               </div>
             ) : null}
             {submitError ? <div className="status-card error span-2">{submitError}</div> : null}
-            <div className="form-actions span-2">
-              <button type="button" className="ghost-button" onClick={() => closeAcademicImportModal()} disabled={academicImportSubmitting}>
+            <div className="modal-actions span-2">
+              <button type="button" className="btn btn-ghost" onClick={() => closeAcademicImportModal()} disabled={academicImportSubmitting}>
                 取消
               </button>
-              <button type="submit" className="toolbar-button" disabled={academicImportSubmitting || !academicImportData}>
+              <button type="submit" className="btn btn-primary" disabled={academicImportSubmitting || !academicImportData}>
                 {academicImportSubmitting ? '导入中...' : '开始导入成绩'}
               </button>
             </div>
@@ -1811,6 +2263,7 @@ export function StudentsPage({
                   <>
                     <div className="detail-list">
                       <div><span>最近考试</span><strong>{studentAcademicRecords[0].examName}</strong></div>
+                      <div><span>考试日期</span><strong>{formatDate(studentAcademicRecords[0].examDate)}</strong></div>
                       <div>
                         <span>总分</span>
                         <strong>{studentAcademicRecords[0].subjects.find((item) => item.subjectName === '总分')?.score ?? '-'} 分</strong>

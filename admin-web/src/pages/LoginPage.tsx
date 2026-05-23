@@ -123,11 +123,11 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
           </div> */}
           <div className="login-beian">
             <a
-              href="https://beian.miit.gov.cn/"
+              href="https://beian.mps.gov.cn/#/query/webSearch?code=53290102000783"
               target="_blank"
               rel="noreferrer"
             >
-              滇ICP备2020007229号-4
+              滇公网安备53290102000783号
             </a>
           </div>
           <div className="login-card-tail">

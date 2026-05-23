@@ -19,6 +19,8 @@ export type AcademicGrowthSummary = {
   trend: Array<{
     examId: number;
     examName: string;
+    examDate?: string;
+    periodLabel?: string | null;
     importedAt: string;
     averageScore: number;
     progressRate: number;
@@ -86,7 +88,7 @@ const emptySummary: AcademicGrowthSummary = {
 };
 
 function examTime(exam: AcademicExamListItem) {
-  return new Date(exam.importedAt).getTime();
+  return new Date(exam.examDate || exam.importedAt).getTime();
 }
 
 function avg(values: number[]) {

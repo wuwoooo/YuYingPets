@@ -246,7 +246,7 @@ export class TeacherInsightsService {
           },
         },
       },
-      orderBy: [{ exam: { importedAt: 'desc' } }, { id: 'desc' }],
+      orderBy: [{ exam: { examDate: 'desc' } }, { id: 'desc' }],
     });
 
     const latestSubjectScoreMap = new Map<number, number>();

@@ -266,10 +266,14 @@ CREATE TABLE `score_record` (
     `source_role` VARCHAR(32) NULL,
     `operator_id` BIGINT NOT NULL,
     `operator_name` VARCHAR(64) NULL,
+    `occurred_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `affects_profile` BOOLEAN NOT NULL DEFAULT true,
     `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
 
     INDEX `score_record_student_id_created_at_idx`(`student_id`, `created_at`),
     INDEX `score_record_class_id_created_at_idx`(`class_id`, `created_at`),
+    INDEX `score_record_student_id_occurred_at_idx`(`student_id`, `occurred_at`),
+    INDEX `score_record_class_id_occurred_at_idx`(`class_id`, `occurred_at`),
     INDEX `score_record_rule_id_idx`(`rule_id`),
     INDEX `score_record_subject_code_scene_code_idx`(`subject_code`, `scene_code`),
     PRIMARY KEY (`id`)

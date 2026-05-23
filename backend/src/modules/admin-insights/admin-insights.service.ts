@@ -1330,7 +1330,7 @@ export class AdminInsightsService {
           },
         },
       },
-      orderBy: [{ importedAt: 'desc' }, { id: 'desc' }],
+      orderBy: [{ examDate: 'desc' }, { id: 'desc' }],
       take: 8,
       select: {
         id: true,
