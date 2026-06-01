@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAdminView } from '../context/AdminViewContext';
-import { PickerInput } from '../components/PickerInput';
+import { DatePickerField } from '../components/DatePickerField';
+import { PageLoadingBody } from '../components/PageLoadingBar';
 import { Shell } from '../components/Shell';
 import type {
   AdminClass,
@@ -37,7 +38,7 @@ export function AnalyticsPage({
   const location = useLocation();
   const { subjectViews, activeSubjectView, setActiveViewKey } = useAdminView();
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
-  const [pageLoading, setPageLoading] = useState(false);
+  const [pageLoading, setPageLoading] = useState(true);
   const [pageError, setPageError] = useState<string | null>(null);
   const [exportSuccess, setExportSuccess] = useState<string | null>(null);
   const [batchExporting, setBatchExporting] = useState(false);
@@ -45,7 +46,7 @@ export function AnalyticsPage({
   const [reportGenerating, setReportGenerating] = useState(false);
   const [reportMaskText, setReportMaskText] = useState('正在生成班级 AI 报告，请稍候...');
   const [teacherReview, setTeacherReview] = useState<TeacherReviewContext | null>(null);
-  const [teacherReviewLoading, setTeacherReviewLoading] = useState(false);
+  const [teacherReviewLoading, setTeacherReviewLoading] = useState(true);
 
   const [gradeFilter, setGradeFilter] = useState('all');
   const [classFilter, setClassFilter] = useState('all');
@@ -53,6 +54,10 @@ export function AnalyticsPage({
   const defaultStartDate = new Date(Date.now() - 29 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const [startDate, setStartDate] = useState(defaultStartDate);
   const [endDate, setEndDate] = useState(today);
+  const [pendingStartDate, setPendingStartDate] = useState(defaultStartDate);
+  const [pendingEndDate, setPendingEndDate] = useState(today);
+  const pendingRangeRef = useRef({ start: defaultStartDate, end: today });
+  const rangeCommitTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const quickRangeOptions = [
     { key: '7d', label: '近7天' },
     { key: '30d', label: '近30天' },
@@ -68,9 +73,59 @@ export function AnalyticsPage({
 
     if (queryGrade) setGradeFilter(queryGrade);
     if (queryClassId) setClassFilter(queryClassId);
-    if (queryStartDate) setStartDate(queryStartDate);
-    if (queryEndDate) setEndDate(queryEndDate);
+    if (queryStartDate || queryEndDate) {
+      applyRangeImmediately(
+        queryStartDate ?? pendingRangeRef.current.start,
+        queryEndDate ?? pendingRangeRef.current.end,
+      );
+    }
   }, [location.search]);
+
+  useEffect(() => {
+    return () => {
+      if (rangeCommitTimerRef.current) {
+        clearTimeout(rangeCommitTimerRef.current);
+      }
+    };
+  }, []);
+
+  function applyRangeImmediately(start: string, end: string) {
+    if (rangeCommitTimerRef.current) {
+      clearTimeout(rangeCommitTimerRef.current);
+    }
+    pendingRangeRef.current = { start, end };
+    setPendingStartDate(start);
+    setPendingEndDate(end);
+    if (start && end && start <= end) {
+      setStartDate(start);
+      setEndDate(end);
+    }
+  }
+
+  function scheduleRangeCommit() {
+    if (rangeCommitTimerRef.current) {
+      clearTimeout(rangeCommitTimerRef.current);
+    }
+    rangeCommitTimerRef.current = setTimeout(() => {
+      const { start, end } = pendingRangeRef.current;
+      if (start && end && start <= end) {
+        setStartDate(start);
+        setEndDate(end);
+      }
+    }, 600);
+  }
+
+  function handlePendingStartDateChange(value: string) {
+    pendingRangeRef.current.start = value;
+    setPendingStartDate(value);
+    scheduleRangeCommit();
+  }
+
+  function handlePendingEndDateChange(value: string) {
+    pendingRangeRef.current.end = value;
+    setPendingEndDate(value);
+    scheduleRangeCommit();
+  }
 
   const teacherWorkbench = isTeacherWorkbenchRole(user?.roleCode);
   const isHomeroomTeacher = user?.roleCode === 'homeroom_teacher';
@@ -147,7 +202,7 @@ export function AnalyticsPage({
   }) {
     if (classFilter === 'all') {
       if (teacherWorkbench) {
-        setPageLoading(false);
+        setPageLoading(true);
         return;
       }
       setPageLoading(true);
@@ -170,19 +225,37 @@ export function AnalyticsPage({
           }
         }
 
-        const response = await adminApi.analytics(token, {
+        const queryParams = {
           ...(gradeFilter !== 'all' ? { gradeName: gradeFilter } : {}),
           startDate,
           endDate,
           ...(options?.regenerateAi ? { regenerateAi: true } : {}),
-        });
-        setAnalytics(response.data);
+        };
+
+        const summaryResponse = await adminApi.analyticsSummary(token, queryParams);
+        setAnalytics(summaryResponse.data);
         if (options?.successMessage) {
           setExportSuccess(options.successMessage);
         }
+        
+        // 放开页面阻塞
+        setPageLoading(false);
+
+        // 分批加载热力图与 AI
+        adminApi.analyticsHeatmap(token, queryParams).then(res => {
+          setAnalytics(prev => prev ? { ...prev, heatMap: res.data.heatMap } : prev);
+        }).catch(console.error);
+
+        setReportGenerating(true);
+        setReportMaskText('正在由 AI 引擎分析班级数据，请稍候...');
+        adminApi.analyticsAi(token, queryParams).then(res => {
+          setAnalytics(prev => prev ? { ...prev, aiInsight: res.data.aiInsight } : prev);
+        }).catch(console.error).finally(() => {
+          setAiRefreshing(false);
+          setReportGenerating(false);
+        });
       } catch (err) {
         setPageError(err instanceof Error ? err.message : '分析数据加载失败');
-      } finally {
         setPageLoading(false);
         setAiRefreshing(false);
         setReportGenerating(false);
@@ -212,21 +285,39 @@ export function AnalyticsPage({
         }
       }
 
-      const response = await adminApi.analytics(token, {
+      const queryParams = {
         ...(gradeFilter !== 'all' ? { gradeName: gradeFilter } : {}),
         classId: Number(classFilter),
         startDate,
         endDate,
         ...(analyticsSubjectFilter ? { subjectCode: analyticsSubjectFilter } : {}),
         ...(options?.regenerateAi ? { regenerateAi: true } : {}),
-      });
-      setAnalytics(response.data);
+      };
+
+      const summaryResponse = await adminApi.analyticsSummary(token, queryParams);
+      setAnalytics(summaryResponse.data);
       if (options?.successMessage) {
         setExportSuccess(options.successMessage);
       }
+      
+      // 放开页面阻塞
+      setPageLoading(false);
+
+      // 分批加载热力图与 AI
+      adminApi.analyticsHeatmap(token, queryParams).then(res => {
+        setAnalytics(prev => prev ? { ...prev, heatMap: res.data.heatMap } : prev);
+      }).catch(console.error);
+
+      setReportGenerating(true);
+      setReportMaskText('正在由 AI 引擎分析班级数据，请稍候...');
+      adminApi.analyticsAi(token, queryParams).then(res => {
+        setAnalytics(prev => prev ? { ...prev, aiInsight: res.data.aiInsight } : prev);
+      }).catch(console.error).finally(() => {
+        setAiRefreshing(false);
+        setReportGenerating(false);
+      });
     } catch (err) {
       setPageError(err instanceof Error ? err.message : '分析数据加载失败');
-    } finally {
       setPageLoading(false);
       setAiRefreshing(false);
       setReportGenerating(false);
@@ -282,9 +373,9 @@ export function AnalyticsPage({
   const topStudents = analytics?.topStudents ?? [];
   const riskStudents = analytics?.riskStudents ?? [];
   const aiInsight = analytics?.aiInsight ?? null;
-  const heatMapRows = analytics?.heatMap.rows ?? ['早读', '上午', '午后', '晚辅'];
-  const heatMapCols = analytics?.heatMap.cols ?? ['一', '二', '三', '四', '五'];
-  const heatMapData = analytics?.heatMap.data ?? [];
+  const heatMapRows = analytics?.heatMap?.rows ?? ['早读', '上午', '午后', '晚辅'];
+  const heatMapCols = analytics?.heatMap?.cols ?? ['一', '二', '三', '四', '五'];
+  const heatMapData = analytics?.heatMap?.data ?? [];
   const isGlobalOverview = classFilter === 'all';
   const aiPanelTitle = isGlobalOverview
     ? 'AI 全局概览'
@@ -293,6 +384,9 @@ export function AnalyticsPage({
       : 'AI 班级报告';
   const isClassScoped = classFilter !== 'all';
   const isGradeScoped = classFilter === 'all' && gradeFilter !== 'all';
+
+  const classRankingScore = (item: { classScore?: number; currentScoreTotal: number }) =>
+    item.classScore ?? item.currentScoreTotal;
 
   const overviewTitle = isClassScoped
     ? '个人积分总览'
@@ -314,7 +408,7 @@ export function AnalyticsPage({
       ? topClasses.map((item) => ({
           key: item.id,
           name: item.name,
-          value: item.currentScoreTotal,
+          value: classRankingScore(item),
         }))
       : gradeTrend.map((item) => ({
           key: item.name,
@@ -331,7 +425,7 @@ export function AnalyticsPage({
     : topClasses.map((item) => ({
         key: item.id,
         name: item.name,
-        value: item.currentScoreTotal,
+        value: classRankingScore(item),
       }));
   const rankingMax = Math.max(...rankingBars.map((item) => item.value), 1);
   const analyticsDeskClassNumericId =
@@ -588,17 +682,14 @@ export function AnalyticsPage({
 
   function applyQuickRange(key: '7d' | '30d' | 'month') {
     if (key === '7d') {
-      setEndDate(today);
-      setStartDate(shiftDate(today, -6));
+      applyRangeImmediately(shiftDate(today, -6), today);
       return;
     }
     if (key === '30d') {
-      setEndDate(today);
-      setStartDate(shiftDate(today, -29));
+      applyRangeImmediately(shiftDate(today, -29), today);
       return;
     }
-    setEndDate(today);
-    setStartDate(`${today.slice(0, 8)}01`);
+    applyRangeImmediately(`${today.slice(0, 8)}01`, today);
   }
 
   function buildAnalyticsReturnTo() {
@@ -713,7 +804,7 @@ export function AnalyticsPage({
       ...subjectDistribution.map((item) => [formatSubjectLabel(item.name), item.value]),
       [],
       ['班级', '总积分'],
-      ...topClasses.map((item) => [item.name, item.currentScoreTotal]),
+      ...topClasses.map((item) => [item.name, classRankingScore(item)]),
     ];
     exportCsvFile(`育英星宠-数据分析-${new Date().toISOString().slice(0, 10)}.csv`, rows);
     setExportSuccess('分析报表已导出为 CSV');
@@ -779,13 +870,13 @@ export function AnalyticsPage({
       ];
 
       for (const item of targetClasses) {
-        const response = await adminApi.analytics(token, { classId: item.id, startDate, endDate });
+        const response = await adminApi.analyticsAi(token, { classId: item.id, startDate, endDate });
         const insight = response.data.aiInsight;
         sections.push(
           `【${item.gradeName} ${item.name}】`,
-          `核心概况：${insight.summary}`,
-          `建议动作：${insight.suggestion}`,
-          `汇报口径：${insight.reportSummary}`,
+          `核心概况：${insight?.summary || '无数据'}`,
+          `建议动作：${insight?.suggestion || '无数据'}`,
+          `汇报口径：${insight?.reportSummary || '无数据'}`,
           '',
         );
       }
@@ -808,9 +899,16 @@ export function AnalyticsPage({
           : '教学概览'
         : '数据分析';
 
+  const isAnalyticsDataLoading =
+    loading ||
+    pageLoading ||
+    teacherReviewLoading ||
+    (teacherWorkbench && !isSubjectTeacher && classFilter === 'all');
+
   return (
     <Shell
       title={analyticsPageTitle}
+      loading={isAnalyticsDataLoading}
       subtitle={
         teacherWorkbench
           ? isHomeroomTeacher
@@ -828,11 +926,27 @@ export function AnalyticsPage({
         </>
       }
     >
+      <div className={`analytics-page${teacherWorkbench ? " analytics-page--teacher teacher-desk" : ""}`}>
       <div className="page-header">
         <h2>{analyticsPageTitle}</h2>
         <div className="page-actions">
-          <PickerInput wrapperClassName="picker-input-inline" className="filter-select" type="date" value={startDate} max={endDate} onChange={(event) => setStartDate(event.target.value)} />
-          <PickerInput wrapperClassName="picker-input-inline" className="filter-select" type="date" value={endDate} min={startDate} max={today} onChange={(event) => setEndDate(event.target.value)} />
+          <DatePickerField
+            wrapperClassName="picker-input-inline"
+            className="filter-select"
+            aria-label="开始日期"
+            value={pendingStartDate}
+            max={pendingEndDate}
+            onChange={handlePendingStartDateChange}
+          />
+          <DatePickerField
+            wrapperClassName="picker-input-inline"
+            className="filter-select"
+            aria-label="结束日期"
+            value={pendingEndDate}
+            min={pendingStartDate}
+            max={today}
+            onChange={handlePendingEndDateChange}
+          />
           <div className="analytics-quick-range">
             {quickRangeOptions.map((item) => (
               <button
@@ -1019,7 +1133,7 @@ export function AnalyticsPage({
             </div>
           </div>
 
-          <div className="row-2 c50">
+          <div className="row-2 c50 analytics-paired-panels-row">
             <div className="analytics-chart-panel">
               <div className="acp-title">日趋势</div>
               <div className="bar-chart">
@@ -1053,10 +1167,10 @@ export function AnalyticsPage({
                 ))}
               </div>
             </div>
-            <div className="analytics-chart-panel">
+            <div className="analytics-chart-panel analytics-paired-panel--match-left">
               <div className="acp-title">区间风险学生</div>
-              <div className="analytics-risk-list">
-                {(teacherReview?.riskStudents ?? []).slice(0, 4).map((item) => (
+              <div className="analytics-paired-panel-body analytics-risk-list">
+                {(teacherReview?.riskStudents ?? []).map((item) => (
                   <div className="analytics-risk-item" key={item.studentId}>
                     <div>
                       <strong>{item.studentName}</strong>
@@ -1102,6 +1216,7 @@ export function AnalyticsPage({
               ))}
             </div>
           </div>
+
         </>
       ) : null}
       {teacherWorkbench && classFilter !== 'all' ? (
@@ -1131,25 +1246,25 @@ export function AnalyticsPage({
         <div className="a-summary-card">
           <div className="a-s-icon">◫</div>
           <div className="a-s-label">{isHomeroomTeacher ? '本周期总积分' : '本学期总积分'}</div>
-          <div className="a-s-value">{totalScore.toLocaleString('zh-CN')}</div>
+          <div className="a-s-value">{isAnalyticsDataLoading ? <span className="val-loading">...</span> : totalScore.toLocaleString('zh-CN')}</div>
           <div className="a-s-sub">来自班级真实积分汇总</div>
         </div>
         <div className="a-summary-card">
           <div className="a-s-icon">✓</div>
           <div className="a-s-label">正向事件数</div>
-          <div className="a-s-value">{positiveRuleCount}</div>
+          <div className="a-s-value">{isAnalyticsDataLoading ? <span className="val-loading">...</span> : positiveRuleCount}</div>
           <div className="a-s-sub">按当前筛选范围内真实正向记录统计</div>
         </div>
         <div className="a-summary-card">
           <div className="a-s-icon">✦</div>
           <div className="a-s-label">人均积分</div>
-          <div className="a-s-value">{averageScore}</div>
+          <div className="a-s-value">{isAnalyticsDataLoading ? <span className="val-loading">...</span> : averageScore}</div>
           <div className="a-s-sub">按学生当前积分均值计算</div>
         </div>
         <div className="a-summary-card">
           <div className="a-s-icon">◌</div>
           <div className="a-s-label">活跃天数</div>
-          <div className="a-s-value">{activeDays}<span className="a-s-inline">/60</span></div>
+          <div className="a-s-value">{isAnalyticsDataLoading ? <span className="val-loading">...</span> : activeDays}<span className="a-s-inline">/60</span></div>
           <div className="a-s-sub">按当前班级活跃推估</div>
         </div>
       </div>
@@ -1271,7 +1386,7 @@ export function AnalyticsPage({
         )}
       </div>
       {isHomeroomTeacher ? (
-        <div className="row-2 c50">
+        <div className="row-2 c50 analytics-paired-panels-row">
           <div className="analytics-chart-panel homeroom-overview-analysis-panel">
             <div className="acp-title">周报附录：原因证据</div>
             <div className="mini-list">
@@ -1293,9 +1408,9 @@ export function AnalyticsPage({
               ) : null}
             </div>
           </div>
-          <div className="analytics-chart-panel homeroom-overview-risk-panel">
+          <div className="analytics-chart-panel homeroom-overview-risk-panel analytics-paired-panel--match-left">
             <div className="acp-title">周报附录：重点学生详情</div>
-            <div className="analytics-risk-list">
+            <div className="analytics-paired-panel-body analytics-risk-list">
               {homeroomRiskFocus.map((item) => (
                 <div className="analytics-risk-item" key={item.studentId}>
                   <div>
@@ -1409,7 +1524,7 @@ export function AnalyticsPage({
           </div>
         </div>
       </div>
-      <div className="row-2 c50">
+      <div className="row-2 c50 analytics-paired-panels-row">
         <div className="analytics-chart-panel">
           <div className="acp-title">{rankingTitle}</div>
           <div className="bar-chart analytics-ranking">
@@ -1429,11 +1544,11 @@ export function AnalyticsPage({
             ))}
           </div>
         </div>
-        <div className="analytics-chart-panel">
+        <div className="analytics-chart-panel analytics-paired-panel--match-left">
           {isHomeroomTeacher ? (
             <>
               <div className="acp-title">下周期建议动作</div>
-              <div className="mini-list">
+              <div className="analytics-paired-panel-body mini-list">
                 {homeroomStrategyItems.map((item, index) => (
                   <div className="mini-list-item" key={`${index}-${item}`}>
                     <div>
@@ -1447,7 +1562,7 @@ export function AnalyticsPage({
           ) : (
             <>
               <div className="acp-title">风险学生提示</div>
-              <div className="analytics-risk-list">
+              <div className="analytics-paired-panel-body analytics-risk-list">
                 {riskStudents.map((item) => (
                   <div className="analytics-risk-item" key={item.studentId}>
                     <div>
@@ -1504,6 +1619,7 @@ export function AnalyticsPage({
       </div>
         </>
       ) : null}
+      </div>
     </Shell>
   );
 }

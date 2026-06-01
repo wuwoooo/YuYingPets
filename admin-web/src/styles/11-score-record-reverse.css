@@ -1,0 +1,449 @@
+
+.evaluation-record-toolbar {
+  display: grid;
+  grid-template-columns: minmax(104px, 124px) minmax(120px, 1fr) minmax(120px, 1fr) minmax(0, 1.3fr);
+  gap: 6px;
+  margin-bottom: 8px;
+  align-items: center;
+}
+
+.evaluation-record-toolbar > * {
+  min-width: 0;
+}
+
+.evaluation-record-toolbar .filter-select {
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+}
+
+.evaluation-record-search {
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.evaluation-record-search input {
+  width: 100%;
+  min-width: 0;
+  min-height: 32px;
+  padding: 0 10px 0 30px;
+  font-size: 11px;
+  box-sizing: border-box;
+}
+
+@media (max-width: 1280px) {
+  .evaluation-record-toolbar {
+    grid-template-columns: 1fr;
+  }
+}
+
+.evaluation-recent-reverse-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.evaluation-recent-reverse-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.evaluation-recent-reverse-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.evaluation-recent-reverse-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.score-record-item--reversed {
+  opacity: 0.72;
+}
+
+.score-record-reversed-tag {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(106, 127, 147, 0.14);
+  color: #6a7f93;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.score-record-reverse-meta {
+  display: block;
+  margin-top: 2px;
+  color: #8aa0b4;
+  font-size: 11px;
+}
+
+.score-record-list-item.mini-list-item {
+  display: block;
+  padding: 7px 10px;
+  border-radius: 10px;
+}
+
+.score-record-list-item.mini-list-item > div {
+  flex: none;
+  min-width: 0;
+}
+
+.mini-list:has(.score-record-list-item) {
+  gap: 6px;
+}
+
+.score-record-list-item__main {
+  min-width: 0;
+}
+
+.score-record-list-item__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.score-record-list-item__student {
+  flex: 0 0 auto;
+  max-width: 56px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #5f7285;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.score-record-list-item__delta {
+  flex: 0 0 auto;
+  min-width: 42px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.score-record-list-item__delta.add {
+  color: #1f7a4f;
+}
+
+.score-record-list-item__delta.deduct {
+  color: #b45309;
+}
+
+.score-record-list-item__label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #223447;
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.score-record-list-item__time {
+  flex: 0 0 auto;
+  color: #8aa0b4;
+  font-size: 11px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.score-record-list-item__operator {
+  flex: 0 0 auto;
+  max-width: 72px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #6a7f93;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.score-record-list-item__remark {
+  margin-top: 4px;
+  padding-left: 50px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #8aa0b4;
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.score-record-list-item__remark--reversed {
+  color: #a0897d;
+}
+
+.score-record-list-item__row .score-record-reversed-tag {
+  margin-left: 0;
+  flex: 0 0 auto;
+}
+
+/* 列表内撤销：轻量文字链，避免浏览器默认 button 样式 */
+.score-record-reverse-button,
+.evaluation-recent-reverse-head .score-record-link-button,
+.evaluation-recent-reverse-item .score-record-reverse-button {
+  appearance: none;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  margin: 0;
+  padding: 0;
+  font: inherit;
+  line-height: 1.2;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.score-record-reverse-button {
+  color: #9a6b55;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  opacity: 0.88;
+  transition:
+    color 0.15s ease,
+    opacity 0.15s ease;
+}
+
+.score-record-reverse-button:hover {
+  color: #c05621;
+  opacity: 1;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.score-record-reverse-button:focus-visible {
+  outline: 2px solid rgba(192, 86, 33, 0.28);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.score-record-link-button {
+  color: #6a7f93;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.score-record-link-button:hover {
+  color: #0f3d63;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.evaluation-recent-reverse-item .score-record-reverse-button {
+  font-size: 12px;
+}
+
+/* 撤销确认弹窗 */
+.score-record-reverse-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.score-record-reverse-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.score-record-reverse-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(15, 61, 99, 0.08);
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbfe 100%);
+}
+
+.score-record-reverse-card__label {
+  color: #7a8fa3;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.score-record-reverse-card__main {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.score-record-reverse-card__main strong {
+  color: #173856;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.score-record-reverse-card p {
+  margin: 0;
+  color: #5f7285;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.score-record-reverse-delta {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.score-record-reverse-delta.add {
+  color: #1f7a4f;
+  background: rgba(47, 158, 99, 0.12);
+}
+
+.score-record-reverse-delta.deduct {
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.14);
+}
+
+.score-record-reverse-score-flow {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.score-record-reverse-score-value {
+  color: #173856;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.score-record-reverse-score-value.after {
+  color: #0f3d63;
+}
+
+.score-record-reverse-score-value.after.negative {
+  color: #c05621;
+}
+
+.score-record-reverse-score-arrow {
+  color: #9db0c2;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.score-record-reverse-score-unit {
+  color: #6a7f93;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.score-record-reverse-score-unknown {
+  color: #173856;
+  font-size: 15px;
+}
+
+.score-record-reverse-warning {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(192, 86, 33, 0.08);
+  color: #b45309;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.score-record-reverse-remark {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.score-record-reverse-remark > span {
+  color: #284866;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.score-record-reverse-textarea {
+  width: 100%;
+  min-height: 88px;
+  padding: 12px 14px;
+  border: 1px solid #d7e3ee;
+  border-radius: 12px;
+  background: #fff;
+  color: #173856;
+  font-size: 14px;
+  line-height: 1.6;
+  resize: vertical;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.score-record-reverse-textarea::placeholder {
+  color: #9db0c2;
+}
+
+.score-record-reverse-textarea:focus {
+  outline: none;
+  border-color: rgba(15, 61, 99, 0.28);
+  box-shadow: 0 0 0 3px rgba(15, 61, 99, 0.08);
+}
+
+.score-record-reverse-actions {
+  margin-top: 2px;
+  padding-top: 14px;
+  border-top: 1px solid #edf2f7;
+}
+
+.score-record-reverse-confirm-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 96px;
+  min-height: 34px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 10px;
+  color: #fff;
+  background: linear-gradient(135deg, #c05621 0%, #d97736 100%);
+  box-shadow: 0 2px 8px rgba(192, 86, 33, 0.18);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+  transition:
+    box-shadow 0.2s ease,
+    transform 0.2s ease,
+    filter 0.2s ease;
+}
+
+.score-record-reverse-confirm-button:hover:not(:disabled) {
+  box-shadow: 0 4px 12px rgba(192, 86, 33, 0.24);
+  transform: translateY(-1px);
+}
+
+.score-record-reverse-confirm-button:disabled {
+  opacity: 0.62;
+  cursor: not-allowed;
+  transform: none;
+}
+
+@media (max-width: 640px) {
+  .score-record-reverse-summary {
+    grid-template-columns: 1fr;
+  }
+}

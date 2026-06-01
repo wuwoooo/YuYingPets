@@ -21,7 +21,7 @@ const TEACHER_NAV_ORDER_HOMEROOM: NavKey[] = [
 ];
 
 /** 任课教师侧栏：班级切换在顶部上下文，侧栏不含「我的授课班级」；教学概览紧随工作台 */
-const TEACHER_NAV_ORDER_SUBJECT: NavKey[] = ['dashboard', 'analytics', 'evaluation', 'students'];
+const TEACHER_NAV_ORDER_SUBJECT: NavKey[] = ['dashboard', 'analytics', 'evaluation', 'students', 'rewards'];
 
 export function isTeacherWorkbenchRole(roleCode?: string | null) {
   return roleCode === 'homeroom_teacher' || roleCode === 'subject_teacher';
@@ -104,12 +104,44 @@ export function canManageRewards(roleCode?: string | null) {
   return ['super_admin', 'school_admin', 'moral_admin'].includes(roleCode ?? '');
 }
 
+export function canManageClassRewards(roleCode?: string | null) {
+  return ['super_admin', 'school_admin', 'moral_admin', 'homeroom_teacher', 'subject_teacher'].includes(roleCode ?? '');
+}
+
 export function canManagePets(roleCode?: string | null) {
   return ['super_admin', 'school_admin', 'moral_admin'].includes(roleCode ?? '');
 }
 
+/** 学校管理员、德育/教务管理员：创建与维护荣誉勋章 */
+const SCHOOL_HONOR_ADMIN_ROLES = ['super_admin', 'school_admin', 'moral_admin', 'academic_admin'] as const;
+
+const STUDENT_HONOR_GRANT_TEACHER_ROLES = ['homeroom_teacher', 'subject_teacher'] as const;
+
 export function canManageHonors(roleCode?: string | null) {
-  return ['super_admin', 'school_admin', 'moral_admin'].includes(roleCode ?? '');
+  return SCHOOL_HONOR_ADMIN_ROLES.includes(roleCode as (typeof SCHOOL_HONOR_ADMIN_ROLES)[number]);
+}
+
+/** 可为学生颁发荣誉：任意教师 + 校级管理员 */
+export function canGrantStudentHonors(roleCode?: string | null) {
+  return (
+    canManageHonors(roleCode) ||
+    STUDENT_HONOR_GRANT_TEACHER_ROLES.includes(roleCode as (typeof STUDENT_HONOR_GRANT_TEACHER_ROLES)[number])
+  );
+}
+
+/** 可为班级颁发集体荣誉：仅校级管理员 */
+export function canGrantClassHonors(roleCode?: string | null) {
+  return canManageHonors(roleCode);
+}
+
+/** @deprecated 请使用 canGrantStudentHonors / canGrantClassHonors */
+export function canGrantHonors(roleCode?: string | null) {
+  return canGrantStudentHonors(roleCode) || canGrantClassHonors(roleCode);
+}
+
+/** 仅系统管理员可删除考试批次 */
+export function canDeleteAcademicExams(roleCode?: string | null) {
+  return roleCode === 'super_admin';
 }
 
 export function canManageAdminConfig(roleCode?: string | null) {
@@ -130,4 +162,3 @@ export function canViewOperationAudit(roleCode?: string | null) {
 export function canManageDisplays(roleCode?: string | null) {
   return ['super_admin', 'school_admin', 'academic_admin', 'moral_admin'].includes(roleCode ?? '');
 }
-

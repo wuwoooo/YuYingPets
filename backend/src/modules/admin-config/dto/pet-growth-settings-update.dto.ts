@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsInt, Min } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsInt, Max, Min } from 'class-validator';
 
 export class PetGrowthSettingsUpdateDto {
   @ApiProperty({ type: [Number], minItems: 10, maxItems: 10 })
@@ -17,4 +17,11 @@ export class PetGrowthSettingsUpdateDto {
   @IsInt()
   @Min(0)
   classScoreStudentLinkMultiplier!: number;
+
+  @ApiProperty({ required: false, description: '非升级免费机会下，每次更换萌宠装扮消耗的当前积分' })
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(999)
+  petDecoChangeCost!: number;
 }

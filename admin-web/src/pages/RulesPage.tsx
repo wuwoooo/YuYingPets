@@ -48,14 +48,10 @@ const roleLabelMap: Record<string, string> = {
   subject_teacher: '任课教师',
 };
 
-const MORAL_SPECIAL_ROLE_CODES = ['school_admin', 'moral_admin'] as const;
+const STUDENT_MANAGEMENT_RULE_CODE_PREFIX = 'MORAL_';
 
-function isMoralSpecialRule(rule: Pick<ScoreRule, 'allowedRoleCodes'>) {
-  return (
-    rule.allowedRoleCodes.length > 0 &&
-    rule.allowedRoleCodes.includes('moral_admin') &&
-    rule.allowedRoleCodes.every((roleCode) => MORAL_SPECIAL_ROLE_CODES.includes(roleCode as (typeof MORAL_SPECIAL_ROLE_CODES)[number]))
-  );
+function isStudentManagementRule(rule: Pick<ScoreRule, 'code'>) {
+  return rule.code.startsWith(STUDENT_MANAGEMENT_RULE_CODE_PREFIX);
 }
 
 function formatAllowedRoleLabels(rule: Pick<ScoreRule, 'allowedRoleCodes'>) {
@@ -89,9 +85,9 @@ export function RulesPage({
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState('all');
-  const [audienceFilter, setAudienceFilter] = useState<'all' | 'student' | 'class' | 'moral_only'>('all');
+  const [audienceFilter, setAudienceFilter] = useState<'all' | 'student' | 'class' | 'moral'>('all');
   const [currentSemester, setCurrentSemester] = useState<SystemSettings['semester'] | null>(null);
-  const [pageLoading, setPageLoading] = useState(false);
+  const [pageLoading, setPageLoading] = useState(true);
   const [togglePendingIds, setTogglePendingIds] = useState<number[]>([]);
   const [ruleOverrides, setRuleOverrides] = useState<Record<number, Pick<ScoreRule, 'adminEnabled' | 'displayEnabled'>>>({});
   const [treeData, setTreeData] = useState<ScoreRuleTreeModule[]>([]);
@@ -103,6 +99,7 @@ export function RulesPage({
   const allowManage = canManageRules(user?.roleCode);
   const isEditorOpen = editorMode !== null;
   const isEditing = editorMode === 'edit' && Boolean(editingRule);
+  const isStudentManagementDraft = isEditing && editingRule ? isStudentManagementRule(editingRule) : false;
   const normalizedName = form.name.trim();
   const normalizedSubjectCode = form.moduleType === 'subject' ? form.subjectCode.trim() : '';
   const generatedRuleCode = buildAutoCode('rule', form.name, editingRule?.code || form.code);
@@ -152,7 +149,7 @@ export function RulesPage({
       if (audienceFilter === 'all') return true;
       if (audienceFilter === 'student') return rule.scoreTarget === 'student';
       if (audienceFilter === 'class') return rule.scoreTarget === 'class';
-      return isMoralSpecialRule(rule);
+      return isStudentManagementRule(rule);
     });
   }, [audienceFilter, statusFilteredRules]);
 
@@ -521,6 +518,7 @@ export function RulesPage({
     <Shell
       title="积分规则"
       subtitle="按课堂、作业、学业场景维护规则与标签"
+      loading={loading || pageLoading}
       user={user}
       status={
         <>
@@ -541,12 +539,12 @@ export function RulesPage({
           <select
             className="filter-select"
             value={audienceFilter}
-            onChange={(event) => setAudienceFilter(event.target.value as 'all' | 'student' | 'class' | 'moral_only')}
+            onChange={(event) => setAudienceFilter(event.target.value as 'all' | 'student' | 'class' | 'moral')}
           >
             <option value="all">全部规则</option>
             <option value="student">学生评价</option>
             <option value="class">班级评价</option>
-            <option value="moral_only">德育专用</option>
+            <option value="moral">学生管理</option>
           </select>
           {allowManage ? (
             <button className="btn btn-primary" onClick={openCreate}>
@@ -707,7 +705,7 @@ export function RulesPage({
                         .join(' / ')}
                     </td>
                     <td>{row.scoreTarget === 'class' ? '班级评价' : '学生评价'}</td>
-                    <td>{isMoralSpecialRule(row) ? '德育管理员专用' : formatAllowedRoleLabels(row)}</td>
+                    <td>{formatAllowedRoleLabels(row)}</td>
                     <td>
                       <span className={row.scoreType === 'deduct' ? 'score-badge deduct' : 'score-badge add'}>
                         {row.scoreType === 'deduct' ? '减分' : '加分'}
@@ -867,19 +865,15 @@ export function RulesPage({
               </select>
             </label>
             <label>
-              <span>专用范围</span>
-              <select
-                value={isMoralSpecialRule(form) ? 'moral_special' : 'all'}
-                onChange={(event) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    allowedRoleCodes: event.target.value === 'moral_special' ? [...MORAL_SPECIAL_ROLE_CODES] : [],
-                  }))
-                }
-              >
-                <option value="all">全部后台角色</option>
-                <option value="moral_special">学校管理员 / 德育管理员专用</option>
-              </select>
+              <span>适用角色</span>
+              {isStudentManagementDraft ? (
+                <>
+                  <input value="全部后台角色" readOnly />
+                  <span className="field-hint">学生管理规则默认全员可见、全员可用。</span>
+                </>
+              ) : (
+                <input value={form.allowedRoleCodes.length === 0 ? '全部后台角色' : formatAllowedRoleLabels(form)} readOnly />
+              )}
             </label>
             <label>
               <span>积分方向</span>
@@ -941,7 +935,7 @@ export function RulesPage({
             </label>
             <label className="span-2">
               <span>角色说明</span>
-              <input value={isMoralSpecialRule(form) ? '德育管理员专用' : '全部后台角色'} readOnly />
+              <input value={form.allowedRoleCodes.length === 0 ? '全部后台角色' : formatAllowedRoleLabels(form)} readOnly />
             </label>
             <div className="checkbox-grid span-2">
               <label className="checkbox-item">
@@ -1001,7 +995,7 @@ export function RulesPage({
                 <span>编码：{generatedRuleCode || '待生成'}</span>
                 <span>语气：{form.scoreType === 'deduct' ? '提醒纠偏' : '正向激励'}</span>
                 <span>使用位置：{draftAudience || '未选择'}</span>
-                <span>专用范围：{isMoralSpecialRule(form) ? '德育管理员专用' : '全部后台角色'}</span>
+                <span>适用角色：{form.allowedRoleCodes.length === 0 ? '全部后台角色' : formatAllowedRoleLabels(form)}</span>
                 <span>常用规则：{form.isHighFrequency ? '是' : '否'}</span>
               </div>
             </div>

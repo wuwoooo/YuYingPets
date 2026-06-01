@@ -1,0 +1,1666 @@
+/* ═══════════════════════════════════════════════════════════════
+   投屏模式 · 户外亮色主题覆盖
+   适用场景：户外 LED 大屏（1280×720，P4~P10）
+   设计理念：高对比 · 活泼鲜明 · 科技质感 · 品牌金线
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ─── 品牌色 Token ─── */
+/* 主蓝 #1268b8  绿 #18985c  金 #d48500  紫 #6852c6  红 #d43d2e  浅蓝 #2b8cc4 */
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   一、页面背景 & 舞台
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+.projection-theme-outdoor.projection-page {
+  background: #e8eef5;
+}
+
+.projection-theme-outdoor .projection-stage {
+  background:
+    radial-gradient(ellipse 60% 50% at 50% 42%, rgba(18, 104, 184, 0.07), transparent 55%),
+    radial-gradient(ellipse 35% 25% at 85% 15%, rgba(24, 152, 92, 0.05), transparent 50%),
+    linear-gradient(168deg, #f4f7fb 0%, #edf2f8 50%, #e6eef6 100%);
+  color: #0f1f2e;
+}
+
+/* 保留旧 keyframes 以兼容历史覆盖，但户外舞台不再使用父级 filter 动画。 */
+@keyframes outdoor-bg-shift {
+  0% { filter: hue-rotate(0deg) brightness(1); }
+  50% { filter: hue-rotate(3deg) brightness(1.01); }
+  100% { filter: hue-rotate(-2deg) brightness(0.99); }
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   二、科技感网格 & 扫描线
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+/* 网格：增大间距以适配 LED 像素，保留科技感 */
+.projection-theme-outdoor .projection-bg-grid {
+  display: block;
+  opacity: 0.2;
+  background-image:
+    linear-gradient(rgba(18, 104, 184, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(18, 104, 184, 0.08) 1px, transparent 1px);
+  background-size: 32px 32px;
+  mask-image: radial-gradient(ellipse at center, #000 0%, transparent 75%);
+}
+
+/* 扫描线：户外隐藏 */
+.projection-theme-outdoor .projection-scanline {
+  display: none;
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   三、顶栏
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+.projection-theme-outdoor .projection-topbar {
+  position: relative;
+  border-bottom: 1px solid rgba(18, 104, 184, 0.22);
+  background: linear-gradient(135deg, #0a2f4b 0%, #134d72 50%, #1a6b9a 100%);
+  box-shadow: 0 4px 18px rgba(10, 47, 75, 0.22);
+}
+
+/* 顶栏底部品牌金线 */
+.projection-theme-outdoor .projection-topbar::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(201, 162, 39, 0.35) 8%,
+    #d4af37 22%,
+    #f0d264 50%,
+    #d4af37 78%,
+    rgba(201, 162, 39, 0.35) 92%,
+    transparent 100%
+  );
+  box-shadow: 0 1px 10px rgba(212, 175, 55, 0.5);
+  pointer-events: none;
+  animation: outdoor-gold-shimmer 4s ease-in-out infinite alternate;
+}
+
+/* 金线微光流动 */
+@keyframes outdoor-gold-shimmer {
+  0% { opacity: 0.8; }
+  100% { opacity: 1; }
+}
+
+.projection-theme-outdoor .projection-brand img {
+  filter: none;
+}
+
+.projection-theme-outdoor .projection-brand strong {
+  color: #fff;
+  font-size: 15px;
+}
+
+.projection-theme-outdoor .projection-brand span,
+.projection-theme-outdoor .projection-top-metrics span {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.projection-theme-outdoor .projection-top-metrics span {
+  border-color: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.13);
+  color: #fff;
+  font-size: 11px;
+}
+
+.projection-theme-outdoor .projection-theme-toggle {
+  border-color: rgba(255, 255, 255, 0.38);
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+}
+
+.projection-theme-outdoor .projection-theme-toggle:hover {
+  background: rgba(255, 255, 255, 0.24);
+  border-color: rgba(255, 255, 255, 0.58);
+  color: #fff;
+}
+
+.projection-theme-outdoor .projection-clock {
+  color: #fff;
+  text-shadow: none;
+}
+
+.projection-theme-outdoor .projection-clock b {
+  font-size: 24px;
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   四、卡片 & 面板 — 核心视觉升级
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+.projection-theme-outdoor .projection-metric-card,
+.projection-theme-outdoor .projection-panel {
+  border: 1.5px solid rgba(18, 104, 184, 0.22);
+  border-radius: 7px;
+  background: linear-gradient(150deg, #ffffff 0%, #f8fafd 100%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.95) inset,
+    0 2px 10px rgba(18, 104, 184, 0.1),
+    0 0 0 0.5px rgba(18, 104, 184, 0.08);
+}
+
+/* 卡片顶部彩色光线装饰——让每张卡片都有"灵气" */
+.projection-theme-outdoor .projection-metric-card::before,
+.projection-theme-outdoor .projection-panel::before {
+  background: linear-gradient(90deg, transparent, rgba(18, 104, 184, 0.5), transparent);
+  height: 1.5px;
+}
+
+/* ── 指标卡：左边框 + 微渐变底色 ── */
+
+.projection-theme-outdoor .projection-metric-card {
+  border-left-width: 3px;
+  padding: 7px 8px 4px;
+  transition: box-shadow 0.4s ease;
+}
+
+/* 数据刷新时的卡片脉冲动画 */
+@keyframes outdoor-card-pulse {
+  0% { box-shadow: 0 2px 10px rgba(18, 104, 184, 0.1); }
+  50% { box-shadow: 0 2px 16px rgba(18, 104, 184, 0.2); }
+  100% { box-shadow: 0 2px 10px rgba(18, 104, 184, 0.1); }
+}
+
+.projection-theme-outdoor .projection-metric-card.tone-green {
+  border-left-color: #18985c;
+  background: linear-gradient(150deg, #f0faf5 0%, #ffffff 72%);
+}
+
+.projection-theme-outdoor .projection-metric-card.tone-green::before {
+  background: linear-gradient(90deg, transparent, rgba(24, 152, 92, 0.55), transparent);
+}
+
+.projection-theme-outdoor .projection-metric-card.tone-gold {
+  border-left-color: #d48500;
+  background: linear-gradient(150deg, #fffaf0 0%, #ffffff 72%);
+}
+
+.projection-theme-outdoor .projection-metric-card.tone-gold::before {
+  background: linear-gradient(90deg, transparent, rgba(212, 133, 0, 0.55), transparent);
+}
+
+.projection-theme-outdoor .projection-metric-card.tone-red {
+  border-left-color: #d43d2e;
+  background: linear-gradient(150deg, #fff5f4 0%, #ffffff 72%);
+}
+
+.projection-theme-outdoor .projection-metric-card.tone-red::before {
+  background: linear-gradient(90deg, transparent, rgba(212, 61, 46, 0.5), transparent);
+}
+
+.projection-theme-outdoor .projection-metric-card.tone-purple {
+  border-left-color: #6852c6;
+  background: linear-gradient(150deg, #f6f3fd 0%, #ffffff 72%);
+}
+
+.projection-theme-outdoor .projection-metric-card.tone-purple::before {
+  background: linear-gradient(90deg, transparent, rgba(104, 82, 198, 0.5), transparent);
+}
+
+.projection-theme-outdoor .projection-metric-card.tone-blue,
+.projection-theme-outdoor .projection-metric-card.tone-cyan {
+  border-left-color: #1268b8;
+  background: linear-gradient(150deg, #f0f6fc 0%, #ffffff 72%);
+}
+
+.projection-theme-outdoor .projection-metric-card.tone-blue::before,
+.projection-theme-outdoor .projection-metric-card.tone-cyan::before {
+  background: linear-gradient(90deg, transparent, rgba(18, 104, 184, 0.55), transparent);
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   五、字号放大 — 适配 LED 远距阅读
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+/* 面板标题：加粗+放大+品牌色 */
+.projection-theme-outdoor .projection-panel-title {
+  padding-left: 9px;
+  border-left: 3px solid #1268b8;
+  color: #0a4a7a;
+  font-weight: 800;
+  font-size: 12px;
+  line-height: 14px;
+}
+
+/* 指标卡标签 */
+.projection-theme-outdoor .projection-metric-card span {
+  color: rgba(15, 31, 46, 0.65);
+  font-size: 11px;
+  line-height: 13px;
+}
+
+/* 指标卡数值 — 最重要，大幅放大 */
+.projection-theme-outdoor .projection-metric-card strong {
+  color: #1a2e3e;
+  font-size: 21px;
+  line-height: 23px;
+  text-shadow: none;
+  font-weight: 800;
+}
+
+/* 指标卡副标 */
+.projection-theme-outdoor .projection-metric-card em {
+  color: rgba(15, 31, 46, 0.52);
+  font-size: 10px;
+  line-height: 12px;
+}
+
+/* 迷你折线图放大 */
+.projection-theme-outdoor .projection-metric-card svg {
+  height: 24px;
+}
+
+.projection-theme-outdoor .projection-metric-card polyline {
+  filter: none;
+  stroke-width: 2.5;
+}
+
+/* ── 各色调指标数值着色 ── */
+
+.projection-theme-outdoor .projection-metric-card.tone-green polyline,
+.projection-theme-outdoor .projection-metric-card.tone-green strong {
+  stroke: #18985c;
+  color: #18985c;
+}
+
+.projection-theme-outdoor .projection-metric-card.tone-gold polyline,
+.projection-theme-outdoor .projection-metric-card.tone-gold strong {
+  stroke: #d48500;
+  color: #c07800;
+}
+
+.projection-theme-outdoor .projection-metric-card.tone-red polyline,
+.projection-theme-outdoor .projection-metric-card.tone-red strong {
+  stroke: #d43d2e;
+  color: #d43d2e;
+}
+
+.projection-theme-outdoor .projection-metric-card.tone-purple polyline,
+.projection-theme-outdoor .projection-metric-card.tone-purple strong {
+  stroke: #6852c6;
+  color: #6852c6;
+}
+
+.projection-theme-outdoor .projection-metric-card.tone-blue polyline,
+.projection-theme-outdoor .projection-metric-card.tone-blue strong,
+.projection-theme-outdoor .projection-metric-card.tone-cyan polyline,
+.projection-theme-outdoor .projection-metric-card.tone-cyan strong {
+  stroke: #1268b8;
+  color: #1268b8;
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   六、隐藏暗色专用装饰
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+.projection-theme-outdoor .projection-class-bubbles::after,
+.projection-theme-outdoor .projection-heat::after,
+.projection-theme-outdoor .projection-bars::after,
+.projection-theme-outdoor .projection-progress::after,
+.projection-theme-outdoor .projection-donuts::after,
+.projection-theme-outdoor .projection-live-panel::after,
+.projection-theme-outdoor .projection-risk::after,
+.projection-theme-outdoor .projection-students::after {
+  display: none;
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   七、图表可视化增强
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+.projection-theme-outdoor .projection-chart-grid {
+  stroke: rgba(15, 31, 46, 0.12);
+}
+
+.projection-theme-outdoor .projection-axis-text {
+  fill: rgba(15, 31, 46, 0.6);
+  font-size: 10px;
+}
+
+/* 折线加粗 */
+.projection-theme-outdoor .projection-line-main {
+  stroke: #1268b8;
+  stroke-width: 4;
+  filter: none;
+}
+
+.projection-theme-outdoor .projection-line-main.gold {
+  stroke: #d48500;
+}
+
+.projection-theme-outdoor .projection-line-area {
+  fill: rgba(18, 104, 184, 0.14);
+}
+
+.projection-theme-outdoor .projection-wide-line rect {
+  fill: rgba(212, 133, 0, 0.3);
+}
+
+/* 系列数据标签 */
+.projection-theme-outdoor .projection-series-data span {
+  color: rgba(15, 31, 46, 0.55);
+  font-size: 10px;
+}
+
+.projection-theme-outdoor .projection-series-data b {
+  color: #1a2e3e;
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   八、AI 决策核心面板
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+.projection-theme-outdoor .projection-ai-card {
+  color: rgba(15, 31, 46, 0.78);
+}
+
+.projection-theme-outdoor .projection-ai-stats span {
+  color: rgba(15, 31, 46, 0.6);
+  font-size: 10px;
+  border-color: rgba(18, 104, 184, 0.16);
+  background: rgba(18, 104, 184, 0.05);
+}
+
+.projection-theme-outdoor .projection-ai-stats b {
+  color: #1268b8;
+}
+
+.projection-theme-outdoor .projection-ai-trend {
+  border-color: rgba(18, 104, 184, 0.14);
+  background: rgba(18, 104, 184, 0.04);
+}
+
+.projection-theme-outdoor .projection-ai-trend-head span {
+  color: rgba(15, 31, 46, 0.52);
+  font-weight: 600;
+}
+
+.projection-theme-outdoor .projection-ai-trend-head b {
+  color: #c07800;
+}
+
+.projection-theme-outdoor .projection-line-area.gold {
+  fill: rgba(212, 133, 0, 0.12);
+}
+
+.projection-theme-outdoor .projection-ai-trend-data i {
+  color: #1268b8;
+}
+
+.projection-theme-outdoor .projection-ai-trend-data em {
+  color: rgba(15, 31, 46, 0.42);
+}
+
+.projection-theme-outdoor .projection-ai-model i,
+.projection-theme-outdoor .projection-ai-model em {
+  border-color: rgba(18, 104, 184, 0.45);
+  background: linear-gradient(135deg, rgba(18, 104, 184, 0.35), rgba(24, 152, 92, 0.12));
+  box-shadow: none;
+}
+
+.projection-theme-outdoor .projection-ai-model b {
+  color: #1268b8;
+  text-shadow: none;
+  font-size: 23px;
+}
+
+.projection-theme-outdoor .projection-ai-model::before,
+.projection-theme-outdoor .projection-ai-model::after {
+  border-color: rgba(18, 104, 184, 0.35);
+}
+
+.projection-theme-outdoor .projection-ai-model::after {
+  border-color: rgba(212, 133, 0, 0.4);
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   九、核心区 — Score-Centric 重构
+   设计：总积分为绝对视觉中心，3D 退为氛围背景
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+/* ── 容器 ── */
+.projection-theme-outdoor .projection-core {
+  position: relative;
+  overflow: hidden;
+  border: 1.5px solid rgba(18, 104, 184, 0.28);
+  border-radius: 10px;
+  background:
+    radial-gradient(ellipse 40% 32% at 50% 52%, rgba(212, 175, 55, 0.05), transparent 50%),
+    radial-gradient(ellipse 65% 50% at 50% 50%, rgba(18, 104, 184, 0.08), transparent 55%),
+    linear-gradient(180deg, #f6f9fd 0%, #eaf2f9 50%, #e2ecf4 100%);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.55),
+    0 4px 28px rgba(18, 104, 184, 0.1);
+}
+
+/* ── 呼吸光晕 — 聚焦于中心积分区 ── */
+.projection-theme-outdoor .projection-core::before {
+  content: "";
+  position: absolute;
+  inset: -5%;
+  z-index: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse 40% 35% at 50% 52%,
+    rgba(18, 104, 184, 0.16),
+    rgba(212, 175, 55, 0.04) 40%,
+    transparent 62%
+  );
+  animation: projection-outdoor-core-glow 6s ease-in-out infinite alternate;
+}
+
+.projection-theme-outdoor .projection-core:not(.projection-core-outdoor-layout) > * {
+  position: relative;
+  z-index: 1;
+}
+
+@keyframes projection-outdoor-core-glow {
+  from { opacity: 0.4; transform: scale(0.96); }
+  to { opacity: 0.85; transform: scale(1.04); }
+}
+
+/* ═════════════════════════════════════
+   Core V2: 全新结构，独立 class 名
+   不依赖任何基础 CSS 布局
+   ─────────────────────────────────
+   .outdoor-core-top     → 顶行 (HUD chips + Score badge)
+   .outdoor-core-hero    → 3D 模型完整展示
+   .outdoor-core-bottom  → 底行 (8 chip 统计)
+   ═════════════════════════════════════ */
+
+.projection-theme-outdoor .projection-core-outdoor-v2 {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 4px;
+  padding: 6px 8px;
+  overflow: hidden;
+  /* 覆盖基础 .projection-core 的 place-items: center，否则 grid item 不会拉伸 */
+  place-items: stretch;
+}
+
+/* ── 顶部区：HUD 指标 + 总积分 ── */
+.outdoor-core-top {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  min-height: 28px;
+}
+
+/* HUD 指标行：4 个 chip 横排 */
+.outdoor-core-hud-row {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: rgba(255, 255, 255, 0.5);
+  border-radius: 6px;
+  border: 1px solid rgba(18, 104, 184, 0.12);
+  padding: 0 2px;
+  overflow: hidden;
+}
+
+/* HUD chip 通透融合风格 */
+.outdoor-core-hud-row .projection-core-chip {
+  position: static;
+  width: auto;
+  height: auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 3px 8px;
+  border: none;
+  border-left: 2px solid rgba(18, 104, 184, 0.18);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.outdoor-core-hud-row .projection-core-chip:first-child {
+  border-left: none;
+}
+
+.outdoor-core-hud-row .projection-core-chip span {
+  color: rgba(15, 31, 46, 0.55);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.outdoor-core-hud-row .projection-core-chip b {
+  color: #1a2e3e;
+  font-size: 13px;
+  font-weight: 800;
+  text-shadow: none;
+}
+
+/* HUD chip 色调映射 */
+.outdoor-core-hud-row .projection-core-chip.tone-green b { color: #18985c; }
+.outdoor-core-hud-row .projection-core-chip.tone-gold b { color: #c07800; }
+.outdoor-core-hud-row .projection-core-chip.tone-cyan b { color: #1268b8; }
+
+/* ── 总积分 Badge ── */
+.outdoor-core-score-badge {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 14px;
+  white-space: nowrap;
+  border: 1.5px solid rgba(212, 175, 55, 0.45);
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(253, 248, 238, 0.85));
+  box-shadow: 0 2px 12px rgba(212, 175, 55, 0.1);
+  position: relative;
+}
+
+/* Badge 底部金线 */
+.outdoor-core-score-badge::after {
+  content: "";
+  position: absolute;
+  bottom: -1px;
+  left: 20%;
+  right: 20%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(212, 175, 55, 0.5), transparent);
+  border-radius: 1px;
+}
+
+.outdoor-core-score-badge span {
+  color: rgba(15, 31, 46, 0.5);
+  font-size: 10px;
+  letter-spacing: 0.15em;
+}
+
+.outdoor-core-score-badge strong {
+  font-size: 22px;
+  line-height: 26px;
+  font-weight: 900;
+  font-family: monospace;
+  background: linear-gradient(135deg, #0a3d6b, #1268b8 45%, #d4af37);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ── 3D Hero 展示区 ── */
+.outdoor-core-hero {
+  position: relative;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  isolation: isolate;
+  contain: paint;
+  min-height: 0;
+  border-radius: 8px;
+  border: 1px solid rgba(18, 104, 184, 0.14);
+  background:
+    radial-gradient(ellipse 72% 58% at 50% 56%, rgba(18, 104, 184, 0.1), transparent 72%),
+    radial-gradient(circle at 50% 62%, rgba(212, 175, 55, 0.06), transparent 42%),
+    repeating-linear-gradient(
+      0deg,
+      rgba(18, 104, 184, 0.045) 0 1px,
+      transparent 1px 22px
+    ),
+    repeating-linear-gradient(
+      90deg,
+      rgba(18, 104, 184, 0.045) 0 1px,
+      transparent 1px 22px
+    ),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(234, 242, 249, 0.92));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.65);
+}
+
+.outdoor-core-stage {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.outdoor-core-corner {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  border-color: rgba(18, 104, 184, 0.42);
+  border-style: solid;
+  opacity: 0.85;
+}
+
+.outdoor-core-corner.is-tl {
+  top: 8px;
+  left: 10px;
+  border-width: 2px 0 0 2px;
+}
+
+.outdoor-core-corner.is-tr {
+  top: 8px;
+  right: 10px;
+  border-width: 2px 2px 0 0;
+}
+
+.outdoor-core-corner.is-bl {
+  bottom: 8px;
+  left: 10px;
+  border-width: 0 0 2px 2px;
+}
+
+.outdoor-core-corner.is-br {
+  right: 10px;
+  bottom: 8px;
+  border-width: 0 2px 2px 0;
+}
+
+.outdoor-core-orbit {
+  position: absolute;
+  left: 50%;
+  top: 52%;
+  border: 1px solid rgba(18, 104, 184, 0.22);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.outdoor-core-orbit.is-a {
+  width: min(78%, 420px);
+  height: min(34%, 120px);
+  border-color: rgba(18, 104, 184, 0.28);
+  animation: outdoor-core-orbit-spin 18s linear infinite;
+}
+
+.outdoor-core-orbit.is-b {
+  width: min(62%, 340px);
+  height: min(28%, 96px);
+  border-style: dashed;
+  border-color: rgba(18, 104, 184, 0.2);
+  animation: outdoor-core-orbit-spin 24s linear infinite reverse;
+}
+
+.outdoor-core-orbit.is-c {
+  width: min(88%, 480px);
+  height: min(40%, 140px);
+  border-color: rgba(212, 133, 0, 0.22);
+  animation: outdoor-core-orbit-spin 30s linear infinite;
+}
+
+.outdoor-core-beam {
+  position: absolute;
+  left: 50%;
+  bottom: 8%;
+  width: min(36%, 180px);
+  height: 42%;
+  transform: translateX(-50%);
+  background: linear-gradient(to top, rgba(18, 104, 184, 0.16), transparent 88%);
+  clip-path: polygon(18% 100%, 82% 100%, 100% 0, 0 0);
+  opacity: 0.75;
+}
+
+.outdoor-core-tag {
+  position: absolute;
+  top: 50%;
+  padding: 4px 8px;
+  border: 1px solid rgba(18, 104, 184, 0.18);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.72);
+  color: rgba(15, 31, 46, 0.58);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  transform: translateY(-50%);
+  writing-mode: vertical-rl;
+}
+
+.outdoor-core-tag.is-left {
+  left: 12px;
+}
+
+.outdoor-core-tag.is-right {
+  right: 12px;
+  color: rgba(192, 120, 0, 0.82);
+  border-color: rgba(212, 133, 0, 0.24);
+}
+
+@keyframes outdoor-core-orbit-spin {
+  to {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+
+.outdoor-core-hero .hero-3d-container.hero-3d-compact {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  min-height: 168px;
+  max-width: none;
+  margin: 0;
+}
+
+/* ── 底部指标行：8 chip (4×2 grid) ── */
+.outdoor-core-bottom {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: 2px;
+  background: rgba(255, 255, 255, 0.55);
+  border-radius: 8px;
+  border: 1px solid rgba(18, 104, 184, 0.12);
+  padding: 3px;
+}
+
+/* 底部 chip 简洁面板风格 */
+.outdoor-core-bottom .projection-core-chip {
+  position: static;
+  width: auto;
+  height: auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2px;
+  padding: 2px 6px;
+  border: none;
+  border-left: 2px solid rgba(18, 104, 184, 0.2);
+  border-radius: 3px;
+  background: rgba(18, 104, 184, 0.03);
+  box-shadow: none;
+}
+
+.outdoor-core-bottom .projection-core-chip span {
+  color: rgba(15, 31, 46, 0.55);
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.outdoor-core-bottom .projection-core-chip b {
+  color: #1a2e3e;
+  font-size: 13px;
+  font-weight: 800;
+  text-shadow: none;
+}
+
+/* 底部 chip 色调 */
+.outdoor-core-bottom .projection-core-chip.tone-green { border-left-color: #18985c; }
+.outdoor-core-bottom .projection-core-chip.tone-green b { color: #18985c; }
+.outdoor-core-bottom .projection-core-chip.tone-gold { border-left-color: #d48500; }
+.outdoor-core-bottom .projection-core-chip.tone-gold b { color: #c07800; }
+.outdoor-core-bottom .projection-core-chip.tone-red { border-left-color: #d43d2e; }
+.outdoor-core-bottom .projection-core-chip.tone-red b { color: #d43d2e; }
+.outdoor-core-bottom .projection-core-chip.tone-purple { border-left-color: #6852c6; }
+.outdoor-core-bottom .projection-core-chip.tone-purple b { color: #6852c6; }
+.outdoor-core-bottom .projection-core-chip.tone-cyan { border-left-color: #1268b8; }
+.outdoor-core-bottom .projection-core-chip.tone-cyan b,
+.outdoor-core-bottom .projection-core-chip.tone-blue b { color: #1268b8; }
+
+/* ═════════════════════════════════════
+   核心 Chip 通用样式
+   ═════════════════════════════════════ */
+
+.projection-theme-outdoor .projection-core-chip {
+  border-color: rgba(18, 104, 184, 0.22);
+  border-left-width: 2px;
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.95), rgba(240, 246, 252, 0.9));
+  box-shadow: none;
+}
+
+.projection-theme-outdoor .projection-core-chip span {
+  color: rgba(15, 31, 46, 0.58);
+  font-weight: 600;
+  font-size: 10px;
+}
+
+.projection-theme-outdoor .projection-core-chip b {
+  color: #1a2e3e;
+  text-shadow: none;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+/* 非 outdoor layout chip 色调（兜底，用于暗色模式的 chip-ring） */
+.projection-theme-outdoor .projection-core-chip.tone-green b { color: #18985c; }
+.projection-theme-outdoor .projection-core-chip.tone-gold b { color: #d48500; }
+.projection-theme-outdoor .projection-core-chip.tone-red b { color: #d43d2e; }
+.projection-theme-outdoor .projection-core-chip.tone-purple b { color: #6852c6; }
+.projection-theme-outdoor .projection-core-chip.tone-cyan b,
+.projection-theme-outdoor .projection-core-chip.tone-blue b { color: #1268b8; }
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   十、气泡图
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+.projection-theme-outdoor .projection-bubble {
+  backdrop-filter: none;
+  box-shadow:
+    0 3px 12px rgba(18, 104, 184, 0.16),
+    0 0 0 1px rgba(255, 255, 255, 0.75) inset;
+}
+
+.projection-theme-outdoor .projection-bubble::before,
+.projection-theme-outdoor .projection-bubble::after {
+  display: none;
+}
+
+.projection-theme-outdoor .projection-bubble span {
+  color: #0f1f2e;
+  text-shadow: none;
+  font-size: 11px;
+}
+
+.projection-theme-outdoor .projection-bubble small {
+  color: rgba(15, 31, 46, 0.5);
+  text-shadow: none;
+}
+
+.projection-theme-outdoor .projection-bubble b {
+  color: #0a2f4b;
+  text-shadow: none;
+  font-size: 18px;
+}
+
+.projection-theme-outdoor .projection-bubble-field::before,
+.projection-theme-outdoor .projection-bubble-field::after {
+  display: none;
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   十一、年级表格
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+.projection-theme-outdoor .projection-grade-table span {
+  color: rgba(15, 31, 46, 0.6);
+  font-size: 10px;
+}
+
+.projection-theme-outdoor .projection-grade-table b,
+.projection-theme-outdoor .projection-grade-table strong {
+  color: #1a2e3e;
+  font-size: 10px;
+}
+
+.projection-theme-outdoor .projection-grade-table em {
+  color: rgba(15, 31, 46, 0.55);
+}
+
+.projection-theme-outdoor .projection-grade-table div {
+  border-color: rgba(18, 104, 184, 0.12);
+  background: rgba(18, 104, 184, 0.04);
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   十二、热力矩阵 — 高饱和色阶
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+.projection-theme-outdoor .projection-heat-grid b,
+.projection-theme-outdoor .projection-heat-grid em {
+  color: rgba(15, 31, 46, 0.7);
+  font-size: 11px;
+}
+
+.projection-theme-outdoor .projection-heat-grid i {
+  box-shadow: none;
+  font-weight: 700;
+  font-size: 10px;
+}
+
+.projection-theme-outdoor .projection-heat-grid i.proj-heat-0 {
+  background: #edf1f5;
+  color: #8e99a4;
+}
+
+.projection-theme-outdoor .projection-heat-grid i.proj-heat-1 {
+  background: #a8d2ef;
+  color: #14527a;
+}
+
+.projection-theme-outdoor .projection-heat-grid i.proj-heat-2 {
+  background: #52b2e5;
+  color: #fff;
+}
+
+.projection-theme-outdoor .projection-heat-grid i.proj-heat-3 {
+  background: #2886c4;
+  color: #fff;
+}
+
+.projection-theme-outdoor .projection-heat-grid i.proj-heat-4 {
+  background: #155080;
+  color: #fff;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+
+.projection-theme-outdoor .projection-heat-footnote {
+  color: rgba(15, 31, 46, 0.55);
+  font-size: 10px;
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   十三、排名条形图 — 渐入动画
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+.projection-theme-outdoor .projection-bar-row span {
+  color: rgba(15, 31, 46, 0.55);
+  font-size: 10px;
+}
+
+.projection-theme-outdoor .projection-bar-row b {
+  color: #1a2e3e;
+  font-size: 10px;
+}
+
+.projection-theme-outdoor .projection-bar-row i {
+  background: rgba(18, 104, 184, 0.1);
+  height: 8px;
+}
+
+/* 排名进度条渐变 — 更活泼的双色 */
+.projection-theme-outdoor .projection-bar-row i em {
+  background: linear-gradient(90deg, #1268b8, #2b8cc4);
+  box-shadow: none;
+  animation: outdoor-bar-grow 0.8s ease-out both;
+}
+
+@keyframes outdoor-bar-grow {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+.projection-theme-outdoor .projection-bar-row strong {
+  color: #1268b8;
+  font-size: 10px;
+}
+
+.projection-theme-outdoor .projection-bar-row small {
+  color: rgba(15, 31, 46, 0.5);
+  font-size: 9px;
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   十四、操作员表格
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+.projection-theme-outdoor .projection-operator-table span {
+  color: rgba(15, 31, 46, 0.5);
+  font-size: 10px;
+}
+
+.projection-theme-outdoor .projection-operator-table b {
+  color: #1a2e3e;
+  font-size: 10px;
+}
+
+.projection-theme-outdoor .projection-operator-table em {
+  color: rgba(15, 31, 46, 0.55);
+}
+
+.projection-theme-outdoor .projection-operator-table strong {
+  color: #18985c;
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   十五、环形图 & 仪表盘
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+.projection-theme-outdoor .projection-donut {
+  box-shadow: 0 2px 12px rgba(18, 104, 184, 0.1);
+}
+
+.projection-theme-outdoor .projection-donut::after {
+  background: #fff;
+}
+
+.projection-theme-outdoor .projection-donut span {
+  color: #1a2e3e;
+  text-shadow: none;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.projection-theme-outdoor .projection-donut-legend i {
+  color: rgba(15, 31, 46, 0.65);
+  font-size: 10px;
+}
+
+.projection-theme-outdoor .projection-donut-legend b {
+  color: #1268b8;
+}
+
+/* 学科排行 */
+.projection-theme-outdoor .projection-subject-list span {
+  color: rgba(15, 31, 46, 0.5);
+  font-size: 10px;
+}
+
+.projection-theme-outdoor .projection-subject-list i {
+  color: #1a2e3e;
+}
+
+.projection-theme-outdoor .projection-subject-list b {
+  color: #1268b8;
+}
+
+.projection-theme-outdoor .projection-subject-list em {
+  color: rgba(15, 31, 46, 0.55);
+}
+
+/* 仪表盘 */
+.projection-theme-outdoor .projection-gauge-ring {
+  background: conic-gradient(#18985c var(--gauge), rgba(18, 104, 184, 0.1) 0);
+}
+
+.projection-theme-outdoor .projection-gauge-ring::after {
+  background: #fff;
+}
+
+.projection-theme-outdoor .projection-gauge-ring strong {
+  color: #1a2e3e;
+  text-shadow: none;
+  font-size: 26px;
+}
+
+.projection-theme-outdoor .projection-gauge-ring span {
+  color: rgba(15, 31, 46, 0.6);
+  font-size: 11px;
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   十六、实时流 — 脉冲点 + 增强对比
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+.projection-theme-outdoor .projection-live-row {
+  color: #0f1f2e;
+  font-size: 10px;
+}
+
+.projection-theme-outdoor .projection-live-row:first-child {
+  color: #0a4a7a;
+  font-weight: 700;
+  text-shadow: none;
+  background: linear-gradient(90deg, rgba(18, 104, 184, 0.12), transparent);
+  border-radius: 3px;
+  position: relative;
+}
+
+/* 最新一条记录的脉冲点指示器 */
+.projection-theme-outdoor .projection-live-row:first-child::before {
+  content: "";
+  position: absolute;
+  left: -3px;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin-top: -3px;
+  border-radius: 50%;
+  background: #d43d2e;
+  animation: outdoor-live-pulse 2s ease-in-out infinite;
+}
+
+@keyframes outdoor-live-pulse {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(212, 61, 46, 0.5);
+  }
+  50% {
+    opacity: 0.7;
+    box-shadow: 0 0 0 4px rgba(212, 61, 46, 0);
+  }
+}
+
+.projection-theme-outdoor .projection-live-row i {
+  color: rgba(15, 31, 46, 0.5);
+}
+
+.projection-theme-outdoor .projection-live-row strong {
+  color: #d48500;
+}
+
+.projection-theme-outdoor .projection-live-row.down strong {
+  color: #d43d2e;
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   十七、雷达 & 终端状态
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+.projection-theme-outdoor .projection-radar-core {
+  background: radial-gradient(circle, rgba(18, 104, 184, 0.1), transparent 60%);
+}
+
+.projection-theme-outdoor .projection-radar-ring {
+  border-color: rgba(18, 104, 184, 0.32);
+}
+
+.projection-theme-outdoor .projection-radar-sweep {
+  background: linear-gradient(90deg, rgba(18, 104, 184, 0.7), transparent);
+}
+
+.projection-theme-outdoor .projection-radar-core b {
+  color: #1a2e3e;
+  text-shadow: none;
+  font-size: 20px;
+}
+
+.projection-theme-outdoor .projection-radar-stats span,
+.projection-theme-outdoor .projection-gauge-stats span {
+  border-color: rgba(18, 104, 184, 0.16);
+  background: #f4f7fb;
+  color: rgba(15, 31, 46, 0.6);
+  font-size: 10px;
+}
+
+.projection-theme-outdoor .projection-radar-stats b,
+.projection-theme-outdoor .projection-gauge-stats b {
+  color: #1268b8;
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   十八、堆叠条 & 风险区
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+.projection-theme-outdoor .projection-stack {
+  background: rgba(18, 104, 184, 0.1);
+  height: 20px;
+}
+
+.projection-theme-outdoor .projection-stack i {
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+/* 堆叠条色彩提亮 */
+.projection-theme-outdoor .projection-stack .tone-red { background: #d43d2e; }
+.projection-theme-outdoor .projection-stack .tone-gold { background: #d48500; }
+.projection-theme-outdoor .projection-stack .tone-green { background: #18985c; }
+
+.projection-theme-outdoor .projection-risk-metrics span {
+  border-color: rgba(212, 133, 0, 0.25);
+  background: rgba(212, 133, 0, 0.07);
+  color: rgba(15, 31, 46, 0.6);
+  font-size: 10px;
+}
+
+.projection-theme-outdoor .projection-risk-metrics b {
+  color: #c07800;
+}
+
+.projection-theme-outdoor .projection-risk-list em {
+  color: rgba(15, 31, 46, 0.75);
+  font-size: 9px;
+}
+
+.projection-theme-outdoor .projection-risk-list i {
+  color: rgba(15, 31, 46, 0.5);
+}
+
+.projection-theme-outdoor .projection-risk-meta strong {
+  color: #1268b8;
+}
+
+.projection-theme-outdoor .projection-risk-meta b {
+  color: #d48500;
+}
+
+.projection-theme-outdoor .projection-risk-footnote {
+  color: rgba(15, 31, 46, 0.55);
+  font-size: 10px;
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   十九、学生排名
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+.projection-theme-outdoor .projection-student-row > em {
+  color: #c07800;
+  font-size: 10px;
+}
+
+.projection-theme-outdoor .projection-student-row span {
+  color: rgba(15, 31, 46, 0.5);
+}
+
+.projection-theme-outdoor .projection-student-row small {
+  color: rgba(15, 31, 46, 0.5);
+}
+
+.projection-theme-outdoor .projection-student-row i {
+  background: rgba(18, 104, 184, 0.08);
+  height: 8px;
+}
+
+.projection-theme-outdoor .projection-student-row i em {
+  background: linear-gradient(90deg, #18985c, #2bba72);
+  box-shadow: none;
+  animation: outdoor-bar-grow 0.8s ease-out both;
+}
+
+.projection-theme-outdoor .projection-student-row b {
+  color: #1a2e3e;
+  font-size: 10px;
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   二十、底部跑马灯 — 品牌金线呼应
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+.projection-theme-outdoor .projection-ticker {
+  border-top: 2px solid rgba(18, 104, 184, 0.3);
+  background: linear-gradient(90deg, #e6f0f8 0%, #f4f8fc 50%, #e6f0f8 100%);
+  position: relative;
+}
+
+/* 跑马灯顶部金色装饰线——与顶栏品牌金线呼应 */
+.projection-theme-outdoor .projection-ticker::before {
+  content: "";
+  position: absolute;
+  top: -2px;
+  left: 10%;
+  right: 10%;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(212, 175, 55, 0.25) 20%,
+    rgba(212, 175, 55, 0.4) 50%,
+    rgba(212, 175, 55, 0.25) 80%,
+    transparent
+  );
+  pointer-events: none;
+}
+
+.projection-theme-outdoor .projection-ticker span {
+  color: #0f1f2e;
+  font-size: 13px;
+}
+
+.projection-theme-outdoor .projection-ticker svg {
+  color: #d48500;
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   二十一、状态提示
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+.projection-theme-outdoor .projection-status span,
+.projection-theme-outdoor .projection-status strong {
+  background: #fff;
+  border-color: rgba(18, 104, 184, 0.35);
+  color: #1268b8;
+  box-shadow: 0 4px 14px rgba(15, 31, 46, 0.12);
+  font-size: 13px;
+}
+
+.projection-theme-outdoor .projection-status strong {
+  border-color: rgba(212, 61, 46, 0.4);
+  color: #d43d2e;
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   二十二、3D Hero 组件户外适配
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+/* 隐藏暗色专用光柱/粒子；星环保留并做户外轻量化 */
+.projection-theme-outdoor .projection-core .ai-holo-beam,
+.projection-theme-outdoor .projection-core .particle {
+  display: none !important;
+}
+
+.projection-theme-outdoor .projection-core .hero-3d-container {
+  position: relative;
+}
+
+.projection-theme-outdoor .projection-core .hero-3d-container.hero-3d-compact {
+  transform: scale(1.08);
+  transform-origin: center center;
+}
+
+/* 户外星环：缩小尺寸、统一描边，避免裁切与色块闪烁 */
+.projection-theme-outdoor .projection-core .ai-orbital-rings {
+  width: min(72vw, 320px);
+  height: min(72vw, 320px);
+}
+
+.projection-theme-outdoor .projection-core .ai-ring.r1 {
+  width: 78%;
+  height: 78%;
+  border: 2px solid rgba(18, 104, 184, 0.42);
+}
+
+.projection-theme-outdoor .projection-core .ai-ring.r2 {
+  width: 92%;
+  height: 92%;
+  border: 1px dashed rgba(18, 104, 184, 0.28);
+}
+
+.projection-theme-outdoor .projection-core .ai-ring.r3 {
+  width: 106%;
+  height: 106%;
+  border: 1px solid rgba(212, 133, 0, 0.26);
+}
+
+.projection-theme-outdoor .projection-core .ai-base-glow {
+  width: min(88%, 460px);
+  height: 34%;
+  filter: blur(12px);
+}
+
+.projection-theme-outdoor .projection-core .ai-cube-wrapper {
+  width: 136px;
+  height: 136px;
+  transform-style: preserve-3d;
+  perspective: none;
+}
+
+.projection-theme-outdoor .projection-core .cube-face.front {
+  transform: translateZ(68px);
+}
+
+.projection-theme-outdoor .projection-core .cube-face.back {
+  transform: rotateY(180deg) translateZ(68px);
+}
+
+.projection-theme-outdoor .projection-core .cube-face.left {
+  transform: rotateY(-90deg) translateZ(68px);
+}
+
+.projection-theme-outdoor .projection-core .cube-face.right {
+  transform: rotateY(90deg) translateZ(68px);
+}
+
+.projection-theme-outdoor .projection-core .cube-face.top {
+  transform: rotateX(90deg) translateZ(68px);
+}
+
+.projection-theme-outdoor .projection-core .cube-face.bottom {
+  transform: rotateX(-90deg) translateZ(68px);
+}
+
+.projection-theme-outdoor .projection-core .cube-face {
+  background: rgba(18, 104, 184, 0.08);
+  border-color: rgba(18, 104, 184, 0.62);
+  box-shadow: inset 0 0 18px rgba(18, 104, 184, 0.18);
+}
+
+.projection-theme-outdoor .projection-core .ai-core-orb {
+  width: 92px;
+  height: 92px;
+  background: radial-gradient(
+    circle at 30% 30%,
+    #ffffff 0%,
+    #5dbbe8 38%,
+    rgba(18, 104, 184, 0.82) 72%,
+    transparent 100%
+  );
+  box-shadow: 0 0 24px rgba(18, 104, 184, 0.45), 0 0 48px rgba(18, 104, 184, 0.18) inset;
+  animation: projection-outdoor-core-pulse 3s ease-in-out infinite alternate;
+}
+
+.projection-theme-outdoor .projection-core .ai-text-glitch {
+  color: #0a3d6b;
+  font-size: 56px;
+  letter-spacing: 6px;
+  text-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.95),
+    0 0 18px rgba(18, 104, 184, 0.42),
+    0 0 36px rgba(18, 104, 184, 0.22);
+}
+
+.projection-theme-outdoor .projection-core .ai-cube,
+.projection-theme-outdoor .projection-core .cube-face {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+@keyframes projection-outdoor-core-pulse {
+  from {
+    transform: translate(-50%, -50%) scale(0.9);
+    opacity: 0.85;
+  }
+  to {
+    transform: translate(-50%, -50%) scale(1.1);
+    opacity: 1;
+  }
+}
+
+/* 简洁地面光台 */
+.projection-theme-outdoor .projection-core .hero-3d-container::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 10%;
+  z-index: 1;
+  width: min(92%, 520px);
+  height: min(28%, 108px);
+  transform: translateX(-50%) perspective(280px) rotateX(68deg) translateZ(-60px);
+  border-radius: 50%;
+  border: 2px solid rgba(18, 104, 184, 0.34);
+  background: radial-gradient(
+    ellipse at center,
+    rgba(18, 104, 184, 0.16) 0%,
+    rgba(18, 104, 184, 0.06) 55%,
+    transparent 72%
+  );
+  box-shadow:
+    0 0 32px rgba(18, 104, 184, 0.14),
+    inset 0 0 24px rgba(255, 255, 255, 0.35);
+  pointer-events: none;
+}
+
+.projection-theme-outdoor .projection-core .ai-base-glow {
+  background: radial-gradient(ellipse at center, rgba(18, 104, 184, 0.4) 0%, rgba(24, 152, 92, 0.12) 45%, transparent 70%);
+  animation: projection-outdoor-hero-glow 6s ease-in-out infinite alternate;
+}
+
+@keyframes projection-outdoor-hero-glow {
+  from {
+    opacity: 0.35;
+    transform: translate(-50%, calc(-50% + 80px)) scale(0.94);
+  }
+  to {
+    opacity: 0.65;
+    transform: translate(-50%, calc(-50% + 80px)) scale(1.06);
+  }
+}
+
+/* 轨道环 — 加粗增强（非核心区若展示时使用） */
+.projection-theme-outdoor .ai-ring {
+  border-color: rgba(18, 104, 184, 0.4);
+  border-width: 2px;
+  box-shadow: 0 0 8px rgba(18, 104, 184, 0.1);
+}
+
+.projection-theme-outdoor .ai-ring.r1 {
+  border-top-color: #1268b8;
+  border-bottom-color: #1268b8;
+}
+
+.projection-theme-outdoor .ai-ring.r2 {
+  border-color: rgba(18, 104, 184, 0.5);
+}
+
+.projection-theme-outdoor .ai-ring.r3 {
+  border-left-color: #d48500;
+  border-right-color: #d48500;
+}
+
+.projection-theme-outdoor .ai-holo-beam {
+  background: linear-gradient(to top, rgba(18, 104, 184, 0.55), transparent);
+  mix-blend-mode: normal;
+}
+
+/* 柱状 3D 体 — 增强饱和度和立体感 */
+.projection-theme-outdoor .pillar-face {
+  background: linear-gradient(180deg, rgba(52, 152, 219, 0.65), rgba(18, 104, 184, 0.8));
+  border-color: rgba(18, 104, 184, 0.7);
+  box-shadow: inset 0 -6px 16px rgba(18, 104, 184, 0.15);
+}
+
+.projection-theme-outdoor .pillar-top {
+  background: linear-gradient(135deg, #5dbbe8, #2886c4);
+  box-shadow: inset 0 0 10px rgba(255, 255, 255, 0.5);
+}
+
+.projection-theme-outdoor .pillar-front {
+  background: linear-gradient(to bottom, #4aa3d9, #2471a3);
+}
+
+.projection-theme-outdoor .pillar-right {
+  background: linear-gradient(to bottom, #2980b9, #1a5276);
+}
+
+/* 全息图标 */
+.projection-theme-outdoor .floating-hologram {
+  color: #0a4a7a;
+  filter: drop-shadow(0 6px 18px rgba(18, 104, 184, 0.4));
+}
+
+.projection-theme-outdoor .floating-hologram svg {
+  fill: #1268b8;
+}
+
+.projection-theme-outdoor .particle {
+  background: #d48500;
+  box-shadow: 0 0 4px rgba(212, 133, 0, 0.5);
+}
+
+/* HUD 文字 — 户外隐藏 */
+.projection-theme-outdoor .hero-hud-text {
+  display: none;
+}
+
+.projection-theme-outdoor .hero-hud-text .hud-value {
+  text-shadow: none;
+}
+
+.projection-theme-outdoor .hero-hud-text.tone-green .hud-value { color: #18985c; }
+.projection-theme-outdoor .hero-hud-text.tone-gold .hud-value { color: #d48500; }
+.projection-theme-outdoor .hero-hud-text.tone-red .hud-value { color: #d43d2e; }
+.projection-theme-outdoor .hero-hud-text.tone-cyan .hud-value { color: #1268b8; }
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   二十三、连接状态指示器
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+.projection-theme-outdoor .projection-socket i {
+  box-shadow: 0 0 6px rgba(212, 133, 0, 0.6);
+}
+
+.projection-theme-outdoor .projection-socket.online i {
+  background: #18985c;
+  box-shadow: 0 0 8px rgba(24, 152, 92, 0.6);
+}
+
+.projection-theme-outdoor .projection-socket.offline i {
+  background: #d43d2e;
+  box-shadow: 0 0 8px rgba(212, 61, 46, 0.6);
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   二十四、进步之星 & 学生 TOP25
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+.projection-theme-outdoor .projection-progress-row b,
+.projection-theme-outdoor .projection-progress-row em {
+  color: rgba(15, 31, 46, 0.82);
+}
+
+.projection-theme-outdoor .projection-progress-row em {
+  color: rgba(15, 31, 46, 0.48);
+}
+
+.projection-theme-outdoor .projection-progress-row i {
+  color: #1a8f5a;
+}
+
+.projection-theme-outdoor .projection-progress-row strong {
+  color: #1268b8;
+}
+
+.projection-theme-outdoor .projection-progress-empty {
+  color: rgba(15, 31, 46, 0.42);
+}
+
+.projection-theme-outdoor .projection-student-row > u {
+  color: #6b4fbb;
+}
+
+.projection-theme-outdoor .projection-student-row.rank-gold > em {
+  color: #b8860b;
+  text-shadow: none;
+}
+
+.projection-theme-outdoor .projection-student-row.rank-silver > em {
+  color: #708090;
+  text-shadow: none;
+}
+
+.projection-theme-outdoor .projection-student-row.rank-bronze > em {
+  color: #a0622e;
+  text-shadow: none;
+}
+
+.projection-theme-outdoor .projection-left-risk-row em {
+  color: rgba(15, 31, 46, 0.82);
+}
+
+.projection-theme-outdoor .projection-left-risk-row i {
+  color: rgba(15, 31, 46, 0.48);
+}
+
+.projection-theme-outdoor .projection-progress-row.is-placeholder b,
+.projection-theme-outdoor .projection-progress-row.is-placeholder em,
+.projection-theme-outdoor .projection-progress-row.is-placeholder i {
+  color: rgba(15, 31, 46, 0.24);
+}
+
+.projection-theme-outdoor .projection-donuts-body .projection-donut::after {
+  background: #f0f4f8;
+}
+
+.projection-theme-outdoor .projection-donuts-body .projection-donut span {
+  color: rgba(15, 31, 46, 0.72);
+}
+
+.projection-theme-outdoor .projection-donuts-body .projection-donut-legend span {
+  color: rgba(15, 31, 46, 0.62);
+}
+
+.projection-theme-outdoor .projection-donuts-body .projection-donut-legend b {
+  color: #1268b8;
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   二十五、无障碍 & 减弱动画
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+@media (prefers-reduced-motion: reduce) {
+  .projection-theme-outdoor .projection-core::before,
+  .projection-theme-outdoor .projection-core .ai-base-glow,
+  .projection-theme-outdoor .projection-stage,
+  .projection-theme-outdoor .outdoor-core-orbit,
+  .projection-theme-outdoor .projection-core .ai-orbital-rings {
+    animation: none;
+  }
+
+  .projection-theme-outdoor .projection-live-row:first-child::before {
+    animation: none;
+    opacity: 1;
+  }
+
+  .projection-theme-outdoor .projection-bar-row i em,
+  .projection-theme-outdoor .projection-student-row i em {
+    animation: none;
+  }
+
+  .projection-theme-outdoor .projection-topbar::after {
+    animation: none;
+    opacity: 1;
+  }
+}

@@ -2,6 +2,15 @@ import { Prisma } from '@prisma/client';
 
 export const DEFAULT_PET_GROWTH_THRESHOLDS = [0, 140, 240, 360, 500, 660, 840, 1040, 1260, 1500];
 
+/** 非升级免费机会下，每次更换装扮默认消耗的当前积分 */
+export const DEFAULT_PET_DECO_CHANGE_COST = 10;
+
+export function resolvePetDecoChangeCost(value: number | null | undefined) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) return DEFAULT_PET_DECO_CHANGE_COST;
+  return Math.trunc(parsed);
+}
+
 export function normalizePetGrowthThresholds(value: Prisma.JsonValue | null | undefined) {
   if (!Array.isArray(value)) return DEFAULT_PET_GROWTH_THRESHOLDS;
 

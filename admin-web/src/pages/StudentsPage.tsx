@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Modal } from '../components/Modal';
+import { ScoreRecordListItem, ScoreRecordReverseModal } from '../components/ScoreRecordReverseModal';
+import { PickerInput } from '../components/PickerInput';
 import { PresentationGlyph } from '../components/PresentationGlyph';
 import { Shell } from '../components/Shell';
 import { TablePagination } from '../components/TablePagination';
 import { usePagination } from '../hooks/usePagination';
 import { useAdminView } from '../context/AdminViewContext';
+import { useConfirmDialog } from '../context/ConfirmDialogContext';
 import type { 
   AdminClass,
   AdminStudent,
@@ -14,6 +17,7 @@ import type {
   AcademicExamUpdatePayload,
   AcademicScoreListRow,
   AiStudentSummary,
+  HonorRecord,
   ScoreRecord,
   SessionUser,
   StudentAcademicExam,
@@ -23,11 +27,15 @@ import type {
   SystemSettings,
 } from '../lib/api';
 import { adminApi } from '../lib/api';
+import { resolveAssetUrl } from '../lib/assets';
 import {
+  formatEnabledStatus,
   normalizeKeyword
 } from '../utils/adminForms';
-import { canEditStudents, canImportStudents } from '../utils/adminPermissions';
-import { parseAcademicScoreWorkbook } from '../utils/academicImport';
+import { canDeleteAcademicExams, canEditStudents, canImportStudents } from '../utils/adminPermissions';
+import { canShowScoreRecordReverse } from '../utils/scoreRecordReverse';
+import { parseAcademicScoreWorkbook, inferAcademicPeriodLabel, resolveAcademicImportDraft } from '../utils/academicImport';
+import { parseCsvRows, readXlsxWorkbookRows } from '../utils/workbookRows';
 import { parseStudentImportRows,parseStudentImportText } from '../utils/studentImport';
 
 type StudentsPageProps = {
@@ -57,45 +65,12 @@ function dateInputValue(value: string | null | undefined) {
   return parsed.toISOString().slice(0, 10);
 }
 
-function inferAcademicPeriodLabel(sourceText: string, examDate?: string, fallback?: string | null) {
-  const text = sourceText.replace(/\s+/g, '');
-  const explicitTerm = text.match(/(20\d{2})\s*[-—–~至]\s*(20\d{2})学年.*?(上学期|下学期|第一学期|第二学期)/);
-  if (explicitTerm) {
-    const term = explicitTerm[3] === '上学期' || explicitTerm[3] === '第一学期' ? '上学期' : '下学期';
-    return `${explicitTerm[1]}-${explicitTerm[2]}学年${term}`;
-  }
-
-  const schoolYear = text.match(/(20\d{2})\s*[-—–~至]\s*(20\d{2})学年/);
-  const termByText =
-    /上学期|第一学期|秋季学期|秋学期|秋期/.test(text)
-      ? '上学期'
-      : /下学期|第二学期|春季学期|春学期|春期/.test(text)
-        ? '下学期'
-        : null;
-  if (schoolYear && termByText) {
-    return `${schoolYear[1]}-${schoolYear[2]}学年${termByText}`;
-  }
-
-  const yearInText = text.match(/(20\d{2})年/);
-  if (yearInText && termByText) {
-    const year = Number(yearInText[1]);
-    return termByText === '上学期'
-      ? `${year}-${year + 1}学年上学期`
-      : `${year - 1}-${year}学年下学期`;
-  }
-
-  if (examDate) {
-    const date = new Date(examDate);
-    if (!Number.isNaN(date.getTime())) {
-      const year = date.getFullYear();
-      const month = date.getMonth() + 1;
-      if (month >= 9 && month <= 12) return `${year}-${year + 1}学年上学期`;
-      if (month === 1) return `${year - 1}-${year}学年上学期`;
-      if (month >= 2 && month <= 7) return `${year - 1}-${year}学年下学期`;
-    }
-  }
-
-  return fallback ?? '';
+function buildAcademicImportSourceText(
+  examName: string,
+  sourceFile?: string,
+  fileName?: string,
+) {
+  return `${examName} ${sourceFile ?? fileName ?? ''}`.trim();
 }
 
 function trimText(text: string | null | undefined, maxLength: number) {
@@ -133,6 +108,7 @@ export function StudentsPage({
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { activeSubjectView } = useAdminView();
+  const { confirm } = useConfirmDialog();
   const isSubjectTeacher = user?.roleCode === 'subject_teacher';
 
 
@@ -175,7 +151,12 @@ export function StudentsPage({
   const [studentAcademicError, setStudentAcademicError] = useState<string | null>(null);
   const [studentScoreRecordsLoading, setStudentScoreRecordsLoading] = useState(false);
   const [studentScoreRecordsError, setStudentScoreRecordsError] = useState<string | null>(null);
+  const [studentHonorRecords, setStudentHonorRecords] = useState<HonorRecord[]>([]);
+  const [studentHonorsLoading, setStudentHonorsLoading] = useState(false);
+  const [studentHonorsError, setStudentHonorsError] = useState<string | null>(null);
   const [showStudentScoreRecordsModal, setShowStudentScoreRecordsModal] = useState(false);
+  const [scoreRecordReverseTarget, setScoreRecordReverseTarget] = useState<ScoreRecord | null>(null);
+  const [scoreRecordReverseLoading, setScoreRecordReverseLoading] = useState(false);
   const [observationType, setObservationType] = useState('课堂表现');
   const [observationContent, setObservationContent] = useState('');
   const [observationSubmitting, setObservationSubmitting] = useState(false);
@@ -191,9 +172,12 @@ export function StudentsPage({
   const [importFileName, setImportFileName] = useState('');
   const [academicImportFileName, setAcademicImportFileName] = useState('');
   const [academicImportData, setAcademicImportData] = useState<AcademicScoreImportPayload | null>(null);
+  const [academicImportExamName, setAcademicImportExamName] = useState('');
+  const [academicImportGradeName, setAcademicImportGradeName] = useState('');
   const [academicImportExamDate, setAcademicImportExamDate] = useState(todayDateInputValue());
   const [academicImportPeriodLabel, setAcademicImportPeriodLabel] = useState('');
   const [academicImportPeriodLabelEdited, setAcademicImportPeriodLabelEdited] = useState(false);
+  const [academicImportExamDateEdited, setAcademicImportExamDateEdited] = useState(false);
   const [editingAcademicExam, setEditingAcademicExam] = useState<AcademicExamListItem | null>(null);
   const [academicExamDraft, setAcademicExamDraft] = useState<AcademicExamUpdatePayload>({
     examName: '',
@@ -203,6 +187,7 @@ export function StudentsPage({
   const [currentSemester, setCurrentSemester] = useState<SystemSettings['semester'] | null>(null);
   const [academicImportSubmitting, setAcademicImportSubmitting] = useState(false);
   const [academicExamEditSubmitting, setAcademicExamEditSubmitting] = useState(false);
+  const [academicExamDeleteSubmitting, setAcademicExamDeleteSubmitting] = useState(false);
   const [academicExams, setAcademicExams] = useState<AcademicExamListItem[]>([]);
   const [academicScores, setAcademicScores] = useState<AcademicScoreListRow[]>([]);
   const [academicScoresLoading, setAcademicScoresLoading] = useState(false);
@@ -211,15 +196,21 @@ export function StudentsPage({
   const [academicReloadKey, setAcademicReloadKey] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [resetPetSubmitting, setResetPetSubmitting] = useState(false);
+  const [resetPetNicknameSubmitting, setResetPetNicknameSubmitting] = useState(false);
+  const [statusSubmitting, setStatusSubmitting] = useState(false);
+  const [managementStudents, setManagementStudents] = useState<AdminStudent[]>([]);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
   const [searchKeyword, setSearchKeyword] = useState('');
   const [gradeFilter, setGradeFilter] = useState('all');
   const [classFilter, setClassFilter] = useState('all');
   const [focusFilter, setFocusFilter] = useState<'all' | 'pet_bound' | 'high_level'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'enabled' | 'disabled'>('enabled');
   const [sortConfig, setSortConfig] = useState<{ key: StudentSortKey; direction: SortDirection } | null>(null);
   const allowImport = canImportStudents(user?.roleCode);
   const allowEdit = canEditStudents(user?.roleCode);
+  const petAdminBusy = resetPetSubmitting || resetPetNicknameSubmitting;
+  const allowDeleteAcademicExam = canDeleteAcademicExams(user?.roleCode);
   const selectedAcademicExam = examFilter === 'all'
     ? null
     : academicExams.find((item) => String(item.id) === examFilter) ?? null;
@@ -230,9 +221,40 @@ export function StudentsPage({
     [classes],
   );
   const classMap = useMemo(() => new Map(classes.map((item) => [item.id, item])), [classes]);
-  const filteredStudents = useMemo(() => {
+  const homeroomClassIds = useMemo(
+    () => classes.filter((item) => item.homeroomTeacher?.id === user?.id).map((item) => item.id),
+    [classes, user?.id],
+  );
+  const classFilterOptions = useMemo(
+    () => classes.filter((item) => gradeFilter === 'all' || item.gradeName === gradeFilter),
+    [classes, gradeFilter],
+  );
+  const listStudents = allowEdit && managementStudents.length > 0 ? managementStudents : students;
+
+  useEffect(() => {
+    if (!token || !allowEdit) {
+      setManagementStudents([]);
+      return;
+    }
+    let active = true;
+    adminApi
+      .students(token, { includeDisabled: true })
+      .then((response) => {
+        if (!active) return;
+        setManagementStudents(response.data);
+      })
+      .catch(() => {
+        if (!active) return;
+        setManagementStudents(students);
+      });
+    return () => {
+      active = false;
+    };
+  }, [token, allowEdit, students]);
+
+  const metricStudents = useMemo(() => {
     const keyword = normalizeKeyword(searchKeyword);
-    return students.filter((row) => {
+    return listStudents.filter((row) => {
       const classInfo = classMap.get(row.classId);
       const matchesKeyword =
         !keyword ||
@@ -241,13 +263,18 @@ export function StudentsPage({
         normalizeKeyword(row.className).includes(keyword);
       const matchesGrade = gradeFilter === 'all' || classInfo?.gradeName === gradeFilter;
       const matchesClass = classFilter === 'all' || String(row.classId) === classFilter;
-      const matchesFocus =
-        focusFilter === 'all' ||
-        (focusFilter === 'pet_bound' && Boolean(row.pet)) ||
-        (focusFilter === 'high_level' && row.currentPetLevel >= 5);
-      return matchesKeyword && matchesGrade && matchesClass && matchesFocus;
+      const matchesStatus = statusFilter === 'all' || (row.status ?? 'enabled') === statusFilter;
+      return matchesKeyword && matchesGrade && matchesClass && matchesStatus;
     });
-  }, [classFilter, classMap, focusFilter, gradeFilter, searchKeyword, students]);
+  }, [classFilter, classMap, gradeFilter, listStudents, searchKeyword, statusFilter]);
+  const filteredStudents = useMemo(() => {
+    if (focusFilter === 'all') return metricStudents;
+    return metricStudents.filter(
+      (row) =>
+        (focusFilter === 'pet_bound' && Boolean(row.pet)) ||
+        (focusFilter === 'high_level' && row.currentPetLevel >= 5),
+    );
+  }, [metricStudents, focusFilter]);
   const sortedStudents = useMemo(() => {
     if (!sortConfig) return filteredStudents;
 
@@ -283,7 +310,7 @@ export function StudentsPage({
   }, [filteredStudents, sortConfig]);
   const studentPagination = usePagination(
     sortedStudents,
-    `${searchKeyword}|${gradeFilter}|${classFilter}|${focusFilter}|${sortConfig?.key ?? 'default'}|${sortConfig?.direction ?? 'default'}|${students.length}`,
+    `${searchKeyword}|${gradeFilter}|${classFilter}|${focusFilter}|${statusFilter}|${sortConfig?.key ?? 'default'}|${sortConfig?.direction ?? 'default'}|${listStudents.length}`,
   );
   const academicScorePagination = usePagination(
     academicScores,
@@ -304,14 +331,14 @@ export function StudentsPage({
       declineCount,
     };
   }, [academicScores]);
-  const studentsWithPetCount = students.filter((row) => row.pet).length;
-  const averageCurrentScore = students.length
-    ? Math.round(students.reduce((sum, row) => sum + row.currentScore, 0) / students.length)
+  const studentsWithPetCount = metricStudents.filter((row) => row.pet).length;
+  const averageCurrentScore = metricStudents.length
+    ? Math.round(metricStudents.reduce((sum, row) => sum + row.currentScore, 0) / metricStudents.length)
     : 0;
-  const highLevelPetCount = students.filter((row) => row.currentPetLevel >= 5).length;
-  const coveredClassCount = new Set(students.map((row) => row.classId)).size;
-  const studentsWithAcademicCount = students.filter((row) => row.latestAcademic).length;
-  const latestAcademicRows = students.filter((row) => row.latestAcademic);
+  const highLevelPetCount = metricStudents.filter((row) => row.currentPetLevel >= 5).length;
+  const coveredClassCount = new Set(metricStudents.map((row) => row.classId)).size;
+  const studentsWithAcademicCount = metricStudents.filter((row) => row.latestAcademic).length;
+  const latestAcademicRows = metricStudents.filter((row) => row.latestAcademic);
   const latestAcademicExamName = latestAcademicRows
     .map((row) => row.latestAcademic)
     .sort((left, right) => new Date(right?.examDate ?? right?.importedAt ?? 0).getTime() - new Date(left?.examDate ?? left?.importedAt ?? 0).getTime())[0]?.examName;
@@ -323,7 +350,7 @@ export function StudentsPage({
     : 0;
   const academicCoveredClassCount = new Set(latestAcademicRows.map((row) => row.classId)).size;
   const gradeOverview = Array.from(
-    students.reduce((map, row) => {
+    metricStudents.reduce((map, row) => {
       const classInfo = classMap.get(row.classId);
       const gradeName = classInfo?.gradeName ?? '未分配年级';
       const current = map.get(gradeName) ?? {
@@ -344,12 +371,12 @@ export function StudentsPage({
       averageScore: item.studentCount ? Math.round(item.totalScore / item.studentCount) : 0,
     }))
     .sort((a, b) => b.studentCount - a.studentCount || a.gradeName.localeCompare(b.gradeName, 'zh-CN'));
-  const studentsWithoutPet = students.filter((row) => !row.pet).length;
+  const studentsWithoutPet = metricStudents.filter((row) => !row.pet).length;
   const genderSummary = {
-    male: students.filter((row) => row.gender === '男').length,
-    female: students.filter((row) => row.gender === '女').length,
+    male: metricStudents.filter((row) => row.gender === '男').length,
+    female: metricStudents.filter((row) => row.gender === '女').length,
   };
-  const scopedStudents = filteredStudents;
+  const scopedStudents = metricStudents;
   const scopedGradeStats = Array.from(
     scopedStudents.reduce((map, row) => {
       const classInfo = classMap.get(row.classId);
@@ -504,6 +531,15 @@ export function StudentsPage({
   }, [classId, classes]);
 
   useEffect(() => {
+    if (isSubjectTeacher) return;
+    if (classFilter === 'all') return;
+    const exists = classFilterOptions.some((item) => String(item.id) === classFilter);
+    if (!exists) {
+      setClassFilter('all');
+    }
+  }, [classFilter, classFilterOptions, isSubjectTeacher]);
+
+  useEffect(() => {
     if (!isSubjectTeacher || !activeSubjectView) return;
     setShowOverview(false);
     setExamFilter('all');
@@ -532,7 +568,7 @@ export function StudentsPage({
       setListTab('students');
     }
     const examIdParam = searchParams.get('examId');
-    if (examIdParam && !Number.isNaN(Number(examIdParam)) && !isSubjectTeacher) {
+    if (examIdParam && !Number.isNaN(Number(examIdParam))) {
       setExamFilter(examIdParam);
     }
     if (nextFocusFilter === 'pet_bound' || nextFocusFilter === 'high_level') {
@@ -552,15 +588,27 @@ export function StudentsPage({
 
   useEffect(() => {
     let active = true;
-    Promise.all([adminApi.academicExams(token), adminApi.settings(token)])
-      .then(([examsResponse, settingsResponse]) => {
+
+    adminApi
+      .academicExams(token)
+      .then((examsResponse) => {
         if (!active) return;
         setAcademicExams(examsResponse.data);
-        setCurrentSemester(settingsResponse.data.semester);
       })
       .catch(() => {
         if (!active) return;
         setAcademicExams([]);
+      });
+
+    adminApi
+      .settings(token)
+      .then((settingsResponse) => {
+        if (!active) return;
+        setCurrentSemester(settingsResponse.data.semester);
+      })
+      .catch(() => {
+        if (!active) return;
+        setCurrentSemester(null);
       });
 
     return () => {
@@ -614,8 +662,11 @@ export function StudentsPage({
       setStudentAiError(null);
       setStudentScoreRecords([]);
       setStudentAcademicRecords([]);
+      setStudentHonorRecords([]);
       setStudentScoreRecordsLoading(false);
       setStudentAcademicLoading(false);
+      setStudentHonorsLoading(false);
+      setStudentHonorsError(null);
       setStudentAiGenerating(false);
       setStudentScoreRecordsError(null);
       setStudentAcademicError(null);
@@ -668,6 +719,37 @@ export function StudentsPage({
       })
       .finally(() => {
         if (active) setStudentAcademicLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [selectedStudent, token]);
+
+  useEffect(() => {
+    if (!selectedStudent) return;
+
+    let active = true;
+    setStudentHonorsLoading(true);
+    setStudentHonorsError(null);
+
+    adminApi
+      .honorRecords(token, {
+        classId: selectedStudent.classId,
+        studentId: selectedStudent.id,
+        targetType: 'student',
+      })
+      .then((response) => {
+        if (!active) return;
+        setStudentHonorRecords(response.data);
+      })
+      .catch((err) => {
+        if (!active) return;
+        setStudentHonorRecords([]);
+        setStudentHonorsError(err instanceof Error ? err.message : '荣誉记录加载失败');
+      })
+      .finally(() => {
+        if (active) setStudentHonorsLoading(false);
       });
 
     return () => {
@@ -758,6 +840,77 @@ export function StudentsPage({
       active = false;
     };
   }, [selectedStudent, token]);
+
+  async function reloadStudentScoreRecords() {
+    if (!selectedStudent) return;
+    setStudentScoreRecordsLoading(true);
+    setStudentScoreRecordsError(null);
+    try {
+      const response = await adminApi.scoreRecords(token, {
+        classId: selectedStudent.classId,
+        studentId: selectedStudent.id,
+      });
+      setStudentScoreRecords(response.data.slice(0, 100));
+    } catch (err) {
+      setStudentScoreRecordsError(err instanceof Error ? err.message : '积分记录加载失败');
+    } finally {
+      setStudentScoreRecordsLoading(false);
+    }
+  }
+
+  async function reloadStudentDetailSnapshot() {
+    if (!selectedStudent) return;
+    const response = await adminApi.studentDetail(token, selectedStudent.id);
+    setSelectedStudentDetail(response.data);
+    const profile = response.data.profile;
+    if (!profile) return;
+    setSelectedStudent((prev) =>
+      prev?.id === selectedStudent.id
+        ? {
+            ...prev,
+            currentScore: profile.currentScore,
+            totalScore: profile.totalScore,
+            currentPetLevel: profile.currentPetLevel,
+          }
+        : prev,
+    );
+  }
+
+  async function handleStudentScoreRecordReverse(remark: string) {
+    if (!scoreRecordReverseTarget || !selectedStudent || scoreRecordReverseLoading) return;
+    setScoreRecordReverseLoading(true);
+    try {
+      const response = await adminApi.reverseScoreRecord(token, scoreRecordReverseTarget.id, { remark });
+      const profile = response.data.studentProfile;
+      setSelectedStudentDetail((prev) =>
+        prev?.profile
+          ? {
+              ...prev,
+              profile: {
+                ...prev.profile,
+                currentScore: profile.currentScore,
+                currentPetLevel: profile.currentPetLevel,
+              },
+            }
+          : prev,
+      );
+      setSelectedStudent((prev) =>
+        prev?.id === selectedStudent.id
+          ? {
+              ...prev,
+              currentScore: profile.currentScore,
+              currentPetLevel: profile.currentPetLevel,
+            }
+          : prev,
+      );
+      await Promise.all([onSaved(), reloadStudentScoreRecords(), reloadStudentDetailSnapshot()]);
+      setScoreRecordReverseTarget(null);
+    } catch (err) {
+      throw err instanceof Error ? err : new Error('撤销评价失败');
+    } finally {
+      setScoreRecordReverseLoading(false);
+    }
+  }
 
   function focusClass(classIdValue: number, nextGradeName?: string) {
     setClassFilter(String(classIdValue));
@@ -897,6 +1050,7 @@ export function StudentsPage({
       setClassFilter('all');
     }
     setFocusFilter('all');
+    setStatusFilter('enabled');
   }
 
   function toggleSort(key: StudentSortKey) {
@@ -999,7 +1153,7 @@ export function StudentsPage({
   }
 
   function closeImportModal(force = false) {
-    if ((submitting || resetPetSubmitting) && !force) return;
+    if ((submitting || petAdminBusy || statusSubmitting) && !force) return;
     setShowImport(false);
     setEditingStudent(null);
     setTextarea('');
@@ -1013,9 +1167,12 @@ export function StudentsPage({
     setShowAcademicImport(true);
     setAcademicImportFileName('');
     setAcademicImportData(null);
+    setAcademicImportExamName('');
+    setAcademicImportGradeName('');
     setAcademicImportExamDate(todayDateInputValue());
     setAcademicImportPeriodLabel(inferAcademicPeriodLabel('', todayDateInputValue(), currentSemester?.name));
     setAcademicImportPeriodLabelEdited(false);
+    setAcademicImportExamDateEdited(false);
     setSubmitError(null);
     setSubmitSuccess(null);
   }
@@ -1025,9 +1182,12 @@ export function StudentsPage({
     setShowAcademicImport(false);
     setAcademicImportFileName('');
     setAcademicImportData(null);
+    setAcademicImportExamName('');
+    setAcademicImportGradeName('');
     setAcademicImportExamDate(todayDateInputValue());
     setAcademicImportPeriodLabel('');
     setAcademicImportPeriodLabelEdited(false);
+    setAcademicImportExamDateEdited(false);
     setSubmitError(null);
   }
 
@@ -1036,6 +1196,7 @@ export function StudentsPage({
       ? exam
       : {
           id: exam.examId,
+          semesterId: academicExams.find((item) => item.id === exam.examId)?.semesterId ?? 0,
           name: exam.examName,
           gradeName: exam.examGradeName,
           sourceFile: exam.sourceFile,
@@ -1114,6 +1275,42 @@ export function StudentsPage({
     }
   }
 
+  async function handleAcademicExamDelete(exam: AcademicExamListItem) {
+    if (!allowDeleteAcademicExam || academicExamDeleteSubmitting) return;
+
+    const confirmed = await confirm({
+      title: '删除考试批次',
+      message:
+        `确认删除考试「${exam.name}」吗？\n` +
+        `将永久删除该批次下的 ${exam.recordCount} 条成绩记录，且不可恢复。`,
+      confirmLabel: '确认删除',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
+
+    setAcademicExamDeleteSubmitting(true);
+    setSubmitError(null);
+    setSubmitSuccess(null);
+
+    try {
+      const response = await adminApi.deleteAcademicExam(token, exam.id);
+      setAcademicExams((prev) => prev.filter((item) => item.id !== exam.id));
+      if (examFilter === String(exam.id)) {
+        setExamFilter('all');
+      }
+      setAcademicScores((prev) => prev.filter((item) => item.examId !== exam.id));
+      setAcademicReloadKey((prev) => prev + 1);
+      await onSaved();
+      setSubmitSuccess(
+        `已删除考试「${exam.name}」，共移除 ${response.data.deletedRecordCount} 条成绩记录`,
+      );
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : '考试批次删除失败');
+    } finally {
+      setAcademicExamDeleteSubmitting(false);
+    }
+  }
+
   async function handleAcademicExcelImport(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -1129,14 +1326,18 @@ export function StudentsPage({
       }
       setAcademicImportData(parsed);
       setAcademicImportFileName(file.name);
-      setAcademicImportPeriodLabel(
-        inferAcademicPeriodLabel(
-          `${parsed.examName} ${parsed.sourceFile ?? file.name}`,
-          academicImportExamDate,
-          currentSemester?.name,
-        ),
-      );
+      const draft = resolveAcademicImportDraft(parsed, file.name, {
+        currentSemesterName: currentSemester?.name,
+        currentSemesterStartDate: currentSemester?.startDate,
+        currentSemesterEndDate: currentSemester?.endDate,
+        fallbackExamDate: todayDateInputValue(),
+      });
+      setAcademicImportExamName(draft.examName);
+      setAcademicImportGradeName(draft.gradeName);
+      setAcademicImportExamDate(draft.examDate);
+      setAcademicImportPeriodLabel(draft.periodLabel);
       setAcademicImportPeriodLabelEdited(false);
+      setAcademicImportExamDateEdited(false);
       setSubmitSuccess(`已读取 ${parsed.students.length} 名学生、${parsed.students.reduce((sum, item) => sum + item.subjects.length, 0)} 条科目成绩`);
     } catch (err) {
       setAcademicImportData(null);
@@ -1156,12 +1357,17 @@ export function StudentsPage({
       if (!academicImportData) {
         throw new Error('请先上传成绩汇总表');
       }
+      if (!academicImportExamName.trim()) {
+        throw new Error('请填写考试名称');
+      }
       if (!academicImportExamDate) {
         throw new Error('请填写考试日期，历史成绩必须按实际考试日期归档');
       }
 
       const response = await adminApi.importAcademicScores(token, {
         ...academicImportData,
+        examName: academicImportExamName.trim(),
+        gradeName: academicImportGradeName.trim() || undefined,
         examDate: academicImportExamDate,
         periodLabel: academicImportPeriodLabel.trim() || currentSemester?.name || undefined,
         semesterId: currentSemester?.id,
@@ -1193,17 +1399,15 @@ export function StudentsPage({
     setSubmitSuccess(null);
 
     try {
-      const { read, utils } = await import('xlsx');
-      const workbook = read(await file.arrayBuffer(), { type: 'array' });
-      if (!workbook.SheetNames.length) {
+      const lowerName = file.name.toLowerCase();
+      const workbookRows = lowerName.endsWith('.csv')
+        ? [parseCsvRows(await file.text())]
+        : await readXlsxWorkbookRows(file);
+      if (!workbookRows.length) {
         throw new Error('Excel 文件中没有可读取的工作表');
       }
 
-      const parsedStudents = workbook.SheetNames.flatMap((sheetName) => {
-        const sheet = workbook.Sheets[sheetName];
-        const rows = utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' }) as unknown[][];
-        return parseStudentImportRows(rows);
-      });
+      const parsedStudents = workbookRows.flatMap((rows) => parseStudentImportRows(rows));
 
       if (!parsedStudents.length) {
         throw new Error('Excel 中没有有效的学生数据');
@@ -1225,13 +1429,56 @@ export function StudentsPage({
     }
   }
 
+  async function handleResetPetNickname() {
+    if (!editingStudent?.pet || petAdminBusy || submitting) return;
+
+    const confirmed = await confirm({
+      title: '重置萌宠昵称',
+      message:
+        `确定将「${editingStudent.name}」的萌宠昵称重置为默认名称「${editingStudent.pet.name}」吗？\n重置后将清除 7 天改名冷却，学生可在展示端立即重新修改昵称。`,
+      confirmLabel: '确认重置',
+      tone: 'warning',
+    });
+    if (!confirmed) return;
+
+    setResetPetNicknameSubmitting(true);
+    setSubmitError(null);
+    setSubmitSuccess(null);
+
+    try {
+      await adminApi.resetStudentPetNickname(token, editingStudent.id);
+      await onSaved();
+      setEditingStudent((prev) =>
+        prev?.pet
+          ? {
+              ...prev,
+              pet: {
+                ...prev.pet,
+                nickname: null,
+                lastRenameAt: null,
+              },
+            }
+          : prev,
+      );
+      setSubmitSuccess(`萌宠昵称已重置为「${editingStudent.pet.name}」`);
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : '重置萌宠昵称失败');
+    } finally {
+      setResetPetNicknameSubmitting(false);
+    }
+  }
+
   async function handleResetPet() {
-    if (!editingStudent?.pet || resetPetSubmitting || submitting) return;
+    if (!editingStudent?.pet || petAdminBusy || submitting) return;
     if (editingStudent.pet.currentLevel !== 1) return;
 
-    const confirmed = window.confirm(
-      `确定将「${editingStudent.name}」的萌宠「${editingStudent.pet.name}」重置为未领取状态吗？\n重置后学生可在展示端重新选择萌宠，积分不受影响。`,
-    );
+    const confirmed = await confirm({
+      title: '重置萌宠',
+      message:
+        `确定将「${editingStudent.name}」的萌宠「${editingStudent.pet.name}」重置为未领取状态吗？\n重置后学生可在展示端重新选择萌宠，积分不受影响。`,
+      confirmLabel: '确认重置',
+      tone: 'warning',
+    });
     if (!confirmed) return;
 
     setResetPetSubmitting(true);
@@ -1258,9 +1505,61 @@ export function StudentsPage({
     }
   }
 
+  async function handleToggleStudentStatus() {
+    if (!editingStudent || statusSubmitting || submitting || petAdminBusy) return;
+
+    const nextStatus = (editingStudent.status ?? 'enabled') === 'enabled' ? 'disabled' : 'enabled';
+    const confirmed = await confirm({
+      title: nextStatus === 'disabled' ? '停用学生' : '启用学生',
+      message:
+        nextStatus === 'disabled'
+          ? `确定停用「${editingStudent.name}」吗？\n停用后该学生将不再出现在大屏端、班主任/任课老师管理窗口，也不会参与 AI 班级/科目分析。历史数据保留。`
+          : `确定重新启用「${editingStudent.name}」吗？\n启用后该学生将恢复在各端的正常展示与使用。`,
+      confirmLabel: nextStatus === 'disabled' ? '确认停用' : '确认启用',
+      tone: nextStatus === 'disabled' ? 'warning' : 'default',
+    });
+    if (!confirmed) return;
+
+    if (!classId || !/^\d+$/.test(classId)) {
+      setSubmitError('请先选择学生所在班级');
+      return;
+    }
+    if (!singleStudentDraft.studentNo.trim() || !singleStudentDraft.name.trim()) {
+      setSubmitError('请填写完整的准考证号和姓名');
+      return;
+    }
+
+    setStatusSubmitting(true);
+    setSubmitError(null);
+    setSubmitSuccess(null);
+
+    try {
+      const payload: StudentUpdatePayload = {
+        classId: Number(classId),
+        studentNo: singleStudentDraft.studentNo.trim(),
+        name: singleStudentDraft.name.trim(),
+        gender: singleStudentDraft.gender.trim() || null,
+        avatarUrl: editingStudent.avatarUrl ?? null,
+        status: nextStatus,
+      };
+      await adminApi.updateStudent(token, editingStudent.id, payload);
+      await onSaved();
+      setSubmitSuccess(nextStatus === 'enabled' ? '学生已启用' : '学生已停用');
+      if (nextStatus === 'disabled') {
+        closeImportModal(true);
+      } else {
+        setEditingStudent((prev) => (prev ? { ...prev, status: nextStatus } : prev));
+      }
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : '学生状态更新失败');
+    } finally {
+      setStatusSubmitting(false);
+    }
+  }
+
   async function handleImport(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (submitting || resetPetSubmitting) return;
+    if (submitting || petAdminBusy || statusSubmitting) return;
     setSubmitting(true);
     setSubmitError(null);
     setSubmitSuccess(null);
@@ -1274,7 +1573,7 @@ export function StudentsPage({
           throw new Error('请填写完整的准考证号和姓名');
         }
 
-        const duplicatedExistingStudent = students.find(
+        const duplicatedExistingStudent = listStudents.find(
           (item) =>
             item.id !== editingStudent.id &&
             item.classId === Number(classId) &&
@@ -1362,6 +1661,7 @@ export function StudentsPage({
     <Shell
       title={pagePresentation.title}
       subtitle={pagePresentation.shellSubtitle}
+      loading={loading}
       user={user}
       status={
         <>
@@ -1403,12 +1703,23 @@ export function StudentsPage({
               </select>
               <select className="filter-select" value={classFilter} onChange={(event) => setClassFilter(event.target.value)}>
                 <option value="all">全部班级</option>
-                {classes.map((item) => (
+                {classFilterOptions.map((item) => (
                   <option key={item.id} value={item.id}>
-                    {item.name}
+                    {gradeFilter === 'all' ? `${item.gradeName} ${item.name}` : item.name}
                   </option>
                 ))}
               </select>
+              {allowEdit ? (
+                <select
+                  className="filter-select"
+                  value={statusFilter}
+                  onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}
+                >
+                  <option value="enabled">正常</option>
+                  <option value="disabled">已停用</option>
+                  <option value="all">全部状态</option>
+                </select>
+              ) : null}
             </>
           ) : null}
           {allowImport ? (
@@ -1431,7 +1742,7 @@ export function StudentsPage({
               <div className="std-metric-card__icon"><span className="sec-metric-glyph">总</span></div>
               <span className="std-metric-card__label">学生总数</span>
             </div>
-            <div className="std-metric-card__value">{students.length}</div>
+            <div className="std-metric-card__value">{metricStudents.length}</div>
             <div className="std-metric-card__hint">当前已建立档案、可参与成长统计的学生</div>
           </button>
           <button type="button" className="std-metric-card std-metric-card--green std-metric-card--action" onClick={() => setFocusFilter('pet_bound')}>
@@ -1440,7 +1751,7 @@ export function StudentsPage({
               <span className="std-metric-card__label">萌宠绑定率</span>
             </div>
             <div className="std-metric-card__value">
-              {students.length ? `${Math.round((studentsWithPetCount / students.length) * 100)}%` : '0%'}
+              {metricStudents.length ? `${Math.round((studentsWithPetCount / metricStudents.length) * 100)}%` : '0%'}
             </div>
             <div className="std-metric-card__hint">已完成萌宠绑定的学生覆盖比例</div>
           </button>
@@ -1450,7 +1761,7 @@ export function StudentsPage({
               <span className="std-metric-card__label">学业覆盖</span>
             </div>
             <div className="std-metric-card__value">
-              {students.length ? `${Math.round((studentsWithAcademicCount / students.length) * 100)}%` : '0%'}
+              {metricStudents.length ? `${Math.round((studentsWithAcademicCount / metricStudents.length) * 100)}%` : '0%'}
             </div>
             <div className="std-metric-card__hint">
               {latestAcademicExamName ? `最近：${latestAcademicExamName}` : '导入成绩后展示覆盖情况'}
@@ -1475,7 +1786,7 @@ export function StudentsPage({
 
       {!isSubjectTeacher && showOverview ? (
         <div className="panel summary-panel">
-          {gradeFilter !== 'all' || classFilter !== 'all' || focusFilter !== 'all' || searchKeyword.trim() ? (
+          {gradeFilter !== 'all' || classFilter !== 'all' || focusFilter !== 'all' || statusFilter !== 'enabled' || searchKeyword.trim() ? (
             <div className="summary-panel-actions">
               <button className="ghost-button" type="button" onClick={resetListFilters}>
                 查看全部学生
@@ -1486,7 +1797,7 @@ export function StudentsPage({
             <div className="detail-card">
               <h4>学生规模</h4>
               <div className="detail-list">
-                <div><span>学生总数</span><strong>{students.length} 人</strong></div>
+                <div><span>学生总数</span><strong>{metricStudents.length} 人</strong></div>
                 <div><span>平均当前积分</span><strong>{averageCurrentScore} 分</strong></div>
                 <div><span>男生人数</span><strong>{genderSummary.male} 人</strong></div>
                 <div><span>女生人数</span><strong>{genderSummary.female} 人</strong></div>
@@ -1608,6 +1919,16 @@ export function StudentsPage({
                     导入成绩表
                   </button>
                 ) : null}
+                {allowDeleteAcademicExam && selectedAcademicExam ? (
+                  <button
+                    className="btn btn-ghost op-btn--danger-text"
+                    type="button"
+                    disabled={academicExamDeleteSubmitting}
+                    onClick={() => void handleAcademicExamDelete(selectedAcademicExam)}
+                  >
+                    {academicExamDeleteSubmitting ? '删除中...' : '删除考试'}
+                  </button>
+                ) : null}
               </div>
             ) : null}
           </div>
@@ -1674,7 +1995,11 @@ export function StudentsPage({
                           <span>Lv.{row.currentPetLevel}</span>
                         </div>
                       </td>
-                      <td><span className="status-on">正常</span></td>
+                      <td>
+                        <span className={(row.status ?? 'enabled') === 'enabled' ? 'status-on' : 'status-off'}>
+                          {formatEnabledStatus(row.status, '正常', '已停用')}
+                        </span>
+                      </td>
                       <td>{row.currentScore}</td>
                       <td>
                         <button className="op-btn" type="button" onClick={() => openStudentDetail(row.id)}>
@@ -1764,6 +2089,16 @@ export function StudentsPage({
                             {allowImport ? (
                               <button className="op-btn" type="button" onClick={() => openAcademicExamEditModal(exam)}>
                                 编辑信息
+                              </button>
+                            ) : null}
+                            {allowDeleteAcademicExam ? (
+                              <button
+                                className="op-btn op-btn--danger"
+                                type="button"
+                                disabled={academicExamDeleteSubmitting}
+                                onClick={() => void handleAcademicExamDelete(exam)}
+                              >
+                                删除
                               </button>
                             ) : null}
                           </td>
@@ -1965,6 +2300,36 @@ export function StudentsPage({
                 </label>
                 {editingStudent ? (
                   <div className="span-2 detail-card student-pet-reset-card">
+                    <h4>账号状态</h4>
+                    <div className="detail-list">
+                      <div>
+                        <span>当前状态</span>
+                        <strong>{formatEnabledStatus(editingStudent.status, '正常', '已停用')}</strong>
+                      </div>
+                      <div className="settings-note">
+                        {(editingStudent.status ?? 'enabled') === 'enabled'
+                          ? '停用后，该学生将不再出现在大屏端、班主任/任课老师管理窗口，也不会参与 AI 班级/科目分析。历史数据保留。'
+                          : '启用后，该学生将恢复在各端的正常展示与使用。'}
+                      </div>
+                      <div className="form-actions" style={{ marginTop: 12, paddingTop: 0 }}>
+                        <button
+                          type="button"
+                          className={`ghost-button${(editingStudent.status ?? 'enabled') === 'enabled' ? ' op-btn--danger-text' : ''}`}
+                          disabled={statusSubmitting || submitting || petAdminBusy}
+                          onClick={() => void handleToggleStudentStatus()}
+                        >
+                          {statusSubmitting
+                            ? '处理中...'
+                            : (editingStudent.status ?? 'enabled') === 'enabled'
+                              ? '停用学生'
+                              : '启用学生'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+                {editingStudent ? (
+                  <div className="span-2 detail-card student-pet-reset-card">
                     <h4>萌宠领取</h4>
                     {editingStudent.pet ? (
                       <div className="detail-list">
@@ -1974,23 +2339,42 @@ export function StudentsPage({
                             {editingStudent.pet.name}（Lv.{editingStudent.pet.currentLevel}）
                           </strong>
                         </div>
+                        <div>
+                          <span>萌宠昵称</span>
+                          <strong>
+                            {editingStudent.pet.nickname?.trim() || editingStudent.pet.name}
+                            {editingStudent.pet.nickname?.trim() ? '（自定义）' : '（默认）'}
+                          </strong>
+                        </div>
                         <div className="settings-note">
                           {editingStudent.pet.currentLevel === 1
                             ? '可将领取状态重置为「未领取」，学生可在展示端重新选择萌宠；积分与成长记录不受影响。'
                             : '仅萌宠等级为 1 时可重置为未领取，请先确认学生萌宠尚未升级。'}
                         </div>
-                        <div className="form-actions" style={{ marginTop: 12, paddingTop: 0 }}>
+                        <div className="settings-note">
+                          重置萌宠昵称将恢复为图鉴默认名称，并清除展示端 7 天改名冷却，便于学生立即重新取名。
+                        </div>
+                        <div className="form-actions" style={{ marginTop: 12, paddingTop: 0, gap: 10 }}>
                           <button
                             type="button"
                             className="ghost-button"
                             disabled={
-                              resetPetSubmitting ||
+                              petAdminBusy ||
                               submitting ||
+                              statusSubmitting ||
                               editingStudent.pet.currentLevel !== 1
                             }
                             onClick={() => void handleResetPet()}
                           >
                             {resetPetSubmitting ? '重置中...' : '重置宠物'}
+                          </button>
+                          <button
+                            type="button"
+                            className="ghost-button"
+                            disabled={petAdminBusy || submitting || statusSubmitting}
+                            onClick={() => void handleResetPetNickname()}
+                          >
+                            {resetPetNicknameSubmitting ? '重置中...' : '重置宠物昵称'}
                           </button>
                         </div>
                       </div>
@@ -2004,9 +2388,9 @@ export function StudentsPage({
               <>
                 <label className="span-2">
                   <span>Excel 导入</span>
-                  <input type="file" accept=".xlsx,.xls,.csv" onChange={(event) => void handleExcelImport(event)} />
+                  <input type="file" accept=".xlsx,.csv" onChange={(event) => void handleExcelImport(event)} />
                   <div className="settings-note">
-                    支持 `.xlsx/.xls/.csv`，可使用表头：准考证号、姓名、年级、班级、性别、头像地址。表格中有班级时按行内班级导入。
+                    支持 `.xlsx/.csv`，可使用表头：准考证号、姓名、年级、班级、性别、头像地址。表格中有班级时按行内班级导入。
                     {importFileName ? ` 当前文件：${importFileName}` : ''}
                   </div>
                 </label>
@@ -2031,11 +2415,11 @@ export function StudentsPage({
                 type="button"
                 className="ghost-button"
                 onClick={() => closeImportModal()}
-                disabled={submitting || resetPetSubmitting}
+                disabled={submitting || petAdminBusy || statusSubmitting}
               >
                 取消
               </button>
-              <button type="submit" className="toolbar-button" disabled={submitting || resetPetSubmitting}>
+              <button type="submit" className="toolbar-button" disabled={submitting || petAdminBusy || statusSubmitting}>
                 {submitting
                   ? editingStudent || entryMode === 'single'
                     ? '提交中...'
@@ -2072,7 +2456,7 @@ export function StudentsPage({
                 </label>
                 <label>
                   <span>考试日期</span>
-                  <input
+                  <PickerInput
                     type="date"
                     value={academicExamDraft.examDate}
                     onChange={(event) => setAcademicExamDraft((prev) => ({ ...prev, examDate: event.target.value }))}
@@ -2121,17 +2505,49 @@ export function StudentsPage({
           onClose={closeAcademicImportModal}
         >
           <form className="form-grid" onSubmit={handleAcademicImport}>
+            {academicImportData ? (
+              <>
+                <label>
+                  <span>考试名称</span>
+                  <input
+                    value={academicImportExamName}
+                    onChange={(event) => setAcademicImportExamName(event.target.value)}
+                    placeholder="例如：八年级期中测试"
+                    required
+                  />
+                </label>
+                <label>
+                  <span>年级</span>
+                  <input
+                    value={academicImportGradeName}
+                    onChange={(event) => setAcademicImportGradeName(event.target.value)}
+                    placeholder="例如：八年级"
+                    list="academic-grade-options"
+                  />
+                  <datalist id="academic-grade-options">
+                    {['一年级', '二年级', '三年级', '四年级', '五年级', '六年级', '七年级', '八年级', '九年级'].map((grade) => (
+                      <option key={grade} value={grade} />
+                    ))}
+                  </datalist>
+                </label>
+              </>
+            ) : null}
             <label>
               <span>考试日期</span>
-              <input
+              <PickerInput
                 type="date"
                 value={academicImportExamDate}
                 onChange={(event) => {
                   const nextDate = event.target.value;
                   setAcademicImportExamDate(nextDate);
+                  setAcademicImportExamDateEdited(true);
                   if (!academicImportPeriodLabelEdited) {
                     setAcademicImportPeriodLabel(inferAcademicPeriodLabel(
-                      `${academicImportData?.examName ?? ''} ${academicImportData?.sourceFile ?? academicImportFileName}`,
+                      buildAcademicImportSourceText(
+                        academicImportExamName,
+                        academicImportData?.sourceFile,
+                        academicImportFileName,
+                      ),
                       nextDate,
                       currentSemester?.name,
                     ));
@@ -2139,6 +2555,9 @@ export function StudentsPage({
                 }}
                 required
               />
+              {academicImportData && !academicImportExamDateEdited ? (
+                <span className="field-hint">已根据文件名、考试类型和学期自动识别，可手动调整</span>
+              ) : null}
             </label>
             <label>
               <span>学期标签</span>
@@ -2148,16 +2567,16 @@ export function StudentsPage({
                   setAcademicImportPeriodLabel(event.target.value);
                   setAcademicImportPeriodLabelEdited(true);
                 }}
-                placeholder="例如：2025-2026学年上学期"
+                placeholder={currentSemester?.name ?? '例如：2025-2026学年上学期'}
               />
             </label>
             <label className="span-2">
               <span>成绩汇总表</span>
               <div className="academic-upload-field">
-                <input type="file" accept=".xls,.xlsx" onChange={(event) => void handleAcademicExcelImport(event)} />
+                <input type="file" accept=".xlsx" onChange={(event) => void handleAcademicExcelImport(event)} />
                 <div className="settings-note">
                   支持两层表头：准考证号、班级、姓名，以及语文/数学/英语等科目的得分、联考排名、校次、班次和进退步。
-                  {academicImportFileName ? ` 当前文件：${academicImportFileName}` : ' 请选择 .xls 或 .xlsx 文件。'}
+                  {academicImportFileName ? ` 当前文件：${academicImportFileName}` : ' 请选择 .xlsx 文件。'}
                 </div>
               </div>
             </label>
@@ -2165,22 +2584,6 @@ export function StudentsPage({
               <div className="detail-card span-2">
                 <h4>导入预览</h4>
                 <div className="academic-import-preview-grid">
-                  <div className="academic-import-stat">
-                    <span>考试名称</span>
-                    <strong>{academicImportData.examName}</strong>
-                  </div>
-                  <div className="academic-import-stat">
-                    <span>考试日期</span>
-                    <strong>{formatDate(academicImportExamDate)}</strong>
-                  </div>
-                  <div className="academic-import-stat">
-                    <span>学期标签</span>
-                    <strong>{academicImportPeriodLabel || currentSemester?.name || '-'}</strong>
-                  </div>
-                  <div className="academic-import-stat">
-                    <span>识别年级</span>
-                    <strong>{academicImportData.gradeName ?? '-'}</strong>
-                  </div>
                   <div className="academic-import-stat">
                     <span>学生数量</span>
                     <strong>{academicImportData.students.length} 人</strong>
@@ -2190,6 +2593,10 @@ export function StudentsPage({
                     <strong>
                       {academicImportData.students.reduce((sum, item) => sum + item.subjects.length, 0)} 条
                     </strong>
+                  </div>
+                  <div className="academic-import-stat">
+                    <span>识别来源</span>
+                    <strong>{academicImportData.sourceFile ?? academicImportFileName}</strong>
                   </div>
                 </div>
                 <div className="mini-list academic-import-preview-list">
@@ -2224,7 +2631,7 @@ export function StudentsPage({
           subtitle="展示学生基础档案、教师观察与 AI 学情总结"
           onClose={closeStudentDetail}
         >
-          <div className="detail-grid">
+          <div className="detail-grid student-growth-archive">
             <div className="detail-card">
               <h4>基本资料</h4>
               <div className="detail-list">
@@ -2252,7 +2659,40 @@ export function StudentsPage({
                 <div><span>萌宠等级</span><strong>Lv.{selectedStudentDetail?.profile?.currentPetLevel ?? selectedStudent.currentPetLevel}</strong></div>
                 <div><span>近 7 天正向</span><strong>{selectedStudentDetail?.profile?.positiveCount7d ?? 0} 次</strong></div>
                 <div><span>近 7 天负向</span><strong>{selectedStudentDetail?.profile?.negativeCount7d ?? 0} 次</strong></div>
+                <div><span>荣誉勋章</span><strong>{selectedStudentDetail?.profile?.honorsCount ?? 0} 枚</strong></div>
               </div>
+            </div>
+            <div className="detail-card span-2">
+              <h4>荣誉勋章</h4>
+              {studentHonorsLoading ? <div className="student-ai-placeholder">荣誉记录加载中...</div> : null}
+              {studentHonorsError ? <div className="status-card error">{studentHonorsError}</div> : null}
+              {!studentHonorsLoading && !studentHonorsError ? (
+                studentHonorRecords.length > 0 ? (
+                  <div className="student-growth-honor-grid">
+                    {studentHonorRecords.map((item) => (
+                      <article key={item.id} className="student-growth-honor-card">
+                        <div className="student-growth-honor-icon">
+                          {item.honorIconUrl ? (
+                            <img src={resolveAssetUrl(item.honorIconUrl)} alt={item.honorName} />
+                          ) : (
+                            <span>{item.honorName.slice(0, 1)}</span>
+                          )}
+                        </div>
+                        <div className="student-growth-honor-main">
+                          <strong>{item.honorName}</strong>
+                          <span>
+                            {formatDate(item.grantedAt)}
+                            {item.grantedByName ? ` · ${item.grantedByName}` : ''}
+                          </span>
+                          {item.remark ? <p>{item.remark}</p> : null}
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="student-ai-placeholder">该学生暂无荣誉记录</div>
+                )
+              ) : null}
             </div>
             <div className="detail-card span-2">
               <h4>学业成长</h4>
@@ -2530,18 +2970,13 @@ export function StudentsPage({
             {!studentScoreRecordsLoading && !studentScoreRecordsError ? (
               <div className="mini-list student-score-records-modal-list">
                 {studentScoreRecords.map((item) => (
-                  <div className="mini-list-item" key={`${item.id}-${item.createdAt}`}>
-                    <div>
-                      <strong>
-                        {item.ruleName || item.tag || item.dimension || item.sceneCode || '评价记录'} · {item.scoreDelta > 0 ? '+' : ''}
-                        {item.scoreDelta} 分
-                      </strong>
-                      <span>
-                        {new Date(item.createdAt).toLocaleString('zh-CN')} · {item.remark || '无备注'}
-                      </span>
-                    </div>
-                    <b>{item.operatorName || item.sourceRole || '教师'}</b>
-                  </div>
+                  <ScoreRecordListItem
+                    key={`${item.id}-${item.createdAt}`}
+                    record={item}
+                    studentName={selectedStudent.name}
+                    canReverse={canShowScoreRecordReverse(item, user, { homeroomClassIds })}
+                    onReverse={() => setScoreRecordReverseTarget(item)}
+                  />
                 ))}
                 {studentScoreRecords.length === 0 ? (
                   <div className="mini-list-item">
@@ -2556,6 +2991,19 @@ export function StudentsPage({
             ) : null}
           </div>
         </Modal>
+      ) : null}
+
+      {scoreRecordReverseTarget && selectedStudent ? (
+        <ScoreRecordReverseModal
+          record={scoreRecordReverseTarget}
+          studentName={selectedStudent.name}
+          currentScore={selectedStudentDetail?.profile?.currentScore ?? selectedStudent.currentScore}
+          onClose={() => {
+            if (scoreRecordReverseLoading) return;
+            setScoreRecordReverseTarget(null);
+          }}
+          onConfirm={handleStudentScoreRecordReverse}
+        />
       ) : null}
 
       </div>

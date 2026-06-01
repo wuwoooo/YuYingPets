@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import presentationLogo from '../assets/presentation-logo.svg';
 import { PresentationGlyph } from '../components/PresentationGlyph';
+import { PresentationFullscreenButton } from '../components/PresentationFullscreenButton';
 import { PresentationHero3D } from '../components/PresentationHero3D';
 import '../presentation.css';
 import type { 
@@ -74,12 +75,12 @@ export function PresentationModePage({
   const [academicExams, setAcademicExams] = useState<AcademicExamListItem[]>([]);
   const [academicScores, setAcademicScores] = useState<AcademicScoreListRow[]>([]);
   const clockText = snapshotData.clockText;
-  const currentSemesterName = useCurrentSemesterName(token);
+  const currentSemesterName = useCurrentSemesterName(token, user?.roleCode);
   const gradeFilter = searchParams.get('gradeName') || 'all';
   const classFilter = searchParams.get('classId') || 'all';
   const returnTo = searchParams.get('returnTo');
 
-  const totalScore = classes.reduce((sum, item) => sum + item.classScore, 0);
+  const totalScore = students.reduce((sum, item) => sum + item.currentScore, 0);
   const activeClasses = classes.filter((item) => item.displayStatus === 'enabled').length;
   const totalHonorsGranted = honors.reduce((sum, item) => sum + item.grantedCount, 0);
   const averagePetLevel = students.length > 0 ? Number((students.reduce((sum, item) => sum + item.currentPetLevel, 0) / students.length).toFixed(1)) : 0;
@@ -91,17 +92,6 @@ export function PresentationModePage({
   const [metricDisplayValues, setMetricDisplayValues] = useState<string[]>(() => ['0', '0', '0', '0', '0', 'Lv.0.0']);
 
   useEffect(() => {
-    const enterFullscreen = async () => {
-      try {
-        if (!document.fullscreenElement) {
-          await document.documentElement.requestFullscreen();
-        }
-      } catch (err) {
-        // ignore
-      }
-    };
-    enterFullscreen();
-
     const timers = [
       window.setTimeout(() => setIsActive(true), 60),
       window.setTimeout(() => setCurtainOpen(true), 200),
@@ -151,7 +141,7 @@ export function PresentationModePage({
   useEffect(() => {
     let active = true;
     adminApi
-      .analytics(token, {
+      .analyticsSummary(token, {
         ...(gradeFilter !== 'all' ? { gradeName: gradeFilter } : {}),
         ...(classFilter !== 'all' ? { classId: Number(classFilter) } : {}),
       })
@@ -505,16 +495,86 @@ export function PresentationModePage({
     [topStudents],
   );
   const topHonors = useMemo(() => [...honors].sort((left, right) => right.grantedCount - left.grantedCount).slice(0, 4), [honors]);
-  const honorSummary = useMemo(() => {
+  const honorShowcase = useMemo(() => {
     const totalGranted = honorRecords.length;
-    const classTargetCount = honorRecords.filter((item) => item.targetType === 'class').length;
-    const studentTargetCount = totalGranted - classTargetCount;
-    const latestRecords = honorRecords.slice(0, 6).map((item) => ({
+    const studentTargetCount = honorRecords.filter((item) => item.targetType === 'student').length;
+    const classTargetCount = totalGranted - studentTargetCount;
+    const categoryCounts = { personal: 0, collective: 0, phase: 0, longterm: 0 };
+    for (const record of honorRecords) {
+      const honor = honors.find((item) => item.id === record.honorId);
+      if (honor) categoryCounts[honor.category] += 1;
+    }
+    const categoryStats = (
+      [
+        ['学生荣誉', categoryCounts.personal],
+        ['集体荣誉', categoryCounts.collective],
+        ['阶段荣誉', categoryCounts.phase],
+        ['长期荣誉', categoryCounts.longterm],
+      ] as Array<[string, number]>
+    ).filter(([, count]) => count > 0);
+    const grantBase = Math.max(totalHonorsGranted, 1);
+    const maxGranted = Math.max(...topHonors.map((item) => item.grantedCount), 1);
+    const topCards = topHonors.map((item) => ({
       ...item,
-      targetLabel: item.targetType === 'class' ? item.className : item.studentName ?? item.className,
+      sharePercent: Math.round((item.grantedCount / grantBase) * 100),
+      barWidth: Math.max(10, Math.round((item.grantedCount / maxGranted) * 100)),
     }));
-    return { totalGranted, classTargetCount, studentTargetCount, latestRecords };
-  }, [honorRecords]);
+    const topHonorStudents = (() => {
+      const grouped = new Map<
+        number,
+        { studentId: number; studentName: string; className: string; honorCount: number; lastGrantedAt: string }
+      >();
+      for (const item of honorRecords) {
+        if (item.targetType !== 'student' || !item.studentId || !item.studentName) continue;
+        const current = grouped.get(item.studentId);
+        if (!current) {
+          grouped.set(item.studentId, {
+            studentId: item.studentId,
+            studentName: item.studentName,
+            className: item.className,
+            honorCount: 1,
+            lastGrantedAt: item.grantedAt,
+          });
+          continue;
+        }
+        current.honorCount += 1;
+        if (new Date(item.grantedAt).getTime() > new Date(current.lastGrantedAt).getTime()) {
+          current.lastGrantedAt = item.grantedAt;
+        }
+      }
+      return Array.from(grouped.values())
+        .sort(
+          (left, right) =>
+            right.honorCount - left.honorCount ||
+            new Date(right.lastGrantedAt).getTime() - new Date(left.lastGrantedAt).getTime(),
+        )
+        .slice(0, 3);
+    })();
+    const donutParts: string[] = [];
+    let cursor = 0;
+    const donutSlices = [
+      { label: '学生授予', value: studentTargetCount, color: 'rgba(0, 229, 255, 0.92)' },
+      { label: '集体授予', value: classTargetCount, color: 'rgba(255, 179, 0, 0.9)' },
+    ].filter((item) => item.value > 0);
+    const donutTotal = Math.max(donutSlices.reduce((sum, item) => sum + item.value, 0), 1);
+    for (const slice of donutSlices) {
+      const next = cursor + (slice.value / donutTotal) * 100;
+      donutParts.push(`${slice.color} ${cursor}% ${next}%`);
+      cursor = next;
+    }
+    return {
+      totalGranted,
+      studentTargetCount,
+      classTargetCount,
+      categoryStats,
+      topCards,
+      recentHonors: honorRecords.slice(0, 5),
+      topHonorStudents,
+      donutGradient: donutParts.length ? `conic-gradient(${donutParts.join(', ')})` : 'conic-gradient(rgba(255,255,255,0.08) 0% 100%)',
+      donutSlices,
+      donutTotal,
+    };
+  }, [honorRecords, honors, topHonors, totalHonorsGranted]);
   const terminalSummary = useMemo(() => {
     const online = displayTerminals.filter((item) => item.onlineStatus === 'online').length;
     const offline = displayTerminals.length - online;
@@ -576,7 +636,7 @@ export function PresentationModePage({
       return {
         id: item.id,
         label: classMeta ? `${classMeta.gradeName}${classMeta.name}` : item.name,
-        score: item.currentScoreTotal,
+        score: item.classScore ?? item.currentScoreTotal,
         studentCount: classMeta?.studentCount ?? 0,
       };
     });
@@ -665,10 +725,10 @@ export function PresentationModePage({
       }))
     : alerts;
   const warningSummary = useMemo(() => {
-    const riskStudents = analytics?.riskStudents ?? [];
-    const highCount = riskStudents.filter((item) => item.riskLevel === 'high').length;
-    const mediumCount = riskStudents.filter((item) => item.riskLevel === 'medium').length;
-    const lowCount = riskStudents.filter((item) => item.riskLevel === 'low').length;
+    const stats = analytics?.riskStudentStats;
+    const highCount = stats?.high ?? (analytics?.riskStudents ?? []).filter((item) => item.riskLevel === 'high').length;
+    const mediumCount = stats?.medium ?? (analytics?.riskStudents ?? []).filter((item) => item.riskLevel === 'medium').length;
+    const lowCount = stats?.low ?? (analytics?.riskStudents ?? []).filter((item) => item.riskLevel === 'low').length;
     const negativeRecords = scoreRecords.filter((item) => item.scoreDelta < 0);
     const affectedClasses = new Set(negativeRecords.map((item) => item.classId)).size;
     const focusEvents = negativeRecords.slice(0, 4).map((item) => {
@@ -690,7 +750,31 @@ export function PresentationModePage({
       affectedClasses,
       focusEvents,
     };
-  }, [analytics?.riskStudents, classes, scoreRecords, students]);
+  }, [analytics?.riskStudentStats, analytics?.riskStudents, classes, scoreRecords, students]);
+  const riskShowcase = useMemo(() => {
+    const positiveEvents = scoreRecords.filter((item) => item.scoreDelta > 0).length;
+    const negativeEvents = scoreRecords.filter((item) => item.scoreDelta < 0).length;
+    const activeDays = new Set(scoreRecords.map((item) => new Date(item.createdAt).toDateString())).size;
+    const risks = (analytics?.riskStudents ?? []).slice(0, 5);
+    const riskSegments = [
+      { label: '高风险', value: warningSummary.highCount, tone: 'high', color: 'rgba(255, 23, 68, 0.92)' },
+      { label: '中风险', value: warningSummary.mediumCount, tone: 'medium', color: 'rgba(255, 152, 0, 0.88)' },
+      { label: '低风险', value: warningSummary.lowCount, tone: 'low', color: 'rgba(0, 230, 118, 0.82)' },
+    ];
+    const riskTotal = Math.max(riskSegments.reduce((sum, item) => sum + item.value, 0), 1);
+    return {
+      ...warningSummary,
+      positiveEvents,
+      negativeEvents,
+      activeDays,
+      risks,
+      riskTotal,
+      riskSegments: riskSegments.map((item) => ({
+        ...item,
+        width: Math.max(item.value > 0 ? 10 : 0, Math.round((item.value / riskTotal) * 100)),
+      })),
+    };
+  }, [analytics?.riskStudents, scoreRecords, warningSummary]);
   const presentationSummaryItems = analytics?.aiInsight
     ? [
         analytics.aiInsight.summary,
@@ -878,6 +962,7 @@ export function PresentationModePage({
             <span>{user?.name ?? '管理员'}</span>
           </div>
           <div className="presentation-actions">
+            <PresentationFullscreenButton className="presentation-fullscreen" />
             <div className="presentation-clock">
               <span>{clockMain}</span>
               <span className="presentation-clock-sec">:{clockSecond}</span>
@@ -1454,76 +1539,210 @@ export function PresentationModePage({
         <div className="presentation-divider section-5" id="presentation-ecosystem-stage">第五幕 · 荣誉 · 预警 · 萌宠生态</div>
 
         <section className="presentation-row presentation-row-3">
-          <div className="presentation-panel fade-up-panel bottom-panel">
+          <div className="presentation-panel fade-up-panel bottom-panel presentation-vitrine-panel">
             <div className="presentation-panel-title"><PresentationGlyph name="award" className="presentation-title-icon" />本周荣誉橱窗</div>
-            <div className="presentation-bottom-kpis">
-              <div className="presentation-bottom-kpi">
+            <div className="presentation-eco-summary honor">
+              <div className="presentation-eco-kpi highlight">
                 <span>累计授予</span>
-                <strong>{honorSummary.totalGranted}</strong>
+                <strong>{honorShowcase.totalGranted}</strong>
               </div>
-              <div className="presentation-bottom-kpi">
-                <span>学生荣誉</span>
-                <strong>{honorSummary.studentTargetCount}</strong>
+              <div className="presentation-eco-kpi">
+                <span>学生授予</span>
+                <strong>{honorShowcase.studentTargetCount}</strong>
               </div>
-              <div className="presentation-bottom-kpi">
-                <span>集体荣誉</span>
-                <strong>{honorSummary.classTargetCount}</strong>
+              <div className="presentation-eco-kpi">
+                <span>集体授予</span>
+                <strong>{honorShowcase.classTargetCount}</strong>
               </div>
-            </div>
-            <div className="presentation-honor-grid">
-              {topHonors.map((item) => (
-                <div key={item.id} className="presentation-honor-card">
-                  <PresentationGlyph name={item.category === 'collective' ? 'medal' : item.category === 'personal' ? 'star' : item.category === 'phase' ? 'award' : 'trend'} className="presentation-honor-icon" />
-                  <div className="presentation-honor-name">{item.name}</div>
-                  <div className="presentation-honor-holder">颁发 {item.grantedCount} 人次</div>
-                  <div className="presentation-honor-count">{Math.max(1, Math.round(item.grantedCount / 5))}%</div>
+              {honorShowcase.categoryStats.slice(0, 1).map(([label, count]) => (
+                <div key={label} className="presentation-eco-kpi">
+                  <span>{label}</span>
+                  <strong>{count}</strong>
                 </div>
               ))}
             </div>
-            <div className="presentation-detail-list">
-              {honorSummary.latestRecords.map((item) => (
-                <div key={`${item.id}-${item.grantedAt}`} className="presentation-detail-item">
-                  <span>{item.honorName}</span>
-                  <strong>{item.targetLabel}</strong>
+            <div className="presentation-vitrine-main">
+              <div className="presentation-honor-bars">
+                {honorShowcase.topCards.length > 0 ? (
+                  honorShowcase.topCards.map((item, index) => (
+                    <div key={item.id} className="presentation-honor-bar-row">
+                      <span className={`presentation-rank-num top-${Math.min(index + 1, 3)}`}>{index + 1}</span>
+                      <PresentationGlyph
+                        name={item.category === 'collective' ? 'medal' : item.category === 'personal' ? 'star' : item.category === 'phase' ? 'award' : 'trend'}
+                        className="presentation-honor-bar-icon"
+                      />
+                      <div className="presentation-honor-bar-body">
+                        <div className="presentation-honor-bar-head">
+                          <strong>{item.name}</strong>
+                          <em>{item.grantedCount} 人次 · {item.sharePercent}%</em>
+                        </div>
+                        <div className="presentation-honor-bar-track">
+                          <div
+                            className="presentation-honor-bar-fill"
+                            style={{ width: extendedBarsExpanded ? `${item.barWidth}%` : '0%' }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="presentation-eco-empty">
+                    <PresentationGlyph name="award" className="presentation-eco-empty-icon" />
+                    <p>本周暂无荣誉颁发数据</p>
+                    <span>可在「学生评价」或「班级管理」中颁发荣誉</span>
+                  </div>
+                )}
+              </div>
+              <div className="presentation-vitrine-side">
+                <div className="presentation-mini-donut" style={{ background: honorShowcase.donutGradient }}>
+                  <div className="presentation-mini-donut-core">
+                    <strong>{honorShowcase.donutTotal}</strong>
+                    <span>授予</span>
+                  </div>
                 </div>
-              ))}
-              {honorSummary.latestRecords.length === 0 ? <div className="presentation-summary-item">暂无荣誉授予记录。</div> : null}
+                <div className="presentation-mini-donut-legend">
+                  {honorShowcase.donutSlices.map((item) => (
+                    <div key={item.label}>
+                      <i />
+                      <span>{item.label}</span>
+                      <b>{item.value}</b>
+                    </div>
+                  ))}
+                  {honorShowcase.donutSlices.length === 0 ? (
+                    <div className="presentation-eco-flow-item muted">暂无授予分布</div>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+            <div className="presentation-eco-subtitle">最新授予动态</div>
+            <div className="presentation-eco-flow">
+              {honorShowcase.recentHonors.length > 0 ? (
+                honorShowcase.recentHonors.map((item) => (
+                  <div key={`${item.id}-${item.grantedAt}`} className="presentation-eco-flow-item">
+                    <div className="presentation-eco-flow-avatar">{(item.studentName ?? item.className).slice(0, 1)}</div>
+                    <div className="presentation-eco-flow-body">
+                      <strong>{item.studentName ?? item.className} · {item.honorName}</strong>
+                      <span>{item.className}</span>
+                    </div>
+                    <time>{new Date(item.grantedAt).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })}</time>
+                  </div>
+                ))
+              ) : (
+                <div className="presentation-eco-flow-item muted">暂无荣誉授予记录，授予后将在此滚动展示</div>
+              )}
+            </div>
+            <div className="presentation-eco-subtitle">荣誉之星 TOP3</div>
+            <div className="presentation-eco-rank-list">
+              {honorShowcase.topHonorStudents.length > 0 ? (
+                honorShowcase.topHonorStudents.map((item, index) => (
+                  <div key={item.studentId} className="presentation-eco-rank-row">
+                    <span className={`presentation-rank-num top-${Math.min(index + 1, 3)}`}>{index + 1}</span>
+                    <div className="presentation-eco-flow-avatar">{item.studentName.slice(0, 1)}</div>
+                    <strong>{item.studentName}</strong>
+                    <span>{item.className}</span>
+                    <b>{item.honorCount} 枚</b>
+                  </div>
+                ))
+              ) : (
+                <div className="presentation-eco-flow-item muted">暂无学生荣誉统计</div>
+              )}
             </div>
           </div>
-          <div className="presentation-panel fade-up-panel bottom-panel">
+          <div className="presentation-panel fade-up-panel bottom-panel presentation-risk-panel">
             <div className="presentation-panel-title"><PresentationGlyph name="warning" className="presentation-title-icon" />德育与行为预警摘要</div>
-            <div className="presentation-bottom-kpis warning">
-              <div className="presentation-bottom-kpi">
+            <div className="presentation-eco-summary risk">
+              <div className="presentation-eco-kpi highlight">
                 <span>高风险</span>
-                <strong>{warningSummary.highCount}</strong>
+                <strong>{riskShowcase.highCount}</strong>
               </div>
-              <div className="presentation-bottom-kpi">
-                <span>负向事件</span>
-                <strong>{warningSummary.negativeEventCount}</strong>
+              <div className="presentation-eco-kpi">
+                <span>中风险</span>
+                <strong>{riskShowcase.mediumCount}</strong>
               </div>
-              <div className="presentation-bottom-kpi">
-                <span>涉及班级</span>
-                <strong>{warningSummary.affectedClasses}</strong>
+              <div className="presentation-eco-kpi">
+                <span>低风险</span>
+                <strong>{riskShowcase.lowCount}</strong>
+              </div>
+              <div className="presentation-eco-kpi">
+                <span>负向/正向</span>
+                <strong>{riskShowcase.negativeEvents}/{riskShowcase.positiveEvents}</strong>
               </div>
             </div>
-            <div className="presentation-alert-list">
-              {presentationAlerts.map((item) => (
+            <div className="presentation-risk-stack">
+              {riskShowcase.riskSegments.map((item) => (
+                <i
+                  key={item.label}
+                  className={`tone-${item.tone}`}
+                  style={{ width: `${extendedBarsExpanded ? item.width : 0}%`, background: item.color }}
+                  title={`${item.label} ${item.value} 人`}
+                >
+                  {item.value > 0 ? item.value : ''}
+                </i>
+              ))}
+            </div>
+            <div className="presentation-risk-stack-legend">
+              {riskShowcase.riskSegments.map((item) => (
+                <span key={item.label}>
+                  <i className={`tone-${item.tone}`} />
+                  {item.label} <b>{item.value}</b>
+                </span>
+              ))}
+              <span className="risk-total">共 <b>{riskShowcase.riskTotal}</b> 人关注</span>
+            </div>
+            <div className="presentation-eco-subtitle">重点关注学生</div>
+            <div className="presentation-risk-table">
+              {riskShowcase.risks.length > 0 ? (
+                riskShowcase.risks.map((item) => (
+                  <div key={item.studentId} className="presentation-risk-row">
+                    <span className={`presentation-risk-badge ${item.riskLevel}`}>
+                      {formatPresentationRiskLevel(item.riskLevel)}
+                    </span>
+                    <div className="presentation-eco-flow-avatar">{item.studentName.slice(0, 1)}</div>
+                    <div className="presentation-risk-body">
+                      <strong>{item.studentName}</strong>
+                      <span>
+                        {item.className} · 负向 {item.negativeCount} / 正向 {item.positiveCount}
+                      </span>
+                    </div>
+                    <span className="presentation-risk-reason" title={item.reason}>
+                      {item.reason}
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <div className="presentation-eco-empty compact">
+                  <PresentationGlyph name="check" className="presentation-eco-empty-icon ok" />
+                  <p>当前无明显风险学生</p>
+                  <span>校园德育运行整体平稳</span>
+                </div>
+              )}
+            </div>
+            <div className="presentation-eco-subtitle">近期负向事件</div>
+            <div className="presentation-risk-events">
+              {riskShowcase.focusEvents.length > 0 ? (
+                riskShowcase.focusEvents.map((item) => (
+                  <div key={item.id} className="presentation-risk-event-chip">
+                    <strong>{item.studentName}</strong>
+                    <span>{item.className}</span>
+                    <em>{item.label}</em>
+                    <b>{item.scoreDelta}</b>
+                  </div>
+                ))
+              ) : (
+                <div className="presentation-eco-flow-item muted">暂无重点负向事件记录</div>
+              )}
+            </div>
+            <div className="presentation-alert-list compact">
+              {presentationAlerts.slice(0, 2).map((item) => (
                 <div key={item.text} className={`presentation-alert-item ${item.type}`}>
                   <PresentationGlyph name={item.type === 'warn' ? 'warning' : 'check'} className="presentation-alert-icon" />
                   {item.text}
                 </div>
               ))}
             </div>
-            <div className="presentation-detail-list warning">
-              {warningSummary.focusEvents.map((item) => (
-                <div key={item.id} className="presentation-detail-item">
-                  <span>{item.className} · {item.studentName}</span>
-                  <strong>{item.label} {item.scoreDelta}</strong>
-                </div>
-              ))}
-              {warningSummary.focusEvents.length === 0 ? <div className="presentation-summary-item">暂无重点负向事件。</div> : null}
+            <div className="presentation-panel-footnote">
+              活跃评价日 <strong>{riskShowcase.activeDays}</strong> 天 · 涉及班级 <strong>{riskShowcase.affectedClasses}</strong> 个 · 家校共育已读率 <strong>{rewards.length > 0 ? '94.2%' : '92.0%'}</strong>
             </div>
-            <div className="presentation-panel-footnote">家校共育消息已读率 <strong>{rewards.length > 0 ? '94.2%' : '92.0%'}</strong></div>
           </div>
           <div className="presentation-panel fade-up-panel bottom-panel">
             <div className="presentation-panel-title"><PresentationGlyph name="star" className="presentation-title-icon" />AI 汇报摘要</div>
@@ -1554,6 +1773,12 @@ export function PresentationModePage({
       </div>
     </div>
   );
+}
+
+function formatPresentationRiskLevel(level: 'high' | 'medium' | 'low') {
+  if (level === 'high') return '高';
+  if (level === 'medium') return '中';
+  return '低';
 }
 
 function parseStudentImportText(input: string): StudentImportPayload['students'] {

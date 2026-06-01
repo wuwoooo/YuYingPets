@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Param, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, Param, Post, Put, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { AcademicRecordsService } from './academic-records.service';
 
@@ -18,8 +18,8 @@ export class AcademicRecordsController {
   }
 
   @Get('exams')
-  exams(@Headers('authorization') authorization: string | undefined) {
-    return this.academicRecordsService.exams(authorization);
+  exams(@Headers('authorization') authorization: string | undefined, @Query() query: Record<string, string>) {
+    return this.academicRecordsService.exams(authorization, query);
   }
 
   @Put('exams/:examId')
@@ -29,6 +29,11 @@ export class AcademicRecordsController {
     @Body() body: Record<string, unknown>,
   ) {
     return this.academicRecordsService.updateExam(authorization, Number(examId), body);
+  }
+
+  @Delete('exams/:examId')
+  deleteExam(@Headers('authorization') authorization: string | undefined, @Param('examId') examId: string) {
+    return this.academicRecordsService.deleteExam(authorization, Number(examId));
   }
 
   @Get('desk-overview')

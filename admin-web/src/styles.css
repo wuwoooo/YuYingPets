@@ -1,7 +1,16 @@
 @import "./styles/00-tokens-base.css";
 @import "./styles/10-evaluation.css";
+@import "./styles/11-score-record-reverse.css";
+@import "./styles/12-honor-grant.css";
+@import "./styles/13-class-archive.css";
+@import "./styles/14-page-loading.css";
+@import "./styles/15-ellipsis-tip.css";
+@import "./styles/16-date-picker.css";
 @import "./styles/20-teacher-workbench.css";
+@import "./styles/25-analytics-page.css";
+@import "./styles/26-student-growth-archive.css";
 @import "./styles/30-security-admin-list.css";
+@import "./styles/35-confirm-dialog.css";
 @import "./styles/40-shell-common.css";
 @import "./styles/50-dashboard-analytics.css";
 @import "./styles/60-domain-pages.css";

@@ -4,6 +4,7 @@ import { ScoreRecordsService } from './score-records.service';
 import { ScoreRecordCreateDto } from './dto/score-record-create.dto';
 import { ScoreRecordBatchDto } from './dto/score-record-batch.dto';
 import { ScoreRecordGroupDto } from './dto/score-record-group.dto';
+import { ScoreRecordReverseDto } from './dto/score-record-reverse.dto';
 
 @ApiTags('ScoreRecords')
 @Controller('score-records')
@@ -11,8 +12,8 @@ export class ScoreRecordsController {
   constructor(private readonly scoreRecordsService: ScoreRecordsService) {}
 
   @Get()
-  list(@Query() query: Record<string, string>) {
-    return this.scoreRecordsService.list(query);
+  list(@Headers('authorization') authorization: string | undefined, @Query() query: Record<string, string>) {
+    return this.scoreRecordsService.list(authorization, query);
   }
 
   @Post()
@@ -31,7 +32,11 @@ export class ScoreRecordsController {
   }
 
   @Post(':id/reverse')
-  reverse(@Param('id') id: string) {
-    return this.scoreRecordsService.reverse(Number(id));
+  reverse(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+    @Body() body: ScoreRecordReverseDto,
+  ) {
+    return this.scoreRecordsService.reverse(authorization, Number(id), body);
   }
 }

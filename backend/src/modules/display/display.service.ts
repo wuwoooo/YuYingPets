@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '@/prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
@@ -10,6 +10,7 @@ import { DisplayLockDto } from './dto/display-lock.dto';
 import { DisplayTerminalInitializeDto } from './dto/display-terminal-initialize.dto';
 import { DisplayWeatherQueryDto } from './dto/display-weather-query.dto';
 import { normalizePetGrowthThresholds, resolveStageNeedScoreTotal } from '@/common/utils/pet-growth.util';
+import { filterSemestersBySchoolYear } from '@/common/utils/school-year.util';
 import { AiService } from '../ai/ai.service';
 
 type DisplayWeatherPayload = {
@@ -39,7 +40,6 @@ const PET_CATEGORY_PRIORITY: Record<string, number> = {
   star: 0,
   zodiac: 1,
 };
-
 function normalizePetCategory(category: string | null | undefined): string {
   return (category ?? '').trim().toLowerCase();
 }
@@ -66,6 +66,12 @@ export class DisplayService {
     private readonly operationLogService: OperationLogService,
     private readonly aiService: AiService,
   ) {}
+
+  private async ensureDisplayClassAccess(authorization: string | undefined, classId: number) {
+    const user = await this.authService.getAuthUserFromAuthorization(authorization);
+    this.authService.ensureCanAccessClass(user, classId);
+    return user;
+  }
 
   async terminalState(terminalCode: string) {
     const terminal = await this.prisma.displayTerminal.findFirst({
@@ -100,6 +106,11 @@ export class DisplayService {
                   className: terminal.classroom.name,
                   slogan: terminal.classroom.slogan,
                   homeroomTeacherName: terminal.classroom.homeroomTeacher?.name ?? null,
+                  classHonors: await this.listClassHonorBadges(
+                    terminal.classroom.schoolId,
+                    toNumber(terminal.classroom.id)!,
+                    8,
+                  ),
                 }
               : null,
           }
@@ -166,6 +177,97 @@ export class DisplayService {
     };
   }
 
+  async deleteTerminal(authorization: string | undefined, id: number) {
+    const user = await this.authService.getAuthUserFromAuthorization(authorization);
+    if (!this.authService.canManageAllDisplays(user)) {
+      throw new ForbiddenException('当前角色不可删除大屏终端');
+    }
+
+    const terminal = await this.prisma.displayTerminal.findFirst({
+      where: {
+        id: BigInt(id),
+        schoolId: user.schoolId,
+        status: 'enabled',
+      },
+      include: {
+        classroom: {
+          select: {
+            id: true,
+            gradeName: true,
+            name: true,
+          },
+        },
+      },
+    });
+
+    if (!terminal) {
+      throw new NotFoundException('大屏终端不存在');
+    }
+
+    await this.prisma.displayTerminal.delete({
+      where: { id: BigInt(id) },
+    });
+
+    await this.operationLogService.create({
+      schoolId: user.schoolId,
+      userId: user.id,
+      roleCode: user.roleCode,
+      terminalType: 'admin',
+      module: 'display_terminal',
+      action: 'delete',
+      targetType: 'display_terminal',
+      targetId: BigInt(id),
+      detail: {
+        terminalCode: terminal.terminalCode,
+        terminalName: terminal.terminalName,
+        classId: terminal.classId ? toNumber(terminal.classId) : null,
+        className: terminal.classroom
+          ? `${terminal.classroom.gradeName}${terminal.classroom.name}`
+          : null,
+      },
+    });
+
+    return {
+      code: 0,
+      message: 'ok',
+      data: {
+        id,
+      },
+    };
+  }
+
+  async classBindings(authorization: string | undefined, terminalCode?: string) {
+    const user = await this.authService.getAuthUserFromAuthorization(authorization);
+    if (!this.authService.canInitializeDisplayTerminal(user)) {
+      throw new ForbiddenException('仅班主任及以上账号可查看班级绑定状态');
+    }
+
+    const rows = await this.prisma.displayTerminal.findMany({
+      where: {
+        schoolId: user.schoolId,
+        status: 'enabled',
+        classId: { not: null },
+      },
+      select: {
+        classId: true,
+        terminalCode: true,
+        terminalName: true,
+      },
+      orderBy: [{ lastBoundAt: 'desc' }, { id: 'desc' }],
+    });
+
+    return {
+      code: 0,
+      message: 'ok',
+      data: rows.map((row) => ({
+        classId: toNumber(row.classId!),
+        terminalCode: row.terminalCode,
+        terminalName: row.terminalName,
+        isCurrentTerminal: terminalCode ? row.terminalCode === terminalCode : false,
+      })),
+    };
+  }
+
   async terminalInitialize(
     authorization: string | undefined,
     dto: DisplayTerminalInitializeDto,
@@ -194,6 +296,27 @@ export class DisplayService {
 
     if (!this.authService.canManageAllDisplays(user)) {
       await this.authService.ensureIsHomeroomOfClass(user, dto.classId);
+    }
+
+    if (!this.authService.canOverrideClassDisplayBinding(user)) {
+      const existingClassBinding = await this.prisma.displayTerminal.findFirst({
+        where: {
+          schoolId: user.schoolId,
+          status: 'enabled',
+          classId: BigInt(dto.classId),
+          terminalCode: { not: dto.terminalCode },
+        },
+        select: {
+          terminalCode: true,
+          terminalName: true,
+        },
+      });
+
+      if (existingClassBinding) {
+        throw new BadRequestException(
+          `该班级已绑定终端「${existingClassBinding.terminalName || existingClassBinding.terminalCode}」，一个班级同时只能绑定一个终端`,
+        );
+      }
     }
 
     const terminal = await this.prisma.displayTerminal.upsert({
@@ -314,7 +437,8 @@ export class DisplayService {
     };
   }
 
-  async unlockStatus(classId: number, displayTerminalCode: string) {
+  async unlockStatus(authorization: string | undefined, classId: number, displayTerminalCode: string) {
+    await this.ensureDisplayClassAccess(authorization, classId);
     const session = await this.prisma.displayUnlockSession.findFirst({
       where: {
         classId: BigInt(classId),
@@ -482,7 +606,8 @@ export class DisplayService {
     };
   }
 
-  async home(classId: number) {
+  async home(authorization: string | undefined, classId: number) {
+    await this.ensureDisplayClassAccess(authorization, classId);
     const classroom = await this.prisma.classroom.findFirst({
       where: {
         id: BigInt(classId),
@@ -557,7 +682,128 @@ export class DisplayService {
           currentPetLevel: student.profile?.currentPetLevel ?? 1,
           petName: student.studentPet?.pet.name ?? null,
         })),
+        recentHonors: await this.listRecentHonorRecords(classroom.schoolId, classId, 8),
+        classHonors: await this.listClassHonorBadges(classroom.schoolId, classId, 8),
       },
+    };
+  }
+
+  async honorRecords(authorization: string | undefined, classId: number, query: Record<string, string>) {
+    await this.ensureDisplayClassAccess(authorization, classId);
+    const studentId = query.studentId ? Number(query.studentId) : undefined;
+    const targetType =
+      query.targetType === 'student' || query.targetType === 'class' ? query.targetType : undefined;
+    const classroom = await this.prisma.classroom.findFirst({
+      where: {
+        id: BigInt(classId),
+        deletedAt: null,
+        status: 'enabled',
+      },
+      select: { schoolId: true },
+    });
+    if (!classroom) {
+      throw new NotFoundException('班级不存在');
+    }
+
+    const rows = await this.prisma.honorRecord.findMany({
+      where: {
+        schoolId: classroom.schoolId,
+        classId: BigInt(classId),
+        targetType,
+        studentId: studentId ? BigInt(studentId) : undefined,
+      },
+      include: {
+        honor: true,
+        student: true,
+        grantedByUser: true,
+      },
+      orderBy: { grantedAt: 'desc' },
+      take: studentId ? 20 : 12,
+    });
+
+    return {
+      code: 0,
+      message: 'ok',
+      data: rows.map((row) => this.mapHonorRecordRow(row)),
+    };
+  }
+
+  private async listRecentHonorRecords(schoolId: bigint, classId: number, take: number) {
+    const rows = await this.prisma.honorRecord.findMany({
+      where: {
+        schoolId,
+        classId: BigInt(classId),
+      },
+      include: {
+        honor: true,
+        student: true,
+        grantedByUser: true,
+      },
+      orderBy: { grantedAt: 'desc' },
+      take,
+    });
+    return rows.map((row) => this.mapHonorRecordRow(row));
+  }
+
+  /** 班级集体荣誉：按 honorId 去重，保留最近颁发记录 */
+  private async listClassHonorBadges(schoolId: bigint, classId: number, take: number) {
+    const rows = await this.prisma.honorRecord.findMany({
+      where: {
+        schoolId,
+        classId: BigInt(classId),
+        targetType: 'class',
+      },
+      include: {
+        honor: true,
+        student: true,
+        grantedByUser: true,
+      },
+      orderBy: { grantedAt: 'desc' },
+      take: Math.max(take * 4, 24),
+    });
+
+    const seen = new Set<number>();
+    const badges = [];
+    for (const row of rows) {
+      const honorId = toNumber(row.honorId);
+      if (honorId == null || seen.has(honorId)) {
+        continue;
+      }
+      seen.add(honorId);
+      badges.push(this.mapHonorRecordRow(row));
+      if (badges.length >= take) {
+        break;
+      }
+    }
+    return badges;
+  }
+
+  private mapHonorRecordRow(row: {
+    id: bigint;
+    honorId: bigint;
+    targetType: string;
+    targetId: bigint;
+    classId: bigint;
+    studentId: bigint | null;
+    grantedAt: Date;
+    remark: string | null;
+    honor: { name: string; iconUrl: string | null };
+    student: { name: string } | null;
+    grantedByUser: { name: string } | null;
+  }) {
+    return {
+      id: toNumber(row.id),
+      honorId: toNumber(row.honorId),
+      honorName: row.honor.name,
+      honorIconUrl: row.honor.iconUrl,
+      targetType: row.targetType,
+      targetId: toNumber(row.targetId),
+      classId: toNumber(row.classId),
+      studentId: row.studentId ? toNumber(row.studentId) : null,
+      studentName: row.student?.name ?? null,
+      grantedAt: row.grantedAt,
+      remark: row.remark,
+      grantedByName: row.grantedByUser?.name ?? null,
     };
   }
 
@@ -784,7 +1030,8 @@ export class DisplayService {
     };
   }
 
-  async leaderboard(classId: number, type: string) {
+  async leaderboard(authorization: string | undefined, classId: number, type: string) {
+    await this.ensureDisplayClassAccess(authorization, classId);
     const students = await this.prisma.student.findMany({
       where: {
         classId: BigInt(classId),
@@ -807,10 +1054,14 @@ export class DisplayService {
       },
     });
 
+    const leaderboardType =
+      type === 'pet-level' ? 'pet-level' : type === 'honor' ? 'honor' : 'score';
     const metric =
-      type === 'pet-level'
+      leaderboardType === 'pet-level'
         ? (item: (typeof students)[number]) => item.profile?.currentPetLevel ?? 1
-        : (item: (typeof students)[number]) => item.profile?.currentScore ?? 0;
+        : leaderboardType === 'honor'
+          ? (item: (typeof students)[number]) => item.profile?.honorsCount ?? 0
+          : (item: (typeof students)[number]) => item.profile?.currentScore ?? 0;
 
     const rows = [...students]
       .sort((a, b) => metric(b) - metric(a))
@@ -829,16 +1080,19 @@ export class DisplayService {
           avatarUrl: student.avatarUrl,
           currentScore: student.profile?.currentScore ?? 0,
           currentPetLevel: student.profile?.currentPetLevel ?? 1,
+          honorsCount: student.profile?.honorsCount ?? 0,
           petName: studentPet?.pet.name ?? null,
+          petNickname: studentPet?.nickname ?? null,
           petImageUrl,
           hasPet: Boolean(studentPet),
         };
       });
 
-    return { code: 0, message: 'ok', data: { classId, type: type === 'pet-level' ? 'pet-level' : 'score', rows } };
+    return { code: 0, message: 'ok', data: { classId, type: leaderboardType, rows } };
   }
 
-  async roster(classId: number) {
+  async roster(authorization: string | undefined, classId: number) {
+    await this.ensureDisplayClassAccess(authorization, classId);
     const classroom = await this.prisma.classroom.findFirst({
       where: {
         id: BigInt(classId),
@@ -874,6 +1128,10 @@ export class DisplayService {
                   },
                 },
               },
+              decorations: {
+                where: { isEquipped: true },
+                include: { decoration: true },
+              },
             },
           },
         },
@@ -904,6 +1162,18 @@ export class DisplayService {
               null)
             : null;
 
+          const equippedDecorations = studentPet
+            ? studentPet.decorations
+                .filter((d) => d.isEquipped)
+                .map((d) => ({
+                  type: d.decoration.type,
+                  code: d.decoration.code,
+                  imageUrl: d.decoration.imageUrl,
+                  previewUrl: d.decoration.previewUrl,
+                  name: d.decoration.name,
+                }))
+            : [];
+
           return {
             id: toNumber(student.id),
             name: student.name,
@@ -912,12 +1182,17 @@ export class DisplayService {
             currentScore: student.profile?.currentScore ?? 0,
             totalScore: student.profile?.totalScore ?? 0,
             currentPetLevel: student.profile?.currentPetLevel ?? 1,
+            honorsCount: student.profile?.honorsCount ?? 0,
             groupNo: student.groupRel?.classGroup?.groupNo ?? null,
             groupName: student.groupRel?.classGroup?.name ?? null,
             pet: studentPet
               ? {
                   id: toNumber(studentPet.pet.id),
+                  studentPetId: toNumber(studentPet.id),
+                  petId: toNumber(studentPet.id),
                   name: studentPet.pet.name,
+                  nickname: studentPet.nickname ?? null,
+                  lastRenameAt: studentPet.lastRenameAt ?? null,
                   coverUrl: studentPet.pet.coverUrl,
                   currentImageUrl: petImageUrl,
                   currentLevel: studentPet.currentLevel,
@@ -925,6 +1200,7 @@ export class DisplayService {
                     studentPet.pet.stages.find((stage) => stage.stageNo === studentPet.currentStageNo)?.name ??
                     null,
                   totalScore: studentPet.totalScore,
+                  equippedDecorations,
                 }
               : null,
           };
@@ -933,7 +1209,8 @@ export class DisplayService {
     };
   }
 
-  async classScoreRanking(classId: number) {
+  async classScoreRanking(authorization: string | undefined, classId: number) {
+    await this.ensureDisplayClassAccess(authorization, classId);
     const currentClass = await this.prisma.classroom.findFirst({
       where: {
         id: BigInt(classId),
@@ -1003,7 +1280,8 @@ export class DisplayService {
     };
   }
 
-  async academicGrowth(classId: number, selectedExamId?: number) {
+  async academicGrowth(authorization: string | undefined, classId: number, selectedExamId?: number) {
+    await this.ensureDisplayClassAccess(authorization, classId);
     const currentClass = await this.prisma.classroom.findFirst({
       where: {
         id: BigInt(classId),
@@ -1022,6 +1300,26 @@ export class DisplayService {
     if (!currentClass) {
       throw new NotFoundException('班级不存在');
     }
+
+    const [schoolSemesters, currentSemester] = await Promise.all([
+      this.prisma.semester.findMany({
+        where: { schoolId: currentClass.schoolId, status: 'enabled' },
+        select: { id: true, name: true, startDate: true },
+        orderBy: { startDate: 'desc' },
+      }),
+      this.prisma.semester.findFirst({
+        where: { schoolId: currentClass.schoolId, isCurrent: true, status: 'enabled' },
+        orderBy: { id: 'desc' },
+        select: { id: true, name: true, startDate: true },
+      }),
+    ]);
+    const schoolYearAnchor =
+      currentSemester ?? schoolSemesters.find((item) => item.id === currentClass.semesterId) ?? null;
+    const schoolYearSemesters = filterSemestersBySchoolYear(schoolSemesters, schoolYearAnchor);
+    const schoolYearSemesterIds =
+      schoolYearSemesters.length > 0
+        ? schoolYearSemesters.map((item) => item.id)
+        : [currentClass.semesterId];
 
     const classrooms = await this.prisma.classroom.findMany({
       where: {
@@ -1063,7 +1361,7 @@ export class DisplayService {
     const exams = await this.prisma.academicExam.findMany({
       where: {
         schoolId: currentClass.schoolId,
-        semesterId: currentClass.semesterId,
+        semesterId: { in: schoolYearSemesterIds },
         records: {
           some: {
             classId: currentClass.id,
@@ -1076,7 +1374,7 @@ export class DisplayService {
         },
       },
       orderBy: [{ examDate: 'desc' }, { id: 'desc' }],
-      take: 6,
+      take: 30,
     });
 
     if (exams.length === 0) {
@@ -1124,7 +1422,7 @@ export class DisplayService {
       this.prisma.academicScoreRecord.findMany({
         where: {
           schoolId: currentClass.schoolId,
-          semesterId: currentClass.semesterId,
+          semesterId: { in: schoolYearSemesterIds },
           examId: { in: examIds },
           classId: { in: classIds },
           subjectCode: 'total',
@@ -1135,7 +1433,7 @@ export class DisplayService {
       this.prisma.academicScoreRecord.findMany({
         where: {
           schoolId: currentClass.schoolId,
-          semesterId: currentClass.semesterId,
+          semesterId: { in: schoolYearSemesterIds },
           examId: { in: subjectExamIds },
           classId: { in: classIds },
           subjectCode: { not: 'total' },
@@ -1391,7 +1689,14 @@ export class DisplayService {
     };
   }
 
-  async academicAiSummary(classId: number, studentId: number, periodType: 'weekly' | 'monthly' = 'weekly') {
+  async academicAiSummary(
+    authorization: string | undefined,
+    classId: number,
+    studentId: number,
+    periodType: 'weekly' | 'monthly' = 'weekly',
+  ) {
+    const user = await this.authService.getAuthUserFromAuthorization(authorization);
+    this.authService.ensureCanAccessClass(user, classId);
     const student = await this.resolveDisplayAccessibleStudent(classId, studentId);
 
     const snapshot = await this.prisma.aiStudentSnapshot.findFirst({
@@ -1423,9 +1728,19 @@ export class DisplayService {
     };
   }
 
-  async academicAiGenerate(classId: number, studentId: number, periodType: 'weekly' | 'monthly' = 'weekly') {
+  async academicAiGenerate(
+    authorization: string | undefined,
+    classId: number,
+    studentId: number,
+    periodType: 'weekly' | 'monthly' = 'weekly',
+  ) {
+    const user = await this.authService.getAuthUserFromAuthorization(authorization);
+    if (!this.authService.canOperateDisplay(user)) {
+      throw new ForbiddenException('当前角色不可生成展示端学情摘要');
+    }
+    this.authService.ensureCanAccessClass(user, classId);
     await this.resolveDisplayAccessibleStudent(classId, studentId);
-    return this.aiService.generateForDisplay(studentId, periodType);
+    return this.aiService.generate(authorization, studentId, periodType);
   }
 
   async petCatalog() {
@@ -1477,10 +1792,20 @@ export class DisplayService {
     };
   }
 
-  async rewardCenter(classId: number) {
+  async rewardCenter(authorization: string | undefined, classId: number) {
+    await this.ensureDisplayClassAccess(authorization, classId);
     const rewards = await this.prisma.reward.findMany({
       where: {
         status: 'enabled',
+        OR: [{ scopeType: 'global' }, { scopeType: 'class', classId: BigInt(classId) }],
+      },
+      include: {
+        createdByUser: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
       },
       orderBy: [{ scoreCost: 'asc' }, { createdAt: 'desc' }],
     });
@@ -1502,6 +1827,8 @@ export class DisplayService {
         classId,
         rewards: rewards.map((reward) => ({
           id: toNumber(reward.id),
+          classId: reward.classId ? toNumber(reward.classId) : null,
+          scopeType: reward.scopeType,
           code: reward.code,
           name: reward.name,
           category: reward.category,
@@ -1509,6 +1836,9 @@ export class DisplayService {
           scoreCost: reward.scoreCost,
           stockQty: reward.stockQty,
           isInfiniteStock: reward.isInfiniteStock,
+          createdBy: reward.createdBy ? toNumber(reward.createdBy) : null,
+          createdByName: reward.createdByUser?.name ?? null,
+          sourceLabel: reward.scopeType === 'class' ? '班级奖励' : '学校奖励',
         })),
         latestOrders: latestOrders.map((order) => ({
           id: toNumber(order.id),

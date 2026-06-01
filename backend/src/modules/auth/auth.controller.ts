@@ -1,7 +1,9 @@
 import { Body, Controller, Get, Headers, Post } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { Public } from '@/common/auth/public.decorator';
 import { LoginDto } from './dto/login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { ProjectionLoginDto } from './dto/projection-login.dto';
 import { AuthService } from './auth.service';
 
 @ApiTags('Auth')
@@ -10,8 +12,15 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('login')
+  @Public()
   login(@Body() dto: LoginDto) {
     return this.authService.login(dto);
+  }
+
+  @Post('projection-login')
+  @Public()
+  projectionLogin(@Body() dto: ProjectionLoginDto) {
+    return this.authService.projectionLogin(dto);
   }
 
   @Get('me')
@@ -25,6 +34,7 @@ export class AuthController {
   }
 
   @Post('logout')
+  @Public()
   logout() {
     return this.authService.logout();
   }

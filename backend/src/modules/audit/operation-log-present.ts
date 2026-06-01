@@ -63,6 +63,7 @@ const ACTION_LABEL_COMPOSITE: Record<string, string> = {
   'score_record.create': '为学生加减分',
   'score_record.batch_create': '批量为学生加减分',
   'score_record.group_create': '按小组加减分',
+  'score_record.reverse': '撤销学生评价',
   'honor.create': '新建荣誉类型',
   'honor.update': '修改荣誉类型',
   'honor.status_update': '启用或停用荣誉',
@@ -77,6 +78,7 @@ const ACTION_LABEL_COMPOSITE: Record<string, string> = {
   'pet.status_update': '启用或停用萌宠',
   'pet.delete': '删除萌宠',
   'display_terminal.initialize': '初始化大屏终端',
+  'display_terminal.delete': '删除大屏终端',
   'display.unlock': '解锁大屏展示',
   'display.lock': '锁定大屏展示',
   'ai_student_snapshot.generate': '生成学生 AI 摘要',
@@ -281,6 +283,8 @@ export function buildAuditSummary(row: AuditPresentSource): string {
       return `${op} 在${term}调整了某个班级的小组划分或成员。`;
     case 'display_terminal.initialize':
       return `${op} 在大屏侧初始化了班级展示终端（终端编号见明细）。`;
+    case 'display_terminal.delete':
+      return `${op} 在${term}删除了大屏终端${pickStr(d, 'terminalName') ? `「${pickStr(d, 'terminalName')}」` : ''}。`;
     case 'display.unlock':
       return `${op} 在大屏侧解锁了班级展示内容。`;
     case 'display.lock':

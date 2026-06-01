@@ -3,7 +3,7 @@ import { hashSync } from 'bcryptjs';
 import { pinyin } from 'pinyin-pro';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 import { PrismaService } from '@/prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { toNumber } from '@/common/utils/bigint.util';
@@ -191,18 +191,21 @@ export class TeacherSchedulesService {
     await this.reconcilePendingSlots(user.schoolId);
     await this.reconcileClassBindings(user.schoolId);
 
-    const resolvedPath = filePath?.trim() ? path.resolve(filePath) : path.resolve(process.cwd(), '../doc/课表.xls');
-    const workbook = file
-      ? XLSX.read(file.buffer, { type: 'buffer', raw: false, cellText: true, codepage: 936 })
-      : (() => {
-          if (!fs.existsSync(resolvedPath)) {
-            throw new BadRequestException(`课表文件不存在: ${resolvedPath}`);
-          }
-          return XLSX.readFile(resolvedPath, { raw: false, cellText: true, codepage: 936 });
-        })();
-    const allSheets = workbook.SheetNames;
+    if (process.env.NODE_ENV === 'production' && filePath?.trim()) {
+      throw new BadRequestException('生产环境不允许通过服务器本地路径导入文件，请使用上传文件方式');
+    }
+    if (file && file.size > 10 * 1024 * 1024) {
+      throw new BadRequestException('课表文件大小不能超过 10MB');
+    }
+
+    const resolvedPath = filePath?.trim() ? path.resolve(filePath) : path.resolve(process.cwd(), '../doc/课表.xlsx');
+    const workbook = await this.loadScheduleWorkbook(file, resolvedPath);
+    const allSheets = workbook.worksheets.map((sheet) => sheet.name);
     const teacherSheets = allSheets.filter((sheetName) => !/^\d+\s*班$/.test(this.normalizeName(sheetName)));
-    const parsed = teacherSheets.flatMap((sheetName) => this.parseTeacherSheet(workbook.Sheets[sheetName], sheetName));
+    const parsed = teacherSheets.flatMap((sheetName) => {
+      const sheet = workbook.getWorksheet(sheetName);
+      return sheet ? this.parseTeacherSheet(sheet, sheetName) : [];
+    });
 
     const teacherUsers = await this.prisma.user.findMany({
       where: {
@@ -242,7 +245,7 @@ export class TeacherSchedulesService {
           missingTeachers: missingTeacherNames.map((teacherName) => ({
             teacherName,
             defaultUsername: defaultUsernameMap.get(teacherName) ?? this.buildAutoUsername(teacherName, usernamePrefix),
-            defaultPassword: '123456',
+            defaultPassword: '',
             defaultRoleCode: creationRoleCode === 'homeroom_teacher' ? 'homeroom_teacher' : 'subject_teacher',
           })),
           missingClasses: missingClassNames,
@@ -630,9 +633,35 @@ export class TeacherSchedulesService {
     };
   }
 
-  private parseTeacherSheet(sheet: XLSX.WorkSheet, rawSheetName: string): ParsedSlot[] {
-    const rows = XLSX.utils.sheet_to_json<(string | number)[]>(sheet, { header: 1, raw: false, defval: '' });
-    if (!Array.isArray(rows) || rows.length < 28) return [];
+  private async loadScheduleWorkbook(
+    file: { originalname: string; mimetype: string; size: number; buffer: Buffer } | undefined,
+    resolvedPath: string,
+  ) {
+    const sourceName = file?.originalname ?? resolvedPath;
+    if (!sourceName.toLowerCase().endsWith('.xlsx')) {
+      throw new BadRequestException('课表导入仅支持 .xlsx 文件，请先将旧版 .xls 转换为 .xlsx');
+    }
+
+    const workbook = new ExcelJS.Workbook();
+    if (file) {
+      const arrayBuffer = file.buffer.buffer.slice(
+        file.buffer.byteOffset,
+        file.buffer.byteOffset + file.buffer.byteLength,
+      ) as ArrayBuffer;
+      await workbook.xlsx.load(arrayBuffer);
+      return workbook;
+    }
+
+    if (!fs.existsSync(resolvedPath)) {
+      throw new BadRequestException(`课表文件不存在: ${resolvedPath}`);
+    }
+    await workbook.xlsx.readFile(resolvedPath);
+    return workbook;
+  }
+
+  private parseTeacherSheet(sheet: ExcelJS.Worksheet, rawSheetName: string): ParsedSlot[] {
+    const rows = this.worksheetToRows(sheet);
+    if (rows.length < 28) return [];
 
     const dayHeaderRow = rows.findIndex((row) => WEEKDAY_LABELS.every((label, idx) => String(row[3 + idx] ?? '').trim() === label));
     if (dayHeaderRow < 0) return [];
@@ -664,6 +693,33 @@ export class TeacherSchedulesService {
     }
 
     return result;
+  }
+
+  private worksheetToRows(sheet: ExcelJS.Worksheet) {
+    const rows: string[][] = [];
+    const columnCount = Math.max(sheet.columnCount, 8);
+    for (let rowIndex = 1; rowIndex <= sheet.rowCount; rowIndex += 1) {
+      const row = sheet.getRow(rowIndex);
+      const values: string[] = [];
+      for (let columnIndex = 1; columnIndex <= columnCount; columnIndex += 1) {
+        values.push(this.excelCellToString(row.getCell(columnIndex).value));
+      }
+      rows.push(values);
+    }
+    return rows;
+  }
+
+  private excelCellToString(value: ExcelJS.CellValue): string {
+    if (value === null || value === undefined) return '';
+    if (value instanceof Date) return value.toISOString().slice(0, 10);
+    if (typeof value === 'object') {
+      if ('result' in value && value.result !== undefined) return this.excelCellToString(value.result as ExcelJS.CellValue);
+      if ('text' in value && value.text !== undefined) return String(value.text).trim();
+      if ('richText' in value && Array.isArray(value.richText)) {
+        return value.richText.map((item) => item.text).join('').trim();
+      }
+    }
+    return String(value).trim();
   }
 
   private cleanTeacherName(name: string) {

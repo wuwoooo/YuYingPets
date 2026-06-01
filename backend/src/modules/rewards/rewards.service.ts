@@ -8,6 +8,8 @@ import { OperationLogService } from '../operation-log/operation-log.service';
 import { RealtimeService } from '../realtime/realtime.service';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
+import type { AuthUser } from '@/common/auth/auth-user.interface';
+import type { Prisma, Reward } from '@prisma/client';
 
 @Injectable()
 export class RewardsService {
@@ -19,51 +21,45 @@ export class RewardsService {
   ) {}
 
   async list(authorization: string | undefined, query: Record<string, string>) {
+    const user = await this.authService.getAuthUserFromAuthorization(authorization);
     const includeDisabled = query.includeDisabled === 'true';
-    if (includeDisabled) {
-      const user = await this.authService.getAuthUserFromAuthorization(authorization);
-      this.ensureCanManageRewards(user.roleCode);
-      return this.prisma.reward.findMany({
-        where: {
-          schoolId: user.schoolId,
-          category: query.category || undefined,
-        },
-        include: {
-          _count: {
-            select: {
-              rewardOrders: true,
-            },
-          },
-        },
-        orderBy: [{ scoreCost: 'asc' }, { createdAt: 'desc' }],
-      }).then((rows) => ({
-        code: 0,
-        message: 'ok',
-        data: rows.map((row) => ({
-          id: toNumber(row.id),
-          schoolId: toNumber(row.schoolId),
-          code: row.code,
-          name: row.name,
-          category: row.category,
-          imageUrl: row.imageUrl,
-          scoreCost: row.scoreCost,
-          stockQty: row.stockQty,
-          isInfiniteStock: row.isInfiniteStock,
-          status: row.status,
-          rewardOrderCount: row._count.rewardOrders,
-        })),
-      }));
+    const scopeType = query.scopeType === 'class' || query.scopeType === 'global' ? query.scopeType : undefined;
+    const classId = query.classId ? Number(query.classId) : undefined;
+
+    if (classId) {
+      this.authService.ensureCanAccessClass(user, classId);
+    }
+
+    let where: Prisma.RewardWhereInput = {
+      schoolId: user.schoolId,
+      category: query.category || undefined,
+      scopeType,
+      classId: classId ? BigInt(classId) : undefined,
+      status: includeDisabled ? undefined : 'enabled',
+    };
+
+    if (!this.canManageGlobalRewards(user.roleCode)) {
+      this.ensureCanManageClassRewards(user.roleCode);
+      const accessibleClassIds = this.authService.getAccessibleClassIds(user);
+      where = {
+        ...where,
+        scopeType: 'class',
+        classId: classId ? BigInt(classId) : { in: accessibleClassIds ?? [BigInt(-1)] },
+      };
     }
 
     return this.prisma.reward.findMany({
-      where: {
-        status: 'enabled',
-        category: query.category || undefined,
-      },
+      where,
       include: {
         _count: {
           select: {
             rewardOrders: true,
+          },
+        },
+        createdByUser: {
+          select: {
+            id: true,
+            name: true,
           },
         },
       },
@@ -71,36 +67,40 @@ export class RewardsService {
     }).then((rows) => ({
       code: 0,
       message: 'ok',
-      data: rows.map((row) => ({
-        id: toNumber(row.id),
-        schoolId: toNumber(row.schoolId),
-        code: row.code,
-        name: row.name,
-        category: row.category,
-        imageUrl: row.imageUrl,
-        scoreCost: row.scoreCost,
-        stockQty: row.stockQty,
-        isInfiniteStock: row.isInfiniteStock,
-        status: row.status,
-        rewardOrderCount: row._count.rewardOrders,
-      })),
+      data: rows.map((row) => this.serializeReward(row)),
     }));
   }
 
   async create(authorization: string | undefined, body: RewardUpsertDto) {
     const user = await this.authService.getAuthUserFromAuthorization(authorization);
-    this.ensureCanManageRewards(user.roleCode);
+    const scopeType = body.scopeType ?? 'global';
+    const classId = body.classId ? BigInt(body.classId) : null;
+    this.validateRewardPayload(body, scopeType);
+
+    if (scopeType === 'global') {
+      this.ensureCanManageGlobalRewards(user.roleCode);
+    } else {
+      this.ensureCanManageClassRewards(user.roleCode);
+      if (!classId) {
+        throw new BadRequestException('班级奖励必须选择班级');
+      }
+      this.authService.ensureCanAccessClass(user, classId);
+    }
 
     const created = await this.prisma.reward.create({
       data: {
         schoolId: user.schoolId,
-        code: body.code,
+        scopeType,
+        classId,
+        code: this.resolveRewardCode(scopeType, body, user),
         name: body.name,
-        category: body.category,
-        imageUrl: body.imageUrl,
+        category: this.resolveRewardCategory(scopeType, body),
+        imageUrl: scopeType === 'class' ? null : body.imageUrl?.trim() || null,
         scoreCost: body.scoreCost,
-        stockQty: body.stockQty,
+        stockQty: this.resolveRewardStockQty(scopeType, body),
         isInfiniteStock: body.isInfiniteStock ?? false,
+        createdBy: user.id,
+        updatedBy: user.id,
       },
     });
 
@@ -114,9 +114,11 @@ export class RewardsService {
       targetType: 'reward',
       targetId: created.id,
       detail: {
-        code: body.code,
+        code: created.code,
         name: body.name,
         scoreCost: body.scoreCost,
+        scopeType,
+        classId: classId ? toNumber(classId) : null,
       },
     });
 
@@ -125,26 +127,44 @@ export class RewardsService {
 
   async update(authorization: string | undefined, id: number, body: RewardUpsertDto) {
     const user = await this.authService.getAuthUserFromAuthorization(authorization);
-    this.ensureCanManageRewards(user.roleCode);
-
-    const exists = await this.prisma.reward.findFirst({
-      where: { id: BigInt(id), schoolId: user.schoolId, status: 'enabled' },
-      select: { id: true },
+    const reward = await this.prisma.reward.findFirst({
+      where: { id: BigInt(id), schoolId: user.schoolId },
+      include: {
+        createdByUser: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
     });
-    if (!exists) {
+    if (!reward) {
       throw new NotFoundException('奖励不存在');
     }
+
+    this.ensureCanEditReward(user, reward);
+
+    const nextScopeType = (body.scopeType ?? reward.scopeType) as 'global' | 'class';
+    if (nextScopeType !== reward.scopeType) {
+      throw new BadRequestException('奖励范围创建后不可修改');
+    }
+    if (reward.scopeType === 'class' && body.classId && reward.classId !== BigInt(body.classId)) {
+      throw new BadRequestException('班级奖励不允许跨班修改');
+    }
+
+    this.validateRewardPayload(body, nextScopeType, reward);
 
     const updated = await this.prisma.reward.update({
       where: { id: BigInt(id) },
       data: {
-        code: body.code,
-        name: body.name,
-        category: body.category,
-        imageUrl: body.imageUrl,
+        code: this.resolveUpdatedRewardCode(reward, body),
+        name: body.name.trim(),
+        category: this.resolveRewardCategory(nextScopeType, body, reward),
+        imageUrl: nextScopeType === 'class' ? null : body.imageUrl?.trim() || null,
         scoreCost: body.scoreCost,
-        stockQty: body.stockQty,
+        stockQty: this.resolveRewardStockQty(nextScopeType, body, reward),
         isInfiniteStock: body.isInfiniteStock ?? false,
+        updatedBy: user.id,
       },
     });
 
@@ -158,9 +178,11 @@ export class RewardsService {
       targetType: 'reward',
       targetId: updated.id,
       detail: {
-        code: body.code,
+        code: updated.code,
         name: body.name,
         scoreCost: body.scoreCost,
+        scopeType: reward.scopeType,
+        classId: reward.classId ? toNumber(reward.classId) : null,
       },
     });
 
@@ -172,7 +194,7 @@ export class RewardsService {
     file: { originalname: string; mimetype: string; size: number; buffer: Buffer } | undefined,
   ) {
     const user = await this.authService.getAuthUserFromAuthorization(authorization);
-    this.ensureCanManageRewards(user.roleCode);
+    this.ensureCanManageGlobalRewards(user.roleCode);
 
     if (!file) {
       throw new BadRequestException('请选择要上传的图片');
@@ -204,8 +226,6 @@ export class RewardsService {
 
   async updateStatus(authorization: string | undefined, id: number, status: 'enabled' | 'disabled') {
     const user = await this.authService.getAuthUserFromAuthorization(authorization);
-    this.ensureCanManageRewards(user.roleCode);
-
     const reward = await this.prisma.reward.findFirst({
       where: {
         id: BigInt(id),
@@ -215,10 +235,11 @@ export class RewardsService {
     if (!reward) {
       throw new NotFoundException('奖励不存在');
     }
+    this.ensureCanEditReward(user, reward);
 
     const updated = await this.prisma.reward.update({
       where: { id: BigInt(id) },
-      data: { status },
+      data: { status, updatedBy: user.id },
     });
 
     await this.operationLogService.create({
@@ -242,8 +263,6 @@ export class RewardsService {
 
   async deleteReward(authorization: string | undefined, id: number) {
     const user = await this.authService.getAuthUserFromAuthorization(authorization);
-    this.ensureCanManageRewards(user.roleCode);
-
     const reward = await this.prisma.reward.findFirst({
       where: {
         id: BigInt(id),
@@ -260,6 +279,7 @@ export class RewardsService {
     if (!reward) {
       throw new NotFoundException('奖励不存在');
     }
+    this.ensureCanEditReward(user, reward);
     if (reward._count.rewardOrders > 0) {
       throw new ForbiddenException('该奖励已有兑换记录，不能删除');
     }
@@ -324,9 +344,7 @@ export class RewardsService {
         rewardId: toNumber(row.rewardId),
         operatorId: toNumber(row.operatorId),
         reward: {
-          ...row.reward,
-          id: toNumber(row.reward.id),
-          schoolId: toNumber(row.reward.schoolId),
+          ...this.serializeReward(row.reward),
         },
         student: {
           id: toNumber(row.student.id),
@@ -372,6 +390,9 @@ export class RewardsService {
       if (!reward) {
         throw new NotFoundException('奖励不存在');
       }
+      if (reward.scopeType === 'class' && reward.classId !== BigInt(body.classId)) {
+        throw new ForbiddenException('该奖励不属于当前班级');
+      }
 
       const profile = await tx.studentProfile.findUnique({
         where: { studentId: BigInt(body.studentId) },
@@ -393,10 +414,16 @@ export class RewardsService {
       });
 
       if (!reward.isInfiniteStock && reward.stockQty !== null) {
-        await tx.reward.update({
-          where: { id: reward.id },
+        const stockUpdated = await tx.reward.updateMany({
+          where: {
+            id: reward.id,
+            stockQty: { gt: 0 },
+          },
           data: { stockQty: { decrement: 1 } },
         });
+        if (stockUpdated.count === 0) {
+          throw new ForbiddenException('奖励库存不足');
+        }
       }
 
       const order = await tx.rewardOrder.create({
@@ -450,9 +477,125 @@ export class RewardsService {
     return { code: 0, message: 'ok', data: result };
   }
 
-  private ensureCanManageRewards(roleCode: string) {
-    if (!['super_admin', 'school_admin', 'moral_admin'].includes(roleCode)) {
-      throw new ForbiddenException('当前角色无权维护奖励');
+  private serializeReward(
+    row: Reward & {
+      _count?: { rewardOrders: number };
+      createdByUser?: { id: bigint; name: string } | null;
+    },
+  ) {
+    return {
+      id: toNumber(row.id),
+      schoolId: toNumber(row.schoolId),
+      classId: row.classId ? toNumber(row.classId) : null,
+      scopeType: row.scopeType,
+      code: row.code,
+      name: row.name,
+      category: row.category ?? '',
+      imageUrl: row.imageUrl,
+      scoreCost: row.scoreCost,
+      stockQty: row.stockQty,
+      isInfiniteStock: row.isInfiniteStock,
+      status: row.status,
+      rewardOrderCount: row._count?.rewardOrders ?? 0,
+      createdBy: row.createdBy ? toNumber(row.createdBy) : null,
+      createdByName: row.createdByUser?.name ?? null,
+      sourceLabel: row.scopeType === 'class' ? '班级奖励' : '学校奖励',
+    };
+  }
+
+  private validateRewardPayload(body: RewardUpsertDto, scopeType: 'global' | 'class', current?: Reward) {
+    const name = body.name?.trim();
+    if (!name) {
+      throw new BadRequestException('奖励名称不能为空');
+    }
+    if (body.scoreCost < 0) {
+      throw new BadRequestException('奖励分值不能小于 0');
+    }
+
+    const isInfiniteStock = body.isInfiniteStock ?? current?.isInfiniteStock ?? false;
+    if (scopeType === 'class' && !isInfiniteStock && body.stockQty === undefined && current?.stockQty === undefined) {
+      throw new BadRequestException('有限库存的班级奖励必须填写库存数量');
+    }
+    if (!isInfiniteStock && body.stockQty !== undefined && body.stockQty < 0) {
+      throw new BadRequestException('库存数量不能小于 0');
+    }
+  }
+
+  private resolveRewardStockQty(scopeType: 'global' | 'class', body: RewardUpsertDto, current?: Reward) {
+    const isInfiniteStock = body.isInfiniteStock ?? current?.isInfiniteStock ?? false;
+    if (isInfiniteStock) {
+      return null;
+    }
+    if (body.stockQty !== undefined) {
+      return body.stockQty;
+    }
+    if (scopeType === 'class' && current?.stockQty === undefined) {
+      throw new BadRequestException('有限库存的班级奖励必须填写库存数量');
+    }
+    return current?.stockQty ?? null;
+  }
+
+  private resolveRewardCategory(scopeType: 'global' | 'class', body: RewardUpsertDto, current?: Reward) {
+    if (scopeType === 'class') {
+      return 'class_custom';
+    }
+    if (body.category !== undefined) {
+      return body.category.trim() || null;
+    }
+    return current?.category ?? null;
+  }
+
+  private resolveRewardCode(scopeType: 'global' | 'class', body: RewardUpsertDto, user: AuthUser) {
+    const explicitCode = body.code?.trim();
+    if (explicitCode) {
+      return explicitCode;
+    }
+    const prefix = scopeType === 'class' ? `reward-class-${body.classId ?? 'x'}` : `reward-school-${toNumber(user.schoolId)}`;
+    return `${prefix}-${Date.now()}`;
+  }
+
+  private resolveUpdatedRewardCode(current: Reward, body: RewardUpsertDto) {
+    const explicitCode = body.code?.trim();
+    if (explicitCode) {
+      return explicitCode;
+    }
+    return current.code;
+  }
+
+  private ensureCanEditReward(user: AuthUser, reward: Reward) {
+    if (this.canManageGlobalRewards(user.roleCode)) {
+      if (reward.classId) {
+        this.authService.ensureCanAccessClass(user, reward.classId);
+      }
+      return;
+    }
+
+    this.ensureCanManageClassRewards(user.roleCode);
+    if (reward.scopeType !== 'class') {
+      throw new ForbiddenException('当前角色无权维护学校奖励');
+    }
+    if (!reward.classId) {
+      throw new ForbiddenException('班级奖励缺少班级信息');
+    }
+    this.authService.ensureCanAccessClass(user, reward.classId);
+    if (reward.createdBy !== user.id) {
+      throw new ForbiddenException('只能维护自己创建的班级奖励');
+    }
+  }
+
+  private canManageGlobalRewards(roleCode: string) {
+    return ['super_admin', 'school_admin', 'moral_admin'].includes(roleCode);
+  }
+
+  private ensureCanManageGlobalRewards(roleCode: string) {
+    if (!this.canManageGlobalRewards(roleCode)) {
+      throw new ForbiddenException('当前角色无权维护学校奖励');
+    }
+  }
+
+  private ensureCanManageClassRewards(roleCode: string) {
+    if (!['super_admin', 'school_admin', 'moral_admin', 'homeroom_teacher', 'subject_teacher'].includes(roleCode)) {
+      throw new ForbiddenException('当前角色无权维护班级奖励');
     }
   }
 }

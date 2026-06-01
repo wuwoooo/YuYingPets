@@ -62,6 +62,7 @@ export type LoginResponse = {
       roleCode: string;
       roleName?: string;
       dutyTags?: string[];
+      passwordChangeRequired?: boolean;
     };
   };
 };
@@ -86,6 +87,7 @@ export type SessionUser = {
   roleCode: string;
   roleName?: string;
   dutyTags?: string[];
+  passwordChangeRequired?: boolean;
   classAssignments?: SessionClassAssignment[];
 };
 
@@ -133,6 +135,7 @@ export type AdminClass = {
   countdownDeadlineAt: string | null;
   sortOrder?: number | null;
   displayStatus: string;
+  onlineStatus?: 'online' | 'offline';
   studentCount: number;
   currentScoreTotal: number;
   totalScoreTotal: number;
@@ -166,6 +169,7 @@ export type AdminStudent = {
   name: string;
   gender: string | null;
   avatarUrl: string | null;
+  status?: 'enabled' | 'disabled';
   className: string;
   currentScore: number;
   totalScore: number;
@@ -184,7 +188,10 @@ export type AdminStudent = {
   } | null;
   pet?: {
     id: number;
+    studentPetId?: number;
     name: string;
+    nickname?: string | null;
+    lastRenameAt?: string | null;
     coverUrl: string | null;
     currentLevel: number;
     totalScore: number;
@@ -200,6 +207,7 @@ export type StudentDetail = {
   name: string;
   gender: string | null;
   avatarUrl: string | null;
+  status?: 'enabled' | 'disabled';
   profile: {
     currentScore: number;
     totalScore: number;
@@ -354,6 +362,7 @@ export type AcademicExamUpdatePayload = {
 
 export type AcademicExamListItem = {
   id: number;
+  semesterId: number;
   name: string;
   gradeName: string | null;
   sourceFile: string | null;
@@ -531,6 +540,9 @@ export type ClassGroupSummary = {
   groupNo: number;
   name: string;
   studentCount: number;
+  groupScore?: number;
+  groupTotalScore?: number;
+  groupLastScoreAt?: string | null;
   currentScoreTotal: number;
   students: Array<{
     id: number;
@@ -538,6 +550,30 @@ export type ClassGroupSummary = {
     studentNo: string;
     currentScore: number;
   }>;
+};
+
+export type GroupScoreRankingRow = {
+  rank: number;
+  id: number;
+  classId: number;
+  groupNo: number;
+  name: string;
+  groupScore: number;
+  groupTotalScore: number;
+  groupLastScoreAt: string | null;
+};
+
+export type GroupScoreRecordRow = {
+  id: number;
+  classId: number;
+  classGroupId: number;
+  groupNo: number;
+  groupName: string;
+  scoreDelta: number;
+  remark: string | null;
+  operatorName: string | null;
+  occurredAt: string | null;
+  createdAt: string;
 };
 
 export type ScoreRule = {
@@ -587,6 +623,8 @@ export type ScoreRuleTreeModule = {
 export type Reward = {
   id: number;
   schoolId: number;
+  classId: number | null;
+  scopeType: 'global' | 'class';
   code: string;
   name: string;
   category: string;
@@ -596,6 +634,9 @@ export type Reward = {
   isInfiniteStock: boolean;
   status: string;
   rewardOrderCount: number;
+  createdBy: number | null;
+  createdByName: string | null;
+  sourceLabel: string;
 };
 
 export type RewardOrder = {
@@ -639,7 +680,47 @@ export type ScoreRecord = {
   operatorId: number | null;
   operatorName: string | null;
   ruleName: string | null;
+  reversedAt: string | null;
+  reversedById: number | null;
+  reversedByName: string | null;
+  reverseRemark: string | null;
   createdAt: string;
+};
+
+export type ScoreRecordCreateResult = {
+  scoreRecordId: number;
+  scoreDelta: number;
+  studentProfile: {
+    studentId: number;
+    currentScore: number;
+    currentPetLevel: number;
+  };
+  petUpgrade: {
+    upgraded: boolean;
+    beforeLevel?: number;
+    afterLevel?: number;
+  };
+};
+
+export type ScoreRecordBatchResult = {
+  batchId: number;
+  items: ScoreRecordCreateResult[];
+};
+
+export type ScoreRecordReverseResult = {
+  scoreRecordId: number;
+  classId: number;
+  studentId: number;
+  scoreDelta: number;
+  rollbackDelta: number;
+  reversedAt: string;
+  reverseRemark: string;
+  studentProfile: {
+    studentId: number;
+    currentScore: number;
+    currentPetLevel: number;
+  };
+  ruleName: string | null;
 };
 
 export type ClassScoreRecord = {
@@ -704,6 +785,7 @@ export type SystemSettings = {
     phone: string | null;
     address: string | null;
     classScoreStudentLinkMultiplier: number;
+    petDecoChangeCost: number;
     petGrowth: {
       thresholds: number[];
     };
@@ -731,6 +813,23 @@ export type SystemSettings = {
   };
   gradeConfigs: GradeConfig[];
   roleTemplates: RoleTemplate[];
+};
+
+export type DisplaySettingsPayload = {
+  id: number | null;
+  title: string;
+  subtitle: string;
+  bgImageUrl: string | null;
+  weatherLabel: string;
+  weatherLatitude: number;
+  weatherLongitude: number;
+  animationSpeed: string;
+  allowSkipAnimation: boolean;
+  defaultMode: string;
+  currentSemester: {
+    id: number;
+    name: string;
+  } | null;
 };
 
 export type DisplayWeatherPayload = {
@@ -831,12 +930,30 @@ export type AnalyticsData = {
   totalScore: number;
   positiveRuleCount: number;
   negativeRuleCount?: number;
+  /** 全校（或权限范围内）评价记录总数，不受列表接口 100 条上限影响 */
+  totalScoreRecordCount?: number;
+  /** 今日评价记录数 */
+  todayScoreRecordCount?: number;
+  /** 今日正向评价数（不受列表接口 100 条上限影响） */
+  todayPositiveCount?: number;
+  /** 今日负向评价数（不受列表接口 100 条上限影响） */
+  todayNegativeCount?: number;
+  /** 近 24 小时评价记录数 */
+  recent24hScoreRecordCount?: number;
+  /** 近 7 日积分脉冲趋势（不受列表接口 100 条上限影响） */
+  dailyTrend?: Array<{
+    date: string;
+    total: number;
+    score: number;
+    positive: number;
+    negative: number;
+  }>;
   averageScore: number;
   activeDays: number;
   gradeTrend: Array<{ name: string; value: number }>;
   ruleDistribution: Array<{ name: string; value: number }>;
   subjectDistribution: Array<{ name: string; value: number }>;
-  topClasses: Array<{ id: number; name: string; currentScoreTotal: number }>;
+  topClasses: Array<{ id: number; name: string; currentScoreTotal: number; classScore: number }>;
   topStudents: Array<{
     studentId: number;
     studentName: string;
@@ -854,7 +971,13 @@ export type AnalyticsData = {
     riskLevel: 'high' | 'medium' | 'low';
     reason: string;
   }>;
-  aiInsight: {
+  riskStudentStats: {
+    high: number;
+    medium: number;
+    low: number;
+    total: number;
+  };
+  aiInsight?: {
     summary: string;
     suggestion: string;
     reportSummary: string;
@@ -865,11 +988,32 @@ export type AnalyticsData = {
     className: string | null;
     isCached: boolean;
   };
-  heatMap: {
+  heatMap?: {
     rows: string[];
     cols: string[];
     data: Array<{ row: string; values: number[] }>;
   };
+  scoreDetailSummary?: Array<{
+    studentId: number;
+    studentName: string;
+    classId: number;
+    className: string;
+    totalScoreDelta: number;
+    positiveCount: number;
+    negativeCount: number;
+    recordCount: number;
+    records: Array<{
+      id: number;
+      scoreDelta: number;
+      ruleName: string | null;
+      dimension: string | null;
+      tag: string | null;
+      remark: string | null;
+      subjectCode: string | null;
+      operatorName: string | null;
+      createdAt: string;
+    }>;
+  }>;
 };
 
 export type AnalyticsQuery = {
@@ -1003,6 +1147,27 @@ export type TeacherReviewContext = {
     isCached: boolean;
   };
   recommendedAdjustments: string[];
+  scoreDetailSummary: Array<{
+    studentId: number;
+    studentName: string;
+    classId: number;
+    className: string;
+    totalScoreDelta: number;
+    positiveCount: number;
+    negativeCount: number;
+    recordCount: number;
+    records: Array<{
+      id: number;
+      scoreDelta: number;
+      ruleName: string | null;
+      dimension: string | null;
+      tag: string | null;
+      remark: string | null;
+      subjectCode: string | null;
+      operatorName: string | null;
+      createdAt: string;
+    }>;
+  }>;
 };
 
 export type PetCatalogItem = {
@@ -1049,6 +1214,7 @@ export type HonorRecord = {
   id: number;
   honorId: number;
   honorName: string;
+  honorIconUrl?: string | null;
   targetType: 'student' | 'class';
   targetId: number;
   schoolId: number;
@@ -1096,6 +1262,7 @@ export type StudentUpdatePayload = {
   name: string;
   gender?: string | null;
   avatarUrl?: string | null;
+  status?: 'enabled' | 'disabled';
 };
 
 export type ScoreRecordCreatePayload = {
@@ -1176,8 +1343,10 @@ export type ScoreRuleAiSuggestResult = {
 };
 
 export type RewardUpsertPayload = {
-  code: string;
+  code?: string;
   name: string;
+  scopeType?: 'global' | 'class';
+  classId?: number;
   category?: string;
   imageUrl?: string;
   scoreCost: number;
@@ -1235,6 +1404,7 @@ export type GradeSettingsUpdatePayload = {
 export type PetGrowthSettingsUpdatePayload = {
   thresholds: number[];
   classScoreStudentLinkMultiplier: number;
+  petDecoChangeCost: number;
 };
 
 export type PermissionUserUpsertPayload = {
@@ -1426,6 +1596,12 @@ export const adminApi = {
       },
     });
   },
+  projectionLogin(username: string, password: string) {
+    return request<LoginResponse>('/auth/projection-login', {
+      method: 'POST',
+      body: { username, password },
+    });
+  },
   me(token: string) {
     return request<SessionMeResponse>('/auth/me', { token });
   },
@@ -1442,6 +1618,12 @@ export const adminApi = {
   displayTerminals(token: string) {
     return request<ApiListResponse<DisplayTerminal>>('/display/terminals', { token });
   },
+  deleteDisplayTerminal(token: string, id: number) {
+    return request<ApiObjectResponse<{ id: number }>>(`/display/terminals/${id}`, {
+      method: 'DELETE',
+      token,
+    });
+  },
   displayWeather(
     token: string,
     query?: { latitude?: number; longitude?: number; label?: string },
@@ -1453,11 +1635,12 @@ export const adminApi = {
     const suffix = params.size > 0 ? `?${params.toString()}` : '';
     return request<ApiObjectResponse<DisplayWeatherPayload>>(`/display/weather${suffix}`, { token });
   },
-  students(token: string, query?: { classId?: number; page?: number; pageSize?: number }) {
+  students(token: string, query?: { classId?: number; page?: number; pageSize?: number; includeDisabled?: boolean }) {
     const params = new URLSearchParams();
     if (query?.classId) params.set('classId', String(query.classId));
     if (query?.page) params.set('page', String(query.page));
     if (query?.pageSize) params.set('pageSize', String(query.pageSize));
+    if (query?.includeDisabled) params.set('includeDisabled', 'true');
     const suffix = params.size > 0 ? `?${params.toString()}` : '';
     return request<ApiListResponse<AdminStudent>>(`/students${suffix}`, { token });
   },
@@ -1474,14 +1657,24 @@ export const adminApi = {
       body,
     });
   },
-  academicExams(token: string) {
-    return request<ApiListResponse<AcademicExamListItem>>('/academic-records/exams', { token });
+  academicExams(token: string, query?: { semesterId?: number; currentSemesterOnly?: boolean }) {
+    const params = new URLSearchParams();
+    if (query?.semesterId) params.set('semesterId', String(query.semesterId));
+    if (query?.currentSemesterOnly) params.set('currentSemesterOnly', 'true');
+    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    return request<ApiListResponse<AcademicExamListItem>>(`/academic-records/exams${suffix}`, { token });
   },
   updateAcademicExam(token: string, examId: number, body: AcademicExamUpdatePayload) {
     return request<ApiObjectResponse<AcademicExamListItem>>(`/academic-records/exams/${examId}`, {
       method: 'PUT',
       token,
       body,
+    });
+  },
+  deleteAcademicExam(token: string, examId: number) {
+    return request<ApiObjectResponse<{ id: number; deletedRecordCount: number }>>(`/academic-records/exams/${examId}`, {
+      method: 'DELETE',
+      token,
     });
   },
   academicScores(
@@ -1510,9 +1703,10 @@ export const adminApi = {
       { token },
     );
   },
-  academicSchoolGrowth(token: string, query?: { examId?: number }) {
+  academicSchoolGrowth(token: string, query?: { examId?: number; currentSemesterOnly?: boolean }) {
     const params = new URLSearchParams();
     if (query?.examId) params.set('examId', String(query.examId));
+    if (query?.currentSemesterOnly) params.set('currentSemesterOnly', 'true');
     const suffix = params.size > 0 ? `?${params.toString()}` : '';
     return request<ApiObjectResponse<SchoolAcademicGrowthPayload>>(
       `/academic-records/school-growth${suffix}`,
@@ -1546,36 +1740,78 @@ export const adminApi = {
   classGroups(token: string, classId: number) {
     return request<ApiListResponse<ClassGroupSummary>>(`/classes/${classId}/groups`, { token });
   },
+  groupScoreRanking(token: string, classId: number) {
+    return request<ApiListResponse<GroupScoreRankingRow>>(`/classes/${classId}/group-scores/ranking`, { token });
+  },
+  groupScoreRecords(token: string, classId: number, classGroupId?: number) {
+    const params = new URLSearchParams();
+    if (classGroupId) params.set('classGroupId', String(classGroupId));
+    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    return request<ApiListResponse<GroupScoreRecordRow>>(`/classes/${classId}/group-scores/records${suffix}`, { token });
+  },
+  adjustGroupScore(
+    token: string,
+    classId: number,
+    body: { classGroupId: number; scoreDelta: number; remark: string; sourceTerminal: 'admin' },
+  ) {
+    return request<ApiObjectResponse<{ classGroupId: number; groupNo: number; groupName: string; scoreDelta: number; groupScore: number; groupTotalScore: number; recordId: number }>>(
+      `/classes/${classId}/group-scores/adjust`,
+      {
+        method: 'POST',
+        token,
+        body,
+      },
+    );
+  },
+  resetGroupScores(token: string, classId: number, body: { sourceTerminal: 'admin' }) {
+    return request<ApiObjectResponse<{ resetCount: number; items: Array<{ classGroupId: number; groupNo: number; groupName: string; previousScore: number }> }>>(
+      `/classes/${classId}/group-scores/reset`,
+      {
+        method: 'POST',
+        token,
+        body,
+      },
+    );
+  },
   scoreRules(token: string, query?: { scoreTarget?: 'student' | 'class' }) {
     const params = new URLSearchParams();
     if (query?.scoreTarget) params.set('scoreTarget', query.scoreTarget);
     const suffix = params.size > 0 ? `?${params.toString()}` : '';
     return request<ApiListResponse<ScoreRule>>(`/score-rules${suffix}`, { token });
   },
-  scoreRecords(token: string, query?: { classId?: number; studentId?: number; subjectCode?: string }) {
+  scoreRecords(token: string, query?: { classId?: number; studentId?: number; subjectCode?: string; startDate?: string; endDate?: string }) {
     const params = new URLSearchParams();
     if (query?.classId) params.set('classId', String(query.classId));
     if (query?.studentId) params.set('studentId', String(query.studentId));
     if (query?.subjectCode) params.set('subjectCode', query.subjectCode);
+    if (query?.startDate) params.set('startDate', query.startDate);
+    if (query?.endDate) params.set('endDate', query.endDate);
     const suffix = params.size > 0 ? `?${params.toString()}` : '';
     return request<ApiListResponse<ScoreRecord>>(`/score-records${suffix}`, { token });
   },
   createScoreRecord(token: string, body: ScoreRecordCreatePayload) {
-    return request<ApiObjectResponse<{ scoreRecordId: number }>>('/score-records', {
+    return request<ApiObjectResponse<ScoreRecordCreateResult>>('/score-records', {
       method: 'POST',
       token,
       body,
     });
   },
   createScoreRecordBatch(token: string, body: ScoreRecordBatchPayload) {
-    return request<ApiObjectResponse<{ batchId: number }>>('/score-records/batch', {
+    return request<ApiObjectResponse<ScoreRecordBatchResult>>('/score-records/batch', {
       method: 'POST',
       token,
       body,
     });
   },
   createScoreRecordGroup(token: string, body: ScoreRecordGroupPayload) {
-    return request<ApiObjectResponse<{ batchId: number }>>('/score-records/group', {
+    return request<ApiObjectResponse<ScoreRecordBatchResult>>('/score-records/group', {
+      method: 'POST',
+      token,
+      body,
+    });
+  },
+  reverseScoreRecord(token: string, id: number, body: { remark: string }) {
+    return request<ApiObjectResponse<ScoreRecordReverseResult>>(`/score-records/${id}/reverse`, {
       method: 'POST',
       token,
       body,
@@ -1614,9 +1850,11 @@ export const adminApi = {
   scoreRulesTree(token: string) {
     return request<ApiListResponse<ScoreRuleTreeModule> | ApiObjectResponse<ScoreRuleTreeModule[]>>('/score-rules/tree', { token });
   },
-  rewards(token: string, query?: { includeDisabled?: boolean }) {
+  rewards(token: string, query?: { includeDisabled?: boolean; classId?: number; scopeType?: 'global' | 'class' }) {
     const params = new URLSearchParams();
     if (query?.includeDisabled) params.set('includeDisabled', 'true');
+    if (query?.classId) params.set('classId', String(query.classId));
+    if (query?.scopeType) params.set('scopeType', query.scopeType);
     const suffix = params.size > 0 ? `?${params.toString()}` : '';
     return request<ApiListResponse<Reward>>(`/rewards${suffix}`, { token });
   },
@@ -1678,6 +1916,31 @@ export const adminApi = {
     const suffix = params.size > 0 ? `?${params.toString()}` : '';
     return request<ApiListResponse<HonorRecord>>(`/honor-records${suffix}`, { token });
   },
+  createHonorRecord(
+    token: string,
+    body: {
+      honorId: number;
+      targetType: 'student' | 'class';
+      targetId: number;
+      classId: number;
+      remark?: string;
+    },
+  ) {
+    return request<
+      ApiObjectResponse<{
+        recordId: number;
+        honorId: number;
+        targetType: 'student' | 'class';
+        targetId: number;
+        classId: number;
+        studentId: number | null;
+      }>
+    >('/honor-records', {
+      method: 'POST',
+      token,
+      body,
+    });
+  },
   createHonor(token: string, body: HonorUpsertPayload) {
     return request<ApiObjectResponse<{ id: number }>>('/honors', {
       method: 'POST',
@@ -1712,7 +1975,7 @@ export const adminApi = {
     return request<ApiObjectResponse<SystemSettings>>('/admin/settings', { token });
   },
   displaySettings(token: string) {
-    return request<ApiObjectResponse<SystemSettings['display']>>('/admin/settings/display', { token });
+    return request<ApiObjectResponse<DisplaySettingsPayload>>('/admin/settings/display', { token });
   },
   setPresentationMode(token: string, mode: 'report' | 'daily') {
     return request<ApiObjectResponse<{ id: number; defaultMode: string }>>('/admin/settings/presentation-mode', {
@@ -1924,7 +2187,27 @@ export const adminApi = {
       token,
     });
   },
-  analytics(token: string, query?: AnalyticsQuery) {
+  analyticsSummary(token: string, query?: AnalyticsQuery) {
+    const params = new URLSearchParams();
+    if (query?.gradeName) params.set('gradeName', query.gradeName);
+    if (query?.classId) params.set('classId', String(query.classId));
+    if (query?.subjectCode) params.set('subjectCode', query.subjectCode);
+    if (query?.startDate) params.set('startDate', query.startDate);
+    if (query?.endDate) params.set('endDate', query.endDate);
+    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    return request<ApiObjectResponse<AnalyticsData>>(`/admin/analytics/summary${suffix}`, { token });
+  },
+  analyticsHeatmap(token: string, query?: AnalyticsQuery) {
+    const params = new URLSearchParams();
+    if (query?.gradeName) params.set('gradeName', query.gradeName);
+    if (query?.classId) params.set('classId', String(query.classId));
+    if (query?.subjectCode) params.set('subjectCode', query.subjectCode);
+    if (query?.startDate) params.set('startDate', query.startDate);
+    if (query?.endDate) params.set('endDate', query.endDate);
+    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    return request<ApiObjectResponse<AnalyticsData>>(`/admin/analytics/heatmap${suffix}`, { token });
+  },
+  analyticsAi(token: string, query?: AnalyticsQuery) {
     const params = new URLSearchParams();
     if (query?.gradeName) params.set('gradeName', query.gradeName);
     if (query?.classId) params.set('classId', String(query.classId));
@@ -1933,7 +2216,7 @@ export const adminApi = {
     if (query?.startDate) params.set('startDate', query.startDate);
     if (query?.endDate) params.set('endDate', query.endDate);
     const suffix = params.size > 0 ? `?${params.toString()}` : '';
-    return request<ApiObjectResponse<AnalyticsData>>(`/admin/analytics${suffix}`, { token });
+    return request<ApiObjectResponse<AnalyticsData>>(`/admin/analytics/ai${suffix}`, { token });
   },
   analyticsReportStatus(token: string, query?: { classId?: number; gradeName?: string; startDate?: string; endDate?: string; subjectCode?: string }) {
     const params = new URLSearchParams();
@@ -2048,6 +2331,20 @@ export const adminApi = {
       token,
     });
   },
+  resetStudentPetNickname(token: string, id: number) {
+    return request<
+      ApiObjectResponse<{
+        studentId: number;
+        studentName: string;
+        studentPetId: number;
+        defaultPetName: string;
+        previousNickname: string | null;
+      }>
+    >(`/students/${id}/reset-pet-nickname`, {
+      method: 'POST',
+      token,
+    });
+  },
   createScoreRule(token: string, body: ScoreRuleUpsertPayload) {
     return request<ApiObjectResponse<{ id: number }>>('/score-rules', {
       method: 'POST',
@@ -2075,6 +2372,12 @@ export const adminApi = {
       token,
       body,
     });
+  },
+  callQueueClasses(token: string) {
+    return request<ApiListResponse<AdminClass>>('/call-queue/classes', { token });
+  },
+  callQueueStudents(token: string, classId: number) {
+    return request<ApiListResponse<AdminStudent>>(`/call-queue/class-students?classId=${classId}`, { token });
   },
   confirmCallQueue(token: string, id: number) {
     return request<ApiObjectResponse<null>>(`/call-queue/${id}/confirm`, {

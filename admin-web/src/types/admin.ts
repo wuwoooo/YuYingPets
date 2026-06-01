@@ -73,6 +73,8 @@ export type RuleFormState = {
 export type RewardFormState = {
   code: string;
   name: string;
+  scopeType: 'global' | 'class';
+  classId: string;
   category: string;
   imageUrl: string;
   scoreCost: string;
@@ -101,6 +103,7 @@ export type SchoolFormState = {
 export type PetGrowthFormState = {
   thresholds: string[];
   classScoreStudentLinkMultiplier: string;
+  petDecoChangeCost: string;
 };
 
 export type SemesterFormState = {

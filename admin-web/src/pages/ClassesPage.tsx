@@ -1,19 +1,25 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Modal } from "../components/Modal";
+import { PickerInput } from "../components/PickerInput";
 import { Shell } from "../components/Shell";
 import { TablePagination } from "../components/TablePagination";
+import { useConfirmDialog } from "../context/ConfirmDialogContext";
 import { usePagination } from "../hooks/usePagination";
+import { HonorGrantModal } from "../components/HonorGrantModal";
 import type {
   AdminClass,
   ClassUpsertPayload,
   DisplayTerminal,
   GradeConfig,
+  Honor,
+  HonorRecord,
   PermissionUser,
   SessionUser,
   SystemSettings,
 } from "../lib/api";
 import { adminApi } from "../lib/api";
+import { canGrantClassHonors } from "../utils/adminPermissions";
 import type { ClassFormState } from "../types/admin";
 import {
   buildClassCode,
@@ -28,6 +34,7 @@ type ClassesPageProps = {
   token: string;
   user: SessionUser | null;
   classes: AdminClass[];
+  honors: Honor[];
   loading: boolean;
   error: string | null;
   onSaved: () => Promise<void>;
@@ -41,6 +48,14 @@ type ClassSortKey =
   | "targetScore"
   | "displayStatus";
 
+type DisplayTerminalSortKey =
+  | "terminalName"
+  | "terminalCode"
+  | "boundClass"
+  | "displayStatus"
+  | "onlineStatus"
+  | "lastOnlineAt";
+
 type SortDirection = "asc" | "desc";
 
 function normalizeClassText(value: string) {
@@ -51,10 +66,17 @@ export function ClassesPage({
   token,
   user,
   classes,
+  honors,
   loading,
   error,
   onSaved,
 }: ClassesPageProps) {
+  const allowGrantClassHonors = canGrantClassHonors(user?.roleCode);
+  const [showClassHonorGrant, setShowClassHonorGrant] = useState(false);
+  const [classHonorRecords, setClassHonorRecords] = useState<HonorRecord[]>([]);
+  const [classHonorsLoading, setClassHonorsLoading] = useState(false);
+  const [classHonorGrantSuccess, setClassHonorGrantSuccess] = useState<string | null>(null);
+  const { confirm } = useConfirmDialog();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [statsView, setStatsView] = useState<"grade" | "class" | "governance">("grade");
@@ -74,6 +96,10 @@ export function ClassesPage({
   const [statusFilter, setStatusFilter] = useState("all");
   const [focusFilter, setFocusFilter] = useState<"all" | "governance_pending">("all");
   const [sortConfig, setSortConfig] = useState<{ key: ClassSortKey; direction: SortDirection } | null>(null);
+  const [displaySortConfig, setDisplaySortConfig] = useState<{
+    key: DisplayTerminalSortKey;
+    direction: SortDirection;
+  } | null>(null);
   const [pageLoading, setPageLoading] = useState(false);
   const [currentSemester, setCurrentSemester] = useState<
     SystemSettings["semester"] | null
@@ -83,6 +109,7 @@ export function ClassesPage({
   const [displayTerminals, setDisplayTerminals] = useState<DisplayTerminal[]>([]);
   const [displayTerminalsLoading, setDisplayTerminalsLoading] = useState(false);
   const [displayTerminalsError, setDisplayTerminalsError] = useState<string | null>(null);
+  const [deletingDisplayTerminalId, setDeletingDisplayTerminalId] = useState<number | null>(null);
   const returnTo = searchParams.get("returnTo");
   const returnLabel = searchParams.get("returnLabel") || "返回来源页面";
 
@@ -314,26 +341,124 @@ export function ClassesPage({
       }
     });
   }, [filteredClasses, sortConfig]);
+  const filteredDisplayTerminals = useMemo(() => {
+    const keyword = normalizeKeyword(searchKeyword);
+    return displayTerminals.filter((row) => {
+      const boundClassLabel = row.classInfo
+        ? `${row.classInfo.gradeName}${row.classInfo.className}`
+        : "";
+      const onlineStatusLabel = row.onlineStatus === "online" ? "在线" : "离线";
+      const displayStatusLabel = row.classInfo
+        ? row.classInfo.displayStatus === "enabled"
+          ? "展示中"
+          : "未展示"
+        : "未绑定";
+      const matchesKeyword =
+        !keyword ||
+        normalizeKeyword(row.terminalName).includes(keyword) ||
+        normalizeKeyword(row.terminalCode).includes(keyword) ||
+        normalizeKeyword(boundClassLabel).includes(keyword) ||
+        normalizeKeyword(row.classInfo?.gradeName ?? "").includes(keyword) ||
+        normalizeKeyword(row.classInfo?.className ?? "").includes(keyword) ||
+        normalizeKeyword(onlineStatusLabel).includes(keyword) ||
+        normalizeKeyword(displayStatusLabel).includes(keyword);
+      const matchesGrade =
+        gradeFilter === "all" || row.classInfo?.gradeName === gradeFilter;
+      const matchesStatus =
+        statusFilter === "all" ||
+        (statusFilter === "enabled"
+          ? row.onlineStatus === "online"
+          : row.onlineStatus !== "online");
+      return matchesKeyword && matchesGrade && matchesStatus;
+    });
+  }, [displayTerminals, gradeFilter, searchKeyword, statusFilter]);
   const classPagination = usePagination(
     sortedClasses,
     `${searchKeyword}|${gradeFilter}|${statusFilter}|${focusFilter}|${sortConfig?.key ?? "default"}|${sortConfig?.direction ?? "default"}|${classes.length}`,
   );
-  const sortedDisplayTerminals = useMemo(
-    () =>
-      [...displayTerminals].sort((left, right) => {
-        if (left.onlineStatus !== right.onlineStatus) {
-          return left.onlineStatus === "online" ? -1 : 1;
-        }
-        const leftName = `${left.classInfo?.gradeName ?? ""}${left.classInfo?.className ?? ""}${left.terminalName}`;
-        const rightName = `${right.classInfo?.gradeName ?? ""}${right.classInfo?.className ?? ""}${right.terminalName}`;
-        return leftName.localeCompare(rightName, "zh-CN", { numeric: true });
-      }),
-    [displayTerminals],
-  );
+  const sortedDisplayTerminals = useMemo(() => {
+    const getBoundClassLabel = (row: DisplayTerminal) =>
+      row.classInfo ? `${row.classInfo.gradeName}${row.classInfo.className}` : "";
+    const getDisplayStatusLabel = (row: DisplayTerminal) => {
+      if (!row.classInfo) return "未绑定";
+      return row.classInfo.displayStatus === "enabled" ? "展示中" : "未展示";
+    };
+    const getLastOnlineTime = (row: DisplayTerminal) => {
+      if (!row.lastOnlineAt) return null;
+      const time = new Date(row.lastOnlineAt).getTime();
+      return Number.isNaN(time) ? null : time;
+    };
+    const defaultCompare = (left: DisplayTerminal, right: DisplayTerminal) => {
+      if (left.onlineStatus !== right.onlineStatus) {
+        return left.onlineStatus === "online" ? -1 : 1;
+      }
+      const leftName = `${getBoundClassLabel(left)}${left.terminalName}`;
+      const rightName = `${getBoundClassLabel(right)}${right.terminalName}`;
+      return leftName.localeCompare(rightName, "zh-CN", { numeric: true });
+    };
+
+    if (!displaySortConfig) {
+      return [...filteredDisplayTerminals].sort(defaultCompare);
+    }
+
+    const directionFactor = displaySortConfig.direction === "asc" ? 1 : -1;
+    const compareText = (left: string, right: string) =>
+      left.localeCompare(right, "zh-CN", { numeric: true }) * directionFactor;
+    const compareOptionalTimestamp = (left: number | null, right: number | null) => {
+      const leftMissing = left === null;
+      const rightMissing = right === null;
+      if (leftMissing && rightMissing) return 0;
+      if (leftMissing) return 1;
+      if (rightMissing) return -1;
+      return (left - right) * directionFactor;
+    };
+
+    return [...filteredDisplayTerminals].sort((left, right) => {
+      switch (displaySortConfig.key) {
+        case "terminalName":
+          return (
+            compareText(left.terminalName, right.terminalName) ||
+            compareText(left.terminalCode, right.terminalCode)
+          );
+        case "terminalCode":
+          return (
+            compareText(left.terminalCode, right.terminalCode) ||
+            compareText(left.terminalName, right.terminalName)
+          );
+        case "boundClass":
+          return (
+            compareText(getBoundClassLabel(left), getBoundClassLabel(right)) ||
+            compareText(left.terminalName, right.terminalName)
+          );
+        case "displayStatus":
+          return (
+            compareText(getDisplayStatusLabel(left), getDisplayStatusLabel(right)) ||
+            compareText(getBoundClassLabel(left), getBoundClassLabel(right))
+          );
+        case "onlineStatus":
+          return (
+            compareText(
+              left.onlineStatus === "online" ? "在线" : "离线",
+              right.onlineStatus === "online" ? "在线" : "离线",
+            ) || compareText(left.terminalName, right.terminalName)
+          );
+        case "lastOnlineAt":
+          return (
+            compareOptionalTimestamp(getLastOnlineTime(left), getLastOnlineTime(right)) ||
+            compareText(left.terminalName, right.terminalName)
+          );
+        default:
+          return 0;
+      }
+    });
+  }, [displaySortConfig, filteredDisplayTerminals]);
   const displayTerminalPagination = usePagination(
     sortedDisplayTerminals,
-    `display|${sortedDisplayTerminals.length}|${sortedDisplayTerminals.map((item) => `${item.id}:${item.onlineStatus}:${item.classId ?? "none"}`).join("|")}`,
+    `display|${searchKeyword}|${gradeFilter}|${statusFilter}|${displaySortConfig?.key ?? "default"}|${displaySortConfig?.direction ?? "default"}|${sortedDisplayTerminals.length}|${sortedDisplayTerminals.map((item) => `${item.id}:${item.onlineStatus}:${item.classId ?? "none"}`).join("|")}`,
   );
+  const hasActiveListFilters =
+    searchKeyword.trim() || gradeFilter !== "all" || statusFilter !== "all";
+  const hasActiveClassFilters = hasActiveListFilters || focusFilter !== "all";
   const enabledClassCount = classes.filter((row) => row.displayStatus === "enabled").length;
   const disabledClassCount = classes.filter((row) => row.displayStatus !== "enabled").length;
   const assignedTeacherCount = classes.filter((row) => row.homeroomTeacher?.id).length;
@@ -474,12 +599,43 @@ export function ClassesPage({
     openDetail(matched);
   }
 
+  const reloadClassHonorRecords = useCallback(async (classId: number) => {
+    setClassHonorsLoading(true);
+    try {
+      const response = await adminApi.honorRecords(token, {
+        targetType: "class",
+        classId,
+      });
+      setClassHonorRecords(
+        [...response.data].sort(
+          (left, right) => new Date(right.grantedAt).getTime() - new Date(left.grantedAt).getTime(),
+        ),
+      );
+    } catch {
+      setClassHonorRecords([]);
+    } finally {
+      setClassHonorsLoading(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    if (!selectedClass) {
+      setClassHonorRecords([]);
+      setClassHonorGrantSuccess(null);
+      return;
+    }
+    setClassHonorGrantSuccess(null);
+    void reloadClassHonorRecords(selectedClass.id);
+  }, [reloadClassHonorRecords, selectedClass?.id]);
+
   function closeModal(force = false) {
     if (submitting && !force) return;
     setShowCreate(false);
     setEditingClass(null);
     setSelectedClass(null);
     setSubmitError(null);
+    setClassHonorGrantSuccess(null);
+    setClassHonorRecords([]);
     if (selectedClass) {
       const params = new URLSearchParams(searchParams);
       params.delete("classId");
@@ -541,6 +697,30 @@ export function ClassesPage({
         className={`table-sort-button${active ? " active" : ""}`}
         type="button"
         onClick={() => toggleSort(key)}
+      >
+        <span>{label}</span>
+        <b>{indicator}</b>
+      </button>
+    );
+  }
+
+  function toggleDisplaySort(key: DisplayTerminalSortKey) {
+    setDisplaySortConfig((prev) => {
+      if (!prev || prev.key !== key) {
+        return { key, direction: "asc" };
+      }
+      return { key, direction: prev.direction === "asc" ? "desc" : "asc" };
+    });
+  }
+
+  function renderDisplaySortHeader(label: string, key: DisplayTerminalSortKey) {
+    const active = displaySortConfig?.key === key;
+    const indicator = active ? (displaySortConfig.direction === "asc" ? "↑" : "↓") : "↕";
+    return (
+      <button
+        className={`table-sort-button${active ? " active" : ""}`}
+        type="button"
+        onClick={() => toggleDisplaySort(key)}
       >
         <span>{label}</span>
         <b>{indicator}</b>
@@ -700,10 +880,36 @@ export function ClassesPage({
     }
   }
 
+  async function deleteDisplayTerminal(row: DisplayTerminal) {
+    const confirmed = await confirm({
+      title: "删除大屏终端",
+      message:
+        `确认删除终端「${row.terminalName}」吗？\n` +
+        `${row.classInfo ? `当前绑定班级：${row.classInfo.gradeName} ${row.classInfo.className}` : "当前未绑定班级"}`,
+      confirmLabel: "确认删除",
+      tone: "danger",
+    });
+    if (!confirmed) return;
+
+    try {
+      setSubmitError(null);
+      setSubmitSuccess(null);
+      setDeletingDisplayTerminalId(row.id);
+      await adminApi.deleteDisplayTerminal(token, row.id);
+      setDisplayTerminals((current) => current.filter((item) => item.id !== row.id));
+      setSubmitSuccess(`终端「${row.terminalName}」已删除`);
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : "大屏终端删除失败");
+    } finally {
+      setDeletingDisplayTerminalId(null);
+    }
+  }
+
   return (
     <Shell
       title={pageTitle}
       subtitle={pageSubtitle}
+      loading={loading || pageLoading}
       user={user}
       status={
         <>
@@ -738,7 +944,11 @@ export function ClassesPage({
           <div className="search-box">
             <span className="s-icon">⌕</span>
             <input
-              placeholder="搜索班级名称..."
+              placeholder={
+                listTab === "display"
+                  ? "搜索终端名称、编码、绑定班级或在线状态..."
+                  : "搜索班级名称..."
+              }
               value={searchKeyword}
               onChange={(event) => setSearchKeyword(event.target.value)}
             />
@@ -761,8 +971,8 @@ export function ClassesPage({
             onChange={(event) => setStatusFilter(event.target.value)}
           >
             <option value="all">全部状态</option>
-            <option value="enabled">展示中</option>
-            <option value="disabled">未展示</option>
+            <option value="enabled">{listTab === "display" ? "在线" : "展示中"}</option>
+            <option value="disabled">{listTab === "display" ? "离线" : "未展示"}</option>
           </select>
           {allowCreate ? (
             <button className="btn btn-primary" onClick={openCreate}>
@@ -772,6 +982,7 @@ export function ClassesPage({
         </div>
       </div>
 
+      {!isHomeroomTeacher ? (
       <div className="std-metric-grid std-metric-grid--4">
         <button type="button" className="std-metric-card std-metric-card--blue std-metric-card--action" onClick={resetListFilters}>
           <div className="std-metric-card__top">
@@ -826,10 +1037,11 @@ export function ClassesPage({
           <div className="std-metric-card__hint">展开查看年级分布与治理待办</div>
         </button>
       </div>
+      ) : null}
 
-      {showOverview ? (
+      {!isHomeroomTeacher && showOverview ? (
         <div className="panel summary-panel">
-          {gradeFilter !== "all" || statusFilter !== "all" || focusFilter !== "all" || searchKeyword.trim() ? (
+          {hasActiveClassFilters ? (
             <div className="summary-panel-actions">
               <button className="ghost-button" type="button" onClick={resetListFilters}>
                 查看全部班级
@@ -1028,12 +1240,13 @@ export function ClassesPage({
               <table className="data-table security-table">
                 <thead>
                   <tr>
-                    <th>终端名称</th>
-                    <th>终端编码</th>
-                    <th>绑定班级</th>
-                    <th>班级展示状态</th>
-                    <th>在线状态</th>
-                    <th>最近在线</th>
+                    <th>{renderDisplaySortHeader("终端名称", "terminalName")}</th>
+                    <th>{renderDisplaySortHeader("终端编码", "terminalCode")}</th>
+                    <th>{renderDisplaySortHeader("绑定班级", "boundClass")}</th>
+                    <th>{renderDisplaySortHeader("班级展示状态", "displayStatus")}</th>
+                    <th>{renderDisplaySortHeader("在线状态", "onlineStatus")}</th>
+                    <th>{renderDisplaySortHeader("最近在线", "lastOnlineAt")}</th>
+                    <th>操作</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1073,12 +1286,24 @@ export function ClassesPage({
                         </span>
                       </td>
                       <td>{formatDateTime(row.lastOnlineAt)}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="op-btn op-btn--danger"
+                          onClick={() => void deleteDisplayTerminal(row)}
+                          disabled={deletingDisplayTerminalId === row.id}
+                        >
+                          {deletingDisplayTerminalId === row.id ? "删除中..." : "删除"}
+                        </button>
+                      </td>
                     </tr>
                   ))}
                   {!displayTerminalsLoading && displayTerminalPagination.totalItems === 0 ? (
                     <tr>
-                      <td colSpan={6} className="table-empty">
-                        当前没有可展示的大屏终端
+                      <td colSpan={7} className="table-empty">
+                        {hasActiveListFilters
+                          ? "当前筛选条件下没有大屏终端"
+                          : "当前没有可展示的大屏终端"}
                       </td>
                     </tr>
                   ) : null}
@@ -1225,7 +1450,7 @@ export function ClassesPage({
             </label>
             <label>
               <span>倒计时截止时间</span>
-              <input
+              <PickerInput
                 type="datetime-local"
                 value={form.countdownDeadlineAt}
                 onChange={(event) =>
@@ -1269,160 +1494,233 @@ export function ClassesPage({
 
       {selectedClass ? (
         <Modal
-          title={`${selectedClass.name} · 班级档案`}
-          subtitle="按原型查看班级基础信息、展示状态与运营建议"
+          title={`${selectedClass.gradeName}${selectedClass.name}`}
+          subtitle="班级档案"
           onClose={closeModal}
         >
-          <div className="detail-grid">
-            <div className="detail-card">
-              <h4>基础信息</h4>
-              <div className="detail-list">
-                <div>
-                  <span>班级名称</span>
-                  <strong>{selectedClass.name}</strong>
-                </div>
-                <div>
-                  <span>年级</span>
-                  <strong>{selectedClass.gradeName}</strong>
-                </div>
-                <div>
-                  <span>所属学期</span>
-                  <strong>{currentSemester?.name ?? "当前学期"}</strong>
-                </div>
-                <div>
-                  <span>班级口号</span>
-                  <strong>{selectedClass.slogan ?? "待补充"}</strong>
-                </div>
-              </div>
-            </div>
-            <div className="detail-card">
-              <h4>管理与展示</h4>
-              <div className="detail-list">
-                <div>
-                  <span>班主任</span>
-                  <strong>
-                    {selectedClass.homeroomTeacher?.name ?? "待配置"}
-                  </strong>
-                </div>
-                <div>
-                  <span>展示状态</span>
-                  <strong>
-                    {selectedClass.displayStatus === "enabled"
-                      ? "已在大屏展示"
-                      : "暂未展示"}
-                  </strong>
-                </div>
-                <div>
-                  <span>目标积分</span>
-                  <strong>{selectedClass.targetScore ?? "未设置"}</strong>
-                </div>
-                <div>
-                  <span>学生人数</span>
-                  <strong>{selectedClass.studentCount}</strong>
-                </div>
-              </div>
-            </div>
-            <div className="detail-card">
-              <h4>成长概览</h4>
-              <div className="detail-list">
-                <div>
-                  <span>当前总积分</span>
-                  <strong>{selectedClass.currentScoreTotal}</strong>
-                </div>
-                <div>
-                  <span>累计总积分</span>
-                  <strong>{selectedClass.totalScoreTotal}</strong>
-                </div>
-                <div>
-                  <span>目标完成率</span>
-                  <strong>
-                    {selectedClass.targetScore
-                      ? `${Math.min(
-                          100,
-                          Math.round((selectedClass.currentScoreTotal / selectedClass.targetScore) * 100),
-                        )}%`
-                      : "未设置目标"}
-                  </strong>
-                </div>
-                <div>
-                  <span>距离目标</span>
-                  <strong>
-                    {selectedClass.targetScore
-                      ? Math.max(
-                          selectedClass.targetScore -
-                            selectedClass.currentScoreTotal,
-                          0,
-                        )
-                      : "未设置目标"}
-                  </strong>
-                </div>
-              </div>
-            </div>
-            <div className="detail-card">
-              <h4>运营建议</h4>
-              <div className="settings-note-list">
-                <div className="settings-note">
-                  建议把班级目标积分与展示端榜单阈值保持一致，避免汇报页口径不统一。
-                </div>
-                <div className="settings-note">
-                  若班级已接入展示大屏，推荐同步检查班主任与设备登录状态。
-                </div>
-                <div className="settings-note">
-                  学生数量发生变更后，建议同步做一次学生导入复核，保持班级看板准确。
-                </div>
-              </div>
-            </div>
-            <div className="detail-card span-2">
-              <h4>联动入口</h4>
-              <div className="form-actions" style={{ justifyContent: "flex-start", marginTop: 0 }}>
-                {selectedClass.homeroomTeacher ? (
-                  <button
-                    className="ghost-button"
-                    type="button"
-                    onClick={() =>
-                      navigateWithQuery("/teachers", {
-                        userId: selectedClass.homeroomTeacher?.id,
-                        returnTo: buildClassesLocation(selectedClass.id),
-                        returnLabel: "返回班级管理",
-                      })
-                    }
-                  >
-                    查看班主任详情
-                  </button>
+          {(() => {
+            const targetScore = selectedClass.targetScore ?? 0;
+            const targetProgress =
+              targetScore > 0
+                ? Math.min(100, Math.round((selectedClass.currentScoreTotal / targetScore) * 100))
+                : null;
+            const scoreGap =
+              targetScore > 0 ? Math.max(targetScore - selectedClass.currentScoreTotal, 0) : null;
+            const displayEnabled = selectedClass.displayStatus === "enabled";
+
+            return (
+              <div className="class-archive">
+                {classHonorGrantSuccess ? (
+                  <div className="class-archive-alert success">{classHonorGrantSuccess}</div>
                 ) : null}
-                {selectedClass.homeroomTeacher ? (
-                  <button
-                    className="ghost-button"
-                    type="button"
-                    onClick={() =>
-                      navigateWithQuery("/organization", {
-                        activeTab: "accounts",
-                        userId: selectedClass.homeroomTeacher?.id,
-                        returnTo: buildClassesLocation(selectedClass.id),
-                        returnLabel: "返回班级管理",
-                      })
-                    }
-                  >
-                    查看班主任账号
-                  </button>
-                ) : null}
-                <button
-                  className="ghost-button"
-                  type="button"
-                  onClick={() =>
-                    navigateWithQuery("/teachers", {
-                      keyword: selectedClass.name,
-                      returnTo: buildClassesLocation(selectedClass.id),
-                      returnLabel: "返回班级管理",
-                    })
-                  }
-                >
-                  查看相关教师
-                </button>
+
+                <section className="class-archive-metrics" aria-label="班级关键指标">
+                  <div className="class-archive-metric">
+                    <span>学生人数</span>
+                    <strong>{selectedClass.studentCount}</strong>
+                  </div>
+                  <div className="class-archive-metric">
+                    <span>当前积分</span>
+                    <strong>{selectedClass.currentScoreTotal.toLocaleString("zh-CN")}</strong>
+                  </div>
+                  <div className="class-archive-metric">
+                    <span>目标完成</span>
+                    <strong>{targetProgress !== null ? `${targetProgress}%` : "未设置"}</strong>
+                  </div>
+                  <div className="class-archive-metric accent">
+                    <span>集体荣誉</span>
+                    <strong>{classHonorsLoading ? "…" : classHonorRecords.length}</strong>
+                  </div>
+                </section>
+
+                <section className="class-archive-columns">
+                  <div className="class-archive-panel">
+                    <h4>档案信息</h4>
+                    <dl className="class-archive-facts">
+                      <div>
+                        <dt>班级</dt>
+                        <dd>{selectedClass.name}</dd>
+                      </div>
+                      <div>
+                        <dt>年级</dt>
+                        <dd>{selectedClass.gradeName}</dd>
+                      </div>
+                      <div>
+                        <dt>学期</dt>
+                        <dd>{currentSemester?.name ?? "当前学期"}</dd>
+                      </div>
+                      <div>
+                        <dt>班主任</dt>
+                        <dd>{selectedClass.homeroomTeacher?.name ?? "待配置"}</dd>
+                      </div>
+                      <div>
+                        <dt>展示状态</dt>
+                        <dd>
+                          <span className={`class-archive-tag${displayEnabled ? " on" : ""}`}>
+                            {displayEnabled ? "大屏展示中" : "暂未展示"}
+                          </span>
+                        </dd>
+                      </div>
+                      <div className="span-2">
+                        <dt>班级口号</dt>
+                        <dd>{selectedClass.slogan?.trim() || "待补充"}</dd>
+                      </div>
+                    </dl>
+                  </div>
+
+                  <div className="class-archive-panel">
+                    <h4>积分成长</h4>
+                    {targetProgress !== null ? (
+                      <div className="class-archive-progress">
+                        <div className="class-archive-progress-head">
+                          <span>目标 {targetScore.toLocaleString("zh-CN")} 分</span>
+                          <strong>{targetProgress}%</strong>
+                        </div>
+                        <div className="class-archive-progress-track">
+                          <i style={{ width: `${targetProgress}%` }} />
+                        </div>
+                        <p>距目标还差 {scoreGap?.toLocaleString("zh-CN")} 分</p>
+                      </div>
+                    ) : (
+                      <p className="class-archive-muted">尚未设置班级目标积分</p>
+                    )}
+                    <dl className="class-archive-facts compact">
+                      <div>
+                        <dt>累计积分</dt>
+                        <dd>{selectedClass.totalScoreTotal.toLocaleString("zh-CN")}</dd>
+                      </div>
+                      <div>
+                        <dt>当前积分</dt>
+                        <dd>{selectedClass.currentScoreTotal.toLocaleString("zh-CN")}</dd>
+                      </div>
+                    </dl>
+                  </div>
+                </section>
+
+                <section className="class-archive-panel class-archive-panel--honors">
+                  <div className="class-archive-panel-head">
+                    <div>
+                      <h4>集体荣誉</h4>
+                      <p>{classHonorsLoading ? "加载中…" : `共 ${classHonorRecords.length} 项记录`}</p>
+                    </div>
+                    {allowGrantClassHonors ? (
+                      <button
+                        className="toolbar-button"
+                        type="button"
+                        onClick={() => setShowClassHonorGrant(true)}
+                      >
+                        颁发集体荣誉
+                      </button>
+                    ) : null}
+                  </div>
+                  {classHonorsLoading ? (
+                    <div className="class-archive-honors-empty">荣誉记录加载中…</div>
+                  ) : classHonorRecords.length > 0 ? (
+                    <ul className="class-archive-honor-list">
+                      {classHonorRecords.map((item) => (
+                        <li key={item.id} className="class-archive-honor-item">
+                          <div className="class-archive-honor-main">
+                            <strong>{item.honorName}</strong>
+                            <span>
+                              {new Date(item.grantedAt).toLocaleString("zh-CN", {
+                                year: "numeric",
+                                month: "2-digit",
+                                day: "2-digit",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                              {item.grantedByName ? ` · ${item.grantedByName}` : ""}
+                            </span>
+                          </div>
+                          {item.remark ? <p>{item.remark}</p> : null}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <div className="class-archive-honors-empty">暂无集体荣誉，可点击右上角颁发</div>
+                  )}
+                </section>
+
+                <section className="class-archive-actions" aria-label="快捷操作">
+                  <span className="class-archive-actions-label">快捷操作</span>
+                  <div className="class-archive-actions-group">
+                    {selectedClass.homeroomTeacher ? (
+                      <button
+                        className="ghost-button"
+                        type="button"
+                        onClick={() =>
+                          navigateWithQuery("/teachers", {
+                            userId: selectedClass.homeroomTeacher?.id,
+                            returnTo: buildClassesLocation(selectedClass.id),
+                            returnLabel: "返回班级管理",
+                          })
+                        }
+                      >
+                        班主任详情
+                      </button>
+                    ) : null}
+                    {selectedClass.homeroomTeacher ? (
+                      <button
+                        className="ghost-button"
+                        type="button"
+                        onClick={() =>
+                          navigateWithQuery("/organization", {
+                            activeTab: "accounts",
+                            userId: selectedClass.homeroomTeacher?.id,
+                            returnTo: buildClassesLocation(selectedClass.id),
+                            returnLabel: "返回班级管理",
+                          })
+                        }
+                      >
+                        班主任账号
+                      </button>
+                    ) : null}
+                    <button
+                      className="ghost-button"
+                      type="button"
+                      onClick={() =>
+                        navigateWithQuery("/teachers", {
+                          keyword: selectedClass.name,
+                          returnTo: buildClassesLocation(selectedClass.id),
+                          returnLabel: "返回班级管理",
+                        })
+                      }
+                    >
+                      相关教师
+                    </button>
+                  </div>
+                </section>
+
+                <details className="class-archive-tips">
+                  <summary>运营建议</summary>
+                  <ul>
+                    <li>建议把班级目标积分与展示端榜单阈值保持一致，避免汇报口径不统一。</li>
+                    <li>若班级已接入展示大屏，推荐同步检查班主任与设备在线状态。</li>
+                    <li>学生人数变更后，建议复核学生导入，保持看板数据准确。</li>
+                  </ul>
+                </details>
               </div>
-            </div>
-          </div>
+            );
+          })()}
         </Modal>
+      ) : null}
+      {selectedClass && showClassHonorGrant ? (
+        <HonorGrantModal
+          token={token}
+          target={{
+            targetType: "class",
+            classId: selectedClass.id,
+            className: `${selectedClass.gradeName}${selectedClass.name}`,
+          }}
+          honors={honors}
+          onClose={() => setShowClassHonorGrant(false)}
+          onGranted={async () => {
+            await onSaved();
+            if (!selectedClass) return;
+            await reloadClassHonorRecords(selectedClass.id);
+            setClassHonorGrantSuccess(`集体荣誉已颁发至 ${selectedClass.gradeName}${selectedClass.name}`);
+          }}
+        />
       ) : null}
       </div>
     </Shell>

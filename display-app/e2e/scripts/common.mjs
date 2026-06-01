@@ -42,10 +42,25 @@ export async function api(pathname, options = {}) {
 }
 
 export async function login(username, password = DEFAULT_PASSWORD, terminalType = "display") {
-  return api("/auth/login", {
-    method: "POST",
-    body: JSON.stringify({ username, password, terminalType }),
-  });
+  try {
+    return await api("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username, password, terminalType }),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("账号或密码错误")) {
+      throw new Error(
+        [
+          "演示账号登录失败，请先导入本地测试数据。",
+          "在 backend 目录执行：npm run seed:mock",
+          "并确认 backend (127.0.0.1:3000) 与 display-web (localhost:5174) 已启动。",
+          `原始错误：${message}`,
+        ].join("\n"),
+      );
+    }
+    throw error;
+  }
 }
 
 export async function initializeTerminal({

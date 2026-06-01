@@ -1,0 +1,301 @@
+/* 数据分析页 · 统一字号与卡片层级 */
+.analytics-page {
+  --analytics-title: 14px;
+  --analytics-body: 13px;
+  --analytics-caption: 12px;
+  --analytics-metric: 26px;
+  color: #334155;
+  font-size: var(--analytics-body);
+}
+
+.analytics-page--teacher.teacher-desk {
+  --analytics-title: var(--teacher-desk-title);
+  --analytics-body: var(--teacher-desk-body);
+  --analytics-caption: var(--teacher-desk-caption);
+  --analytics-metric: var(--teacher-desk-metric);
+}
+
+/* 顶部筛选区 */
+.analytics-page .page-header h2 {
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.analytics-page .page-actions .btn,
+.analytics-page .page-actions .filter-select {
+  font-size: var(--analytics-body);
+}
+
+/* 概览指标卡 */
+.analytics-page .analytics-summary {
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.analytics-page .a-summary-card {
+  padding: 16px 18px;
+  border: 1px solid rgba(15, 61, 99, 0.07);
+  box-shadow:
+    0 1px 2px rgba(15, 61, 99, 0.04),
+    0 10px 28px rgba(15, 61, 99, 0.05);
+}
+
+.analytics-page .a-s-icon {
+  margin-bottom: 8px;
+  font-size: 18px;
+}
+
+.analytics-page .a-s-label {
+  color: #64748b;
+  font-size: var(--analytics-caption);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.analytics-page .a-s-value {
+  margin-top: 6px;
+  font-size: var(--analytics-metric);
+  font-weight: 800;
+  line-height: 1.15;
+}
+
+.analytics-page .a-s-inline {
+  font-size: 14px;
+}
+
+.analytics-page .a-s-sub {
+  margin-top: 6px;
+  color: #94a3b8;
+  font-size: var(--analytics-caption);
+  line-height: 1.55;
+}
+
+/* 图表面板 */
+.analytics-page .analytics-chart-panel {
+  padding: 18px 20px;
+  margin-bottom: 20px;
+  border: 1px solid rgba(15, 61, 99, 0.07);
+  box-shadow:
+    0 1px 2px rgba(15, 61, 99, 0.04),
+    0 10px 28px rgba(15, 61, 99, 0.05);
+}
+
+.analytics-page .acp-title {
+  margin-bottom: 12px;
+  color: #1e293b;
+  font-size: var(--analytics-title);
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.analytics-page .analytics-ai-card-head .acp-title {
+  margin-bottom: 0;
+}
+
+/* AI 概览 / 建议动作卡片 */
+.analytics-page .analytics-ai-panel {
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.analytics-page .analytics-ai-card {
+  padding: 16px 18px;
+  border: 1px solid rgba(15, 61, 99, 0.06);
+  box-shadow: none;
+}
+
+.analytics-page .analytics-ai-card-soft > .acp-title {
+  margin-bottom: 8px;
+  color: #475569;
+  font-size: var(--analytics-body);
+  font-weight: 700;
+}
+
+.analytics-page .analytics-ai-meta {
+  margin-bottom: 10px;
+  color: #94a3b8;
+  font-size: var(--analytics-caption);
+  line-height: 1.6;
+}
+
+.analytics-page .analytics-ai-card p,
+.analytics-page .analytics-report-copy {
+  margin: 0;
+  color: #475569;
+  font-size: var(--analytics-body);
+  line-height: 1.75;
+}
+
+/* 汇报摘要 */
+.analytics-page .analytics-report-card {
+  padding: 14px 16px;
+}
+
+.analytics-page .analytics-report-lead {
+  margin: 0 0 10px;
+  padding-left: 10px;
+  color: #334155;
+  font-size: var(--analytics-body);
+  font-weight: 600;
+  line-height: 1.75;
+}
+
+.analytics-page .analytics-report-points {
+  margin: 0;
+  padding-left: 18px;
+  color: #475569;
+  font-size: var(--analytics-body);
+  line-height: 1.75;
+}
+
+.analytics-page .analytics-report-points li + li {
+  margin-top: 6px;
+}
+
+/* 班主任周报 */
+.analytics-page .homeroom-weekly-report-panel {
+  padding: 18px 20px;
+}
+
+.analytics-page .homeroom-weekly-report-conclusion p,
+.analytics-page .teacher-draft-card p {
+  color: #475569;
+  font-size: var(--analytics-body);
+  line-height: 1.75;
+}
+
+.analytics-page .panel-title.compact {
+  margin-bottom: 8px;
+  color: #64748b;
+  font-size: var(--analytics-caption);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.analytics-page .teacher-draft-card {
+  padding: 14px 16px;
+}
+
+/* 列表与风险项 */
+.analytics-page .mini-list {
+  gap: 8px;
+}
+
+.analytics-page .mini-list-item {
+  padding: 11px 12px;
+  border-radius: 12px;
+}
+
+.analytics-page .mini-list-item strong {
+  font-size: var(--analytics-body);
+}
+
+.analytics-page .mini-list-item span {
+  font-size: var(--analytics-caption);
+  line-height: 1.55;
+}
+
+.analytics-page .analytics-risk-item strong {
+  font-size: var(--analytics-body);
+}
+
+.analytics-page .analytics-risk-item span {
+  font-size: var(--analytics-caption);
+}
+
+.analytics-page .analytics-risk-item p {
+  font-size: var(--analytics-body);
+  line-height: 1.65;
+}
+
+/* 图表与推广区 */
+.analytics-page .bar-label,
+.analytics-page .bar-val {
+  font-size: var(--analytics-body);
+}
+
+.analytics-page .analytics-academic-promo-body p {
+  margin: 0 0 12px;
+  color: #475569;
+  font-size: var(--analytics-body);
+  line-height: 1.75;
+}
+
+.analytics-page .heatmap-cell {
+  font-size: var(--analytics-caption);
+}
+
+.analytics-page .status-card {
+  font-size: var(--analytics-body);
+}
+
+/* 左右并列图表面板：行高由左侧内容决定，右侧等高并可滚动 */
+.analytics-page .analytics-paired-panels-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.analytics-page .analytics-paired-panels-row > .analytics-chart-panel {
+  margin-bottom: 0;
+  min-width: 0;
+}
+
+.analytics-page .analytics-paired-panels-row > .analytics-chart-panel:first-child {
+  grid-column: 1;
+}
+
+.analytics-page .analytics-paired-panels-row > .analytics-chart-panel.analytics-paired-panel--match-left {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  width: calc((100% - 20px) / 2);
+  overflow: hidden;
+}
+
+.analytics-page .analytics-paired-panel--match-left > .acp-title {
+  flex-shrink: 0;
+}
+
+.analytics-page .analytics-paired-panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-right: 4px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.analytics-page .analytics-paired-panel-body.analytics-risk-list {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
+.analytics-page .analytics-paired-panel-body.mini-list {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+
+@media (max-width: 1280px) {
+  .analytics-page .analytics-paired-panels-row {
+    grid-template-columns: 1fr;
+  }
+
+  .analytics-page .analytics-paired-panels-row > .analytics-chart-panel.analytics-paired-panel--match-left {
+    position: static;
+    width: auto;
+    display: block;
+    overflow: visible;
+  }
+
+  .analytics-page .analytics-paired-panel-body {
+    overflow-y: visible;
+  }
+}

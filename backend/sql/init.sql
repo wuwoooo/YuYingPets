@@ -88,6 +88,7 @@ CREATE TABLE `user` (
     `name` VARCHAR(64) NOT NULL,
     `phone` VARCHAR(32) NULL,
     `email` VARCHAR(128) NULL,
+    `password_change_required` BOOLEAN NOT NULL DEFAULT false,
     `status` ENUM('enabled', 'disabled') NOT NULL DEFAULT 'enabled',
     `last_login_at` DATETIME(3) NULL,
     `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
@@ -477,6 +478,8 @@ CREATE TABLE `honor_record` (
 CREATE TABLE `reward` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
     `school_id` BIGINT NOT NULL,
+    `scope_type` VARCHAR(16) NOT NULL DEFAULT 'global',
+    `class_id` BIGINT NULL,
     `code` VARCHAR(64) NOT NULL,
     `name` VARCHAR(128) NOT NULL,
     `category` VARCHAR(32) NULL,
@@ -485,10 +488,14 @@ CREATE TABLE `reward` (
     `stock_qty` INTEGER NULL,
     `is_infinite_stock` BOOLEAN NOT NULL DEFAULT false,
     `status` ENUM('enabled', 'disabled') NOT NULL DEFAULT 'enabled',
+    `created_by` BIGINT NULL,
+    `updated_by` BIGINT NULL,
     `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updated_at` DATETIME(3) NOT NULL,
 
     INDEX `reward_school_id_idx`(`school_id`),
+    INDEX `reward_school_id_class_id_status_idx`(`school_id`, `class_id`, `status`),
+    INDEX `reward_created_by_idx`(`created_by`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -787,6 +794,15 @@ ALTER TABLE `honor_record` ADD CONSTRAINT `honor_record_granted_by_fkey` FOREIGN
 
 -- AddForeignKey
 ALTER TABLE `reward` ADD CONSTRAINT `reward_school_id_fkey` FOREIGN KEY (`school_id`) REFERENCES `school`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `reward` ADD CONSTRAINT `reward_class_id_fkey` FOREIGN KEY (`class_id`) REFERENCES `class`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `reward` ADD CONSTRAINT `reward_created_by_fkey` FOREIGN KEY (`created_by`) REFERENCES `user`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `reward` ADD CONSTRAINT `reward_updated_by_fkey` FOREIGN KEY (`updated_by`) REFERENCES `user`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `reward_order` ADD CONSTRAINT `reward_order_school_id_fkey` FOREIGN KEY (`school_id`) REFERENCES `school`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;

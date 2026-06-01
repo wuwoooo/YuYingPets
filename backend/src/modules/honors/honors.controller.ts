@@ -30,7 +30,7 @@ export class HonorsController {
   }
 
   @Post('honors/upload')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 } }))
   uploadHonorAsset(
     @Headers('authorization') authorization: string | undefined,
     @UploadedFile() file: { originalname: string; mimetype: string; size: number; buffer: Buffer } | undefined,

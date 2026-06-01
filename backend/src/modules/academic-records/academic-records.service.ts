@@ -56,6 +56,7 @@ type AcademicRecordQuery = Record<string, string | undefined>;
 
 type SchoolGrowthExamItem = {
   id: number;
+  semesterId: number;
   name: string;
   gradeName: string | null;
   sourceFile: string | null;
@@ -181,11 +182,6 @@ export class AcademicRecordsService {
         where: { schoolId: user.schoolId, deletedAt: null, status: 'enabled' },
         select: { id: true, semesterId: true, code: true, gradeCode: true, gradeName: true, name: true, sortOrder: true },
       });
-      const gradeConfigs = await tx.gradeConfig.findMany({
-        where: { schoolId: user.schoolId, deletedAt: null, status: 'enabled' },
-        orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-        select: { code: true, name: true },
-      });
       const existingStudents = await tx.student.findMany({
         where: { schoolId: user.schoolId, deletedAt: null, status: 'enabled' },
         select: { id: true, classId: true, studentNo: true, name: true },
@@ -193,10 +189,9 @@ export class AcademicRecordsService {
       const studentByNo = new Map(existingStudents.map((item) => [`${item.classId}:${this.normalizeText(item.studentNo)}`, item]));
       const studentByName = new Map(existingStudents.map((item) => [`${item.classId}:${this.normalizeText(item.name)}`, item]));
       const studentByGlobalNo = new Map(existingStudents.map((item) => [this.normalizeText(item.studentNo), item]));
+      const classById = new Map(classes.map((item) => [item.id.toString(), item]));
       const rows: Prisma.AcademicScoreRecordCreateManyInput[] = [];
       const touchedClassIds = new Set<string>();
-      const createdClassIds = new Set<string>();
-      let createdClassCount = 0;
       let createdStudentCount = 0;
 
       for (const [index, item] of students.entries()) {
@@ -204,27 +199,47 @@ export class AcademicRecordsService {
         const name = String(item.name ?? '').trim();
         const className = String(item.className ?? '').trim();
         const subjects = Array.isArray(item.subjects) ? (item.subjects as AcademicImportSubject[]) : [];
-        if (!studentNo || !name || !className || !subjects.length) {
-          unmatched.push({ row: index + 1, studentNo, name, className, reason: '缺少准考证号、姓名、班级或科目成绩' });
-          continue;
-        }
-
-        const gradeName = String(body.gradeName ?? '').trim() || this.extractGradeName(className);
-        const matchedClass = this.findImportClass(classes, className, gradeName);
-        const classroom = matchedClass ?? await this.resolveImportClass(tx, user, classes, gradeConfigs, className, gradeName, targetSemester.id);
-        if (!matchedClass) {
-          createdClassCount += 1;
-          createdClassIds.add(classroom.id.toString());
-        }
-        if (matchedClass && !createdClassIds.has(classroom.id.toString()) && !this.authService.canAccessClass(user, classroom.id)) {
-          unmatched.push({ row: index + 1, studentNo, name, className, reason: '无权导入该班级成绩' });
+        if (!studentNo || !name || !subjects.length) {
+          unmatched.push({ row: index + 1, studentNo, name, className, reason: '缺少准考证号、姓名或科目成绩' });
           continue;
         }
 
         let student =
-          studentByNo.get(`${classroom.id}:${this.normalizeText(studentNo)}`) ??
-          studentByName.get(`${classroom.id}:${this.normalizeText(name)}`) ??
           studentByGlobalNo.get(this.normalizeText(studentNo));
+        let classroom: ImportClassRow | null = student ? classById.get(student.classId.toString()) ?? null : null;
+
+        if (student && !classroom) {
+          unmatched.push({ row: index + 1, studentNo, name, className, reason: '学生当前班级不存在或已停用' });
+          continue;
+        }
+
+        if (!student) {
+          if (!className) {
+            unmatched.push({ row: index + 1, studentNo, name, className, reason: '学生不存在，且成绩表未提供班级信息' });
+            continue;
+          }
+
+          classroom = this.findImportClass(classes, className);
+          if (!classroom) {
+            unmatched.push({ row: index + 1, studentNo, name, className, reason: '班级不存在，请先在班级管理中维护后再导入' });
+            continue;
+          }
+
+          student =
+            studentByNo.get(`${classroom.id}:${this.normalizeText(studentNo)}`) ??
+            studentByName.get(`${classroom.id}:${this.normalizeText(name)}`);
+        }
+
+        if (!classroom) {
+          unmatched.push({ row: index + 1, studentNo, name, className, reason: '未能确定学生所属班级' });
+          continue;
+        }
+
+        if (!this.authService.canAccessClass(user, classroom.id)) {
+          unmatched.push({ row: index + 1, studentNo, name, className, reason: '无权导入该班级成绩' });
+          continue;
+        }
+
         if (!student) {
           student = await tx.student.create({
             data: {
@@ -258,9 +273,9 @@ export class AcademicRecordsService {
             examId: BigInt(0),
             classId: classroom.id,
             studentId: student.id,
-            studentNo,
-            studentName: name,
-            className,
+            studentNo: student.studentNo,
+            studentName: student.name,
+            className: classroom.name,
             subjectCode: SUBJECT_CODE_MAP[subjectName] ?? this.buildSubjectCode(subjectName),
             subjectName,
             score: this.toDecimal(subject.score),
@@ -304,7 +319,7 @@ export class AcademicRecordsService {
         importedStudentCount: new Set(rows.map((row) => row.studentId.toString())).size,
         importedRecordCount: rows.length,
         classCount: touchedClassIds.size,
-        createdClassCount,
+        createdClassCount: 0,
         createdStudentCount,
       };
     }, { maxWait: 10000, timeout: 120000 });
@@ -343,13 +358,30 @@ export class AcademicRecordsService {
     };
   }
 
-  async exams(authorization: string | undefined) {
+  async exams(authorization: string | undefined, query: Record<string, string> = {}) {
     const user = await this.authService.getAuthUserFromAuthorization(authorization);
-    const classRestriction = this.getClassRestriction(user);
+    const classRestriction = this.authService.getAccessibleClassIds(user);
+    const requestedSemesterId = Number(query.semesterId);
+    const currentSemesterOnly = query.currentSemesterOnly === 'true';
+
+    let semesterFilter: { semesterId?: bigint } = {};
+    if (Number.isInteger(requestedSemesterId) && requestedSemesterId > 0) {
+      semesterFilter = { semesterId: BigInt(requestedSemesterId) };
+    } else if (currentSemesterOnly) {
+      const currentSemester = await this.prisma.semester.findFirst({
+        where: { schoolId: user.schoolId, isCurrent: true, status: 'enabled' },
+        orderBy: { id: 'desc' },
+        select: { id: true },
+      });
+      if (currentSemester) {
+        semesterFilter = { semesterId: currentSemester.id };
+      }
+    }
 
     const rows = await this.prisma.academicExam.findMany({
       where: {
         schoolId: user.schoolId,
+        ...semesterFilter,
         ...(classRestriction
           ? {
               records: {
@@ -374,6 +406,7 @@ export class AcademicRecordsService {
       message: 'ok',
       data: rows.map((row) => ({
         id: toNumber(row.id),
+        semesterId: toNumber(row.semesterId),
         name: this.cleanExamName(row.name),
         gradeName: row.gradeName,
         sourceFile: row.sourceFile,
@@ -407,7 +440,7 @@ export class AcademicRecordsService {
       throw new NotFoundException('考试不存在');
     }
 
-    const classRestriction = this.getClassRestriction(user);
+    const classRestriction = this.authService.getAccessibleClassIds(user);
     if (classRestriction) {
       const allowed = new Set(classRestriction.map((classId) => classId.toString()));
       const hasOutOfScopeClass = exam.records.some((record) => !allowed.has(record.classId.toString()));
@@ -481,6 +514,7 @@ export class AcademicRecordsService {
       message: 'ok',
       data: {
         id: toNumber(updated.id),
+        semesterId: toNumber(updated.semesterId),
         name: this.cleanExamName(updated.name),
         gradeName: updated.gradeName,
         sourceFile: updated.sourceFile,
@@ -492,9 +526,69 @@ export class AcademicRecordsService {
     };
   }
 
+  async deleteExam(authorization: string | undefined, examId: number) {
+    const user = await this.authService.getAuthUserFromAuthorization(authorization);
+    if (user.roleCode !== 'super_admin') {
+      throw new ForbiddenException('仅系统管理员可删除考试批次');
+    }
+    if (!Number.isInteger(examId) || examId <= 0) {
+      throw new BadRequestException('考试 ID 无效');
+    }
+
+    const exam = await this.prisma.academicExam.findFirst({
+      where: { id: BigInt(examId), schoolId: user.schoolId },
+      include: {
+        _count: {
+          select: { records: true },
+        },
+      },
+    });
+    if (!exam) {
+      throw new NotFoundException('考试不存在');
+    }
+
+    const deletedRecordCount = exam._count.records;
+    await this.prisma.$transaction([
+      this.prisma.academicScoreRecord.deleteMany({
+        where: { examId: exam.id, schoolId: user.schoolId },
+      }),
+      this.prisma.academicExam.delete({
+        where: { id: exam.id },
+      }),
+    ]);
+
+    await this.operationLogService.create({
+      schoolId: user.schoolId,
+      userId: user.id,
+      roleCode: user.roleCode,
+      terminalType: 'admin',
+      module: 'academic',
+      action: 'delete_exam',
+      targetType: 'exam',
+      targetId: exam.id,
+      detail: {
+        examName: exam.name,
+        examDate: this.toDateOnly(exam.examDate),
+        periodLabel: exam.periodLabel,
+        gradeName: exam.gradeName,
+        sourceFile: exam.sourceFile,
+        deletedRecordCount,
+      },
+    });
+
+    return {
+      code: 0,
+      message: 'ok',
+      data: {
+        id: toNumber(exam.id),
+        deletedRecordCount,
+      },
+    };
+  }
+
   async list(authorization: string | undefined, query: AcademicRecordQuery) {
     const user = await this.authService.getAuthUserFromAuthorization(authorization);
-    const classRestriction = this.getClassRestriction(user);
+    const classRestriction = this.authService.getAccessibleClassIds(user);
     const classId = Number(query.classId);
     const examId = Number(query.examId);
     const keyword = String(query.keyword ?? '').trim();
@@ -981,9 +1075,25 @@ export class AcademicRecordsService {
 
   async schoolGrowth(authorization: string | undefined, query: Record<string, string>) {
     const user = await this.authService.getAuthUserFromAuthorization(authorization);
-    const classRestriction = this.getClassRestriction(user);
+    const classRestriction = this.authService.getAccessibleClassIds(user);
     const examId = Number(query.examId ?? '');
     const hasExplicitExamId = Number.isInteger(examId) && examId > 0;
+    const requestedSemesterId = Number(query.semesterId);
+    const currentSemesterOnly = query.currentSemesterOnly === 'true';
+
+    let semesterFilter: { semesterId?: bigint } = {};
+    if (Number.isInteger(requestedSemesterId) && requestedSemesterId > 0) {
+      semesterFilter = { semesterId: BigInt(requestedSemesterId) };
+    } else if (currentSemesterOnly) {
+      const currentSemester = await this.prisma.semester.findFirst({
+        where: { schoolId: user.schoolId, isCurrent: true, status: 'enabled' },
+        orderBy: { id: 'desc' },
+        select: { id: true },
+      });
+      if (currentSemester) {
+        semesterFilter = { semesterId: currentSemester.id };
+      }
+    }
 
     const [classrooms, students, examsRaw] = await Promise.all([
       this.prisma.classroom.findMany({
@@ -1008,6 +1118,7 @@ export class AcademicRecordsService {
       this.prisma.academicExam.findMany({
         where: {
           schoolId: user.schoolId,
+          ...semesterFilter,
           ...(classRestriction
             ? {
                 records: {
@@ -1039,6 +1150,7 @@ export class AcademicRecordsService {
 
     const exams: SchoolGrowthExamItem[] = examsRaw.map((row) => ({
       id: Number(row.id),
+      semesterId: Number(row.semesterId),
       name: this.cleanExamName(row.name),
       gradeName: row.gradeName,
       sourceFile: row.sourceFile,
@@ -1194,13 +1306,13 @@ export class AcademicRecordsService {
   }
 
   private findImportClass(classes: ImportClassRow[], className: string, gradeName?: string) {
-    const normalizedClassName = this.normalizeImportName(className);
+    const normalizedClassName = this.normalizeImportClassAlias(className);
     const normalizedGradeName = this.normalizeImportName(gradeName ?? '');
     return classes.find((item) => {
       const classMatched =
-        this.normalizeImportName(item.name) === normalizedClassName ||
-        this.normalizeImportName(`${item.gradeName}${item.name}`) === normalizedClassName ||
-        this.normalizeImportName(item.name.replace(item.gradeName, '')) === normalizedClassName;
+        this.normalizeImportClassAlias(item.name) === normalizedClassName ||
+        this.normalizeImportClassAlias(`${item.gradeName}${item.name}`) === normalizedClassName ||
+        this.normalizeImportClassAlias(item.name.replace(item.gradeName, '')) === normalizedClassName;
       if (!classMatched) return false;
       return !normalizedGradeName || this.normalizeImportName(item.gradeName) === normalizedGradeName;
     }) ?? null;
@@ -1212,6 +1324,10 @@ export class AcademicRecordsService {
 
   private normalizeImportName(value: string) {
     return value.trim().toLowerCase().replace(/[\s()（）_-]+/g, '');
+  }
+
+  private normalizeImportClassAlias(value: string) {
+    return this.normalizeImportName(value).replace(/^(一年级|二年级|三年级|四年级|五年级|六年级|七年级|八年级|九年级|高一|高二|高三)/, '');
   }
 
   private buildImportGradeCode(
@@ -1252,20 +1368,6 @@ export class AcademicRecordsService {
     if (!normalized) return normalized;
     const match = normalized.match(/^(.*?(?:成绩汇总|考生成绩汇总))\s*[-—–:：]+\s*(.+)$/);
     return (match?.[2]?.trim() || normalized).replace(/^（[^）]*年级）\s*/, '').trim();
-  }
-
-  private getClassRestriction(user: Awaited<ReturnType<AuthService['getAuthUserFromAuthorization']>>) {
-    if (['super_admin', 'school_admin', 'academic_admin', 'moral_admin'].includes(user.roleCode)) {
-      return null;
-    }
-    const classIds = Array.from(
-      new Set(
-        user.scopes
-          .map((scope) => scope.classId)
-          .filter((classId): classId is bigint => typeof classId === 'bigint'),
-      ),
-    );
-    return classIds.length ? classIds : [BigInt(-1)];
   }
 
   private normalizeText(value: string) {
@@ -1376,7 +1478,7 @@ export class AcademicRecordsService {
     const progressLeaders = [...signals]
       .filter((item) => item.rankDelta > 0 || item.scoreDelta > 0)
       .sort((left, right) => right.rankDelta - left.rankDelta || right.scoreDelta - left.scoreDelta || right.totalScore - left.totalScore)
-      .slice(0, 8);
+      .slice(0, 20);
     const riskStudents = [...signals]
       .filter((item) => item.rankDelta < 0 || item.scoreDelta < 0)
       .sort((left, right) => left.rankDelta - right.rankDelta || left.scoreDelta - right.scoreDelta || left.totalScore - right.totalScore)
@@ -1524,39 +1626,65 @@ export class AcademicRecordsService {
     return new Prisma.Decimal(numeric);
   }
 
+  private normalizeAcademicPeriodLabel(label: string | null) {
+    if (!label) return null;
+    const text = label.replace(/\s+/g, '');
+    const explicitSchoolYear = text.match(/(20\d{2})\s*[-—–~至]\s*(20\d{2})(?:学年)?.*?(上学期|下学期|第一学期|第二学期)/);
+    if (explicitSchoolYear) {
+      const term = explicitSchoolYear[3] === '上学期' || explicitSchoolYear[3] === '第一学期' ? '上学期' : '下学期';
+      return `${explicitSchoolYear[1]}-${explicitSchoolYear[2]}学年${term}`;
+    }
+    const normalized = text.replace(/第一学期/g, '上学期').replace(/第二学期/g, '下学期');
+    return normalized || null;
+  }
+
   private inferAcademicPeriodLabel(sourceText: string, examDate: Date, fallback: string | null) {
     const text = sourceText.replace(/\s+/g, '');
-    const explicitTerm = text.match(/(20\d{2})\s*[-—–~至]\s*(20\d{2})学年.*?(上学期|下学期|第一学期|第二学期)/);
-    if (explicitTerm) {
-      const term = explicitTerm[3] === '上学期' || explicitTerm[3] === '第一学期' ? '上学期' : '下学期';
-      return `${explicitTerm[1]}-${explicitTerm[2]}学年${term}`;
+    let result: string | null = null;
+    const explicitSchoolYear = text.match(/(20\d{2})\s*[-—–~至]\s*(20\d{2})(?:学年)?.*?(上学期|下学期|第一学期|第二学期)/);
+    if (explicitSchoolYear) {
+      const term = explicitSchoolYear[3] === '上学期' || explicitSchoolYear[3] === '第一学期' ? '上学期' : '下学期';
+      result = `${explicitSchoolYear[1]}-${explicitSchoolYear[2]}学年${term}`;
     }
 
-    const schoolYear = text.match(/(20\d{2})\s*[-—–~至]\s*(20\d{2})学年/);
-    const termByText =
-      /上学期|第一学期|秋季学期|秋学期|秋期/.test(text)
-        ? '上学期'
-        : /下学期|第二学期|春季学期|春学期|春期/.test(text)
-          ? '下学期'
-          : null;
-    if (schoolYear && termByText) {
-      return `${schoolYear[1]}-${schoolYear[2]}学年${termByText}`;
+    if (!result) {
+      const schoolYear = text.match(/(20\d{2})\s*[-—–~至]\s*(20\d{2})(?:学年)?/);
+      const termByText =
+        /上学期|第一学期|秋季学期|秋学期|秋期/.test(text)
+          ? '上学期'
+          : /下学期|第二学期|春季学期|春学期|春期/.test(text)
+            ? '下学期'
+            : null;
+      if (schoolYear && termByText) {
+        result = `${schoolYear[1]}-${schoolYear[2]}学年${termByText}`;
+      }
     }
 
-    const yearInText = text.match(/(20\d{2})年/);
-    if (yearInText && termByText) {
-      const year = Number(yearInText[1]);
-      return termByText === '上学期'
-        ? `${year}-${year + 1}学年上学期`
-        : `${year - 1}-${year}学年下学期`;
+    if (!result) {
+      const termByText =
+        /上学期|第一学期|秋季学期|秋学期|秋期/.test(text)
+          ? '上学期'
+          : /下学期|第二学期|春季学期|春学期|春期/.test(text)
+            ? '下学期'
+            : null;
+      const yearInText = text.match(/(20\d{2})年/);
+      if (yearInText && termByText) {
+        const year = Number(yearInText[1]);
+        result = termByText === '上学期'
+          ? `${year}-${year + 1}学年上学期`
+          : `${year - 1}-${year}学年下学期`;
+      }
     }
 
-    const year = examDate.getUTCFullYear();
-    const month = examDate.getUTCMonth() + 1;
-    if (month >= 9 && month <= 12) return `${year}-${year + 1}学年上学期`;
-    if (month === 1) return `${year - 1}-${year}学年上学期`;
-    if (month >= 2 && month <= 7) return `${year - 1}-${year}学年下学期`;
-    return fallback || null;
+    if (!result) {
+      const year = examDate.getUTCFullYear();
+      const month = examDate.getUTCMonth() + 1;
+      if (month >= 9 && month <= 12) result = `${year}-${year + 1}学年上学期`;
+      else if (month === 1) result = `${year - 1}-${year}学年上学期`;
+      else if (month >= 2 && month <= 7) result = `${year - 1}-${year}学年下学期`;
+    }
+
+    return this.normalizeAcademicPeriodLabel(result ?? fallback);
   }
 
   private parseExamDate(value: unknown) {

@@ -15,6 +15,8 @@ export class CallQueueService {
   ) {}
 
   async createCall(user: AuthUser, dto: CreateCallDto) {
+    this.ensureCanUseCallQueue(user);
+
     if (!dto.studentIds || dto.studentIds.length === 0) {
       throw new BadRequestException('请选择要叫号的学生');
     }
@@ -24,12 +26,20 @@ export class CallQueueService {
         id: { in: dto.studentIds.map(BigInt) },
         schoolId: user.schoolId,
         deletedAt: null,
+        status: 'enabled',
       },
       select: { id: true, name: true, classId: true },
     });
 
     if (students.length === 0) {
       throw new BadRequestException('未找到指定的学生信息');
+    }
+
+    if (dto.classId) {
+      const targetClassId = BigInt(dto.classId);
+      if (students.some((student) => student.classId !== targetClassId)) {
+        throw new BadRequestException('所选学生必须全部来自同一个班级');
+      }
     }
 
     // 按班级分组，支持跨班级批量叫号，各班级独立排队
@@ -44,8 +54,7 @@ export class CallQueueService {
     const results: any[] = [];
 
     for (const [classId, studentList] of studentsByClass.entries()) {
-      // 校验当前用户是否有权访问该班级
-      this.authService.ensureCanAccessClass(user, classId);
+      await this.ensureClassHasOnlineDisplay(user, classId);
 
       // 检查当前班级是否已有呼叫中的叫号记录
       const activeCall = await this.prisma.callQueue.findFirst({
@@ -85,7 +94,197 @@ export class CallQueueService {
     };
   }
 
-  async confirmCall(id: number) {
+  async getCallableClasses(user: AuthUser) {
+    this.ensureCanUseCallQueue(user);
+
+    const accessibleClassIds = this.authService.getAccessibleClassIds(user);
+    const terminals = await this.prisma.displayTerminal.findMany({
+      where: {
+        schoolId: user.schoolId,
+        classId: accessibleClassIds === null ? { not: null } : { in: accessibleClassIds },
+        status: 'enabled',
+      },
+      select: {
+        terminalCode: true,
+        classId: true,
+        classroom: {
+          select: {
+            id: true,
+            schoolId: true,
+            semesterId: true,
+            code: true,
+            gradeCode: true,
+            gradeName: true,
+            name: true,
+            slogan: true,
+            targetScore: true,
+            countdownTitle: true,
+            countdownDeadlineAt: true,
+            sortOrder: true,
+            displayStatus: true,
+            homeroomTeacher: {
+              select: {
+                id: true,
+                name: true,
+                username: true,
+              },
+            },
+            students: {
+              where: { deletedAt: null, status: 'enabled' },
+              select: { id: true },
+            },
+            studentProfiles: {
+              select: { currentScore: true, totalScore: true },
+            },
+            classScoreProfile: {
+              select: { currentScore: true, totalScore: true },
+            },
+          },
+        },
+      },
+    });
+
+    const onlineTerminalCodes = await this.realtimeService.listOnlineDisplayTerminalCodes(
+      terminals.map((item) => item.terminalCode),
+    );
+
+    const classMap = new Map<
+      string,
+      {
+        id: number;
+        schoolId: number;
+        semesterId: number;
+        code: string;
+        gradeCode: string;
+        gradeName: string;
+        name: string;
+        slogan: string | null;
+        targetScore: number | null;
+        countdownTitle: string | null;
+        countdownDeadlineAt: Date | null;
+        sortOrder: number | null;
+        displayStatus: string;
+        onlineStatus: 'online' | 'offline';
+        studentCount: number;
+        currentScoreTotal: number;
+        totalScoreTotal: number;
+        classScore: number;
+        classTotalScore: number;
+        homeroomTeacher: { id: number; name: string; username: string } | null;
+      }
+    >();
+
+    for (const terminal of terminals) {
+      if (!terminal.classId || !terminal.classroom) {
+        continue;
+      }
+
+      const key = terminal.classId.toString();
+      const isOnline = onlineTerminalCodes.has(terminal.terminalCode);
+      if (classMap.has(key)) {
+        if (isOnline) {
+          classMap.get(key)!.onlineStatus = 'online';
+        }
+        continue;
+      }
+
+      classMap.set(key, {
+        id: Number(terminal.classroom.id),
+        schoolId: Number(terminal.classroom.schoolId),
+        semesterId: Number(terminal.classroom.semesterId),
+        code: terminal.classroom.code,
+        gradeCode: terminal.classroom.gradeCode,
+        gradeName: terminal.classroom.gradeName,
+        name: terminal.classroom.name,
+        slogan: terminal.classroom.slogan,
+        targetScore: terminal.classroom.targetScore,
+        countdownTitle: terminal.classroom.countdownTitle,
+        countdownDeadlineAt: terminal.classroom.countdownDeadlineAt,
+        sortOrder: terminal.classroom.sortOrder,
+        displayStatus: terminal.classroom.displayStatus ?? 'enabled',
+        onlineStatus: isOnline ? 'online' : 'offline',
+        studentCount: terminal.classroom.students.length,
+        currentScoreTotal: terminal.classroom.studentProfiles.reduce((sum, item) => sum + item.currentScore, 0),
+        totalScoreTotal: terminal.classroom.studentProfiles.reduce((sum, item) => sum + item.totalScore, 0),
+        classScore: terminal.classroom.classScoreProfile?.currentScore ?? 0,
+        classTotalScore: terminal.classroom.classScoreProfile?.totalScore ?? 0,
+        homeroomTeacher: terminal.classroom.homeroomTeacher
+          ? {
+              id: Number(terminal.classroom.homeroomTeacher.id),
+              name: terminal.classroom.homeroomTeacher.name,
+              username: terminal.classroom.homeroomTeacher.username,
+            }
+          : null,
+      });
+    }
+
+    return {
+      code: 0,
+      message: 'ok',
+      data: Array.from(classMap.values()).sort((left, right) => {
+        const gradeCompare = left.gradeCode.localeCompare(right.gradeCode, 'zh-Hans-CN', { numeric: true });
+        if (gradeCompare !== 0) return gradeCompare;
+        const leftSort = left.sortOrder ?? Number.MAX_SAFE_INTEGER;
+        const rightSort = right.sortOrder ?? Number.MAX_SAFE_INTEGER;
+        if (leftSort !== rightSort) return leftSort - rightSort;
+        return left.id - right.id;
+      }),
+    };
+  }
+
+  async getCallableClassStudents(user: AuthUser, classId: number) {
+    await this.ensureClassHasOnlineDisplay(user, classId);
+
+    const rows = await this.prisma.student.findMany({
+      where: {
+        schoolId: user.schoolId,
+        classId: BigInt(classId),
+        deletedAt: null,
+        status: 'enabled',
+      },
+      include: {
+        classroom: true,
+        profile: true,
+        studentPet: {
+          include: {
+            pet: true,
+          },
+        },
+      },
+      orderBy: [{ studentNo: 'asc' }, { id: 'asc' }],
+    });
+
+    return {
+      code: 0,
+      message: 'ok',
+      data: rows.map((row) => ({
+        id: toNumber(row.id),
+        schoolId: toNumber(row.schoolId),
+        classId: toNumber(row.classId),
+        studentNo: row.studentNo,
+        name: row.name,
+        gender: row.gender,
+        avatarUrl: row.avatarUrl,
+        status: row.status,
+        className: row.classroom.name,
+        currentScore: row.profile?.currentScore ?? 0,
+        totalScore: row.profile?.totalScore ?? 0,
+        currentPetLevel: row.profile?.currentPetLevel ?? 1,
+        latestAcademic: null,
+        pet: row.studentPet
+          ? {
+              id: toNumber(row.studentPet.pet.id),
+              name: row.studentPet.pet.name,
+              coverUrl: row.studentPet.pet.coverUrl,
+              currentLevel: row.profile?.currentPetLevel ?? 1,
+              totalScore: row.profile?.totalScore ?? 0,
+            }
+          : null,
+      })),
+    };
+  }
+
+  async confirmCall(user: AuthUser, id: number) {
     const record = await this.prisma.callQueue.findUnique({
       where: { id: BigInt(id) },
     });
@@ -93,6 +292,7 @@ export class CallQueueService {
     if (!record) {
       throw new NotFoundException('该叫号记录不存在');
     }
+    this.authService.ensureCanAccessClass(user, record.classId);
 
     if (record.status === 'completed' || record.status === 'cancelled') {
       return { code: 0, message: 'ok' };
@@ -140,7 +340,8 @@ export class CallQueueService {
     return { code: 0, message: 'ok' };
   }
 
-  async getActiveCall(classId: number) {
+  async getActiveCall(user: AuthUser, classId: number) {
+    this.authService.ensureCanAccessClass(user, classId);
     const record = await this.prisma.callQueue.findFirst({
       where: {
         classId: BigInt(classId),
@@ -156,7 +357,9 @@ export class CallQueueService {
     };
   }
 
-  async getQueueList(classId: number) {
+  async getQueueList(user: AuthUser, classId: number) {
+    await this.ensureClassHasOnlineDisplay(user, classId);
+
     const records = await this.prisma.callQueue.findMany({
       where: {
         classId: BigInt(classId),
@@ -170,6 +373,54 @@ export class CallQueueService {
       message: 'ok',
       data: records.map((r) => this.serializeCall(r)),
     };
+  }
+
+  private ensureCanUseCallQueue(user: AuthUser) {
+    if (!this.authService.canOperateDisplay(user)) {
+      throw new ForbiddenException('当前角色无权使用大屏叫号');
+    }
+  }
+
+  private async ensureClassHasOnlineDisplay(user: AuthUser, classId: bigint | number) {
+    this.ensureCanUseCallQueue(user);
+
+    const targetClassId = typeof classId === 'bigint' ? classId : BigInt(classId);
+    this.authService.ensureCanAccessClass(user, targetClassId);
+
+    const classroom = await this.prisma.classroom.findFirst({
+      where: {
+        id: targetClassId,
+        schoolId: user.schoolId,
+        deletedAt: null,
+        status: 'enabled',
+      },
+      select: { id: true },
+    });
+
+    if (!classroom) {
+      throw new NotFoundException('班级不存在');
+    }
+
+    const terminals = await this.prisma.displayTerminal.findMany({
+      where: {
+        schoolId: user.schoolId,
+        classId: targetClassId,
+        status: 'enabled',
+      },
+      select: { terminalCode: true },
+    });
+
+    if (terminals.length === 0) {
+      throw new ForbiddenException('当前班级未绑定大屏终端');
+    }
+
+    const onlineTerminalCodes = await this.realtimeService.listOnlineDisplayTerminalCodes(
+      terminals.map((item) => item.terminalCode),
+    );
+
+    if (onlineTerminalCodes.size === 0) {
+      throw new ForbiddenException('当前班级大屏未在线');
+    }
   }
 
   private async advanceQueue(classId: bigint) {

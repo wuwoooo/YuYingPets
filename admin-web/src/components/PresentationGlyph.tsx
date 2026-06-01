@@ -22,7 +22,14 @@ export type PresentationGlyphName =
   | 'menu'
   | 'shield'
   | 'gear'
-  | 'close';
+  | 'close'
+  | 'sun'
+  | 'moon'
+  | 'fullscreen'
+  | 'fullscreen-exit'
+  | 'monitor'
+  | 'tablet'
+  | 'desktop';
 
 export function PresentationGlyph({ name, className }: { name: PresentationGlyphName; className?: string }) {
   const common = {
@@ -188,6 +195,63 @@ export function PresentationGlyph({ name, className }: { name: PresentationGlyph
       <svg {...common}>
         <path d="M6 6 18 18" />
         <path d="M18 6 6 18" />
+      </svg>
+    ),
+    sun: (
+      <svg {...common}>
+        <circle cx="12" cy="12" r="4" />
+        <path d="M12 2v2" />
+        <path d="M12 20v2" />
+        <path d="M4.2 4.2l1.4 1.4" />
+        <path d="M18.4 18.4l1.4 1.4" />
+        <path d="M2 12h2" />
+        <path d="M20 12h2" />
+        <path d="M4.2 19.8l1.4-1.4" />
+        <path d="M18.4 5.6l1.4-1.4" />
+      </svg>
+    ),
+    moon: (
+      <svg {...common}>
+        <path d="M18 14.5A7.5 7.5 0 0 1 9.5 6 7.5 7.5 0 1 0 18 14.5Z" />
+      </svg>
+    ),
+    fullscreen: (
+      <svg {...common}>
+        <path d="M4 9V4h5" />
+        <path d="M15 4h5v5" />
+        <path d="M20 15v5h-5" />
+        <path d="M9 20H4v-5" />
+      </svg>
+    ),
+    monitor: (
+      <svg {...common}>
+        <rect x="3" y="4.5" width="18" height="12" rx="2" />
+        <path d="M9 20h6" />
+        <path d="M12 16.5V20" />
+      </svg>
+    ),
+    tablet: (
+      <svg {...common}>
+        <rect x="6.5" y="3" width="11" height="18" rx="2.2" />
+        <path d="M11 5h2" />
+        <circle cx="12" cy="18" r=".7" fill="currentColor" stroke="none" />
+      </svg>
+    ),
+    desktop: (
+      <svg {...common}>
+        <rect x="3" y="4.5" width="18" height="12" rx="2" />
+        <path d="M9 20h6" />
+        <path d="M12 16.5V20" />
+        <path d="M7 8h10" />
+        <path d="M7 11h7" />
+      </svg>
+    ),
+    'fullscreen-exit': (
+      <svg {...common}>
+        <path d="M9 4H4v5" />
+        <path d="M20 9V4h-5" />
+        <path d="M15 20h5v-5" />
+        <path d="M4 15v5h5" />
       </svg>
     ),
   };

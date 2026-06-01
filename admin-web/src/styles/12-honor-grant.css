@@ -1,0 +1,291 @@
+.honor-grant-form {
+  display: grid;
+  gap: 16px;
+}
+
+.honor-grant-empty {
+  padding: 16px;
+  border-radius: 12px;
+  background: rgba(15, 61, 99, 0.06);
+  color: #5d6d7e;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.honor-grant-label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #6a7b8d;
+}
+
+.honor-grant-quick-hint {
+  font-style: normal;
+  font-weight: 500;
+  font-size: 11px;
+  color: #95a5a6;
+}
+
+.honor-grant-quick-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
+  gap: 10px;
+}
+
+.honor-grant-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 8px;
+  border: 1.5px solid #e5ebf1;
+  border-radius: 12px;
+  background: #fff;
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+}
+
+.honor-grant-chip:hover {
+  border-color: #2980b9;
+  transform: translateY(-1px);
+}
+
+.honor-grant-chip.active {
+  border-color: #2980b9;
+  box-shadow: 0 4px 14px rgba(41, 128, 185, 0.18);
+  background: linear-gradient(180deg, #f8fcff, #fff);
+}
+
+.honor-grant-chip-icon,
+.honor-grant-preview img {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  object-fit: cover;
+}
+
+.honor-grant-chip-fallback,
+.honor-grant-preview-fallback {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #ebf5fb, #d4e6f1);
+  color: #2980b9;
+  font-weight: 700;
+}
+
+.honor-grant-chip-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: #2c3e50;
+  text-align: center;
+  line-height: 1.3;
+}
+
+.honor-grant-chip em {
+  font-style: normal;
+  font-size: 10px;
+  color: #95a5a6;
+}
+
+.honor-grant-field {
+  display: grid;
+  gap: 6px;
+}
+
+.honor-grant-field > span {
+  font-size: 13px;
+  font-weight: 600;
+  color: #5d6d7e;
+}
+
+.honor-grant-field select,
+.honor-grant-field textarea {
+  width: 100%;
+  border: 1.5px solid #dde4ea;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 14px;
+  color: #2c3e50;
+  background: #fff;
+}
+
+.honor-grant-field textarea {
+  resize: vertical;
+  min-height: 72px;
+}
+
+.honor-grant-preview {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(15, 61, 99, 0.04);
+  border: 1px solid rgba(15, 61, 99, 0.08);
+}
+
+.honor-grant-preview strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 15px;
+  color: #2c3e50;
+}
+
+.honor-grant-preview p {
+  margin: 0;
+  font-size: 13px;
+  color: #6a7b8d;
+  line-height: 1.5;
+}
+
+.honor-grant-inline-button {
+  margin-top: 8px;
+}
+
+.evaluation-student-honors {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(15, 61, 99, 0.04);
+  border: 1px solid rgba(15, 61, 99, 0.08);
+}
+
+.evaluation-student-honors-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #5d6d7e;
+}
+
+.evaluation-student-honors-head em {
+  font-style: normal;
+  font-weight: 500;
+  color: #95a5a6;
+}
+
+.evaluation-student-honors-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+  max-height: 160px;
+  overflow: auto;
+}
+
+.evaluation-student-honors-item {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid #e8edf2;
+}
+
+.evaluation-student-honors-item strong {
+  display: block;
+  font-size: 13px;
+  color: #2c3e50;
+  margin-bottom: 2px;
+}
+
+.evaluation-student-honors-item span {
+  font-size: 11px;
+  color: #95a5a6;
+}
+
+.evaluation-student-honors-item p {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: #6a7b8d;
+  line-height: 1.4;
+}
+
+.evaluation-student-honors-empty {
+  font-size: 12px;
+  color: #95a5a6;
+  text-align: center;
+  padding: 8px 0;
+}
+
+
+.honor-records-panel {
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid rgba(15, 61, 99, 0.08);
+}
+
+.honor-records-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.honor-records-panel h3 {
+  margin: 0;
+  font-size: 16px;
+  color: #2c3e50;
+}
+
+.honor-records-table-wrap {
+  overflow: auto;
+  border: 1px solid #e8edf2;
+  border-radius: 12px;
+}
+
+.honor-records-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.honor-records-table th,
+.honor-records-table td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid #eef2f6;
+}
+
+.honor-records-table th {
+  background: #f8fafc;
+  color: #6a7b8d;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.honor-records-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.honor-records-target strong {
+  display: block;
+  color: #2c3e50;
+}
+
+.honor-records-target span {
+  color: #95a5a6;
+  font-size: 12px;
+}
+
+.evaluation-recent-reverse-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.evaluation-recent-reverse-item {
+  align-items: center;
+}

@@ -13,6 +13,7 @@ import type { PermissionUserFormState } from '../types/admin';
 import { createPermissionUserForm, formatEnabledStatus, formatPermissionScopeDisplay, normalizeKeyword } from '../utils/adminForms';
 import { buildPermissionScopeDetail } from '../utils/permissionScopeDisplay';
 import { canViewOperationAudit } from '../utils/adminPermissions';
+import { copyTextToClipboard } from '../utils/text';
 
 const adminRoleCodes = ['super_admin', 'school_admin', 'academic_admin', 'moral_admin'];
 const subjectActingRoleCodes = ['school_admin', 'academic_admin', 'moral_admin', 'grade_admin', 'homeroom_teacher', 'subject_teacher'];
@@ -38,6 +39,12 @@ const coreOrganizationTabs = [
 
 type CoreOrganizationTab = (typeof coreOrganizationTabs)[number][0];
 type OrganizationTab = CoreOrganizationTab | 'audit' | 'ops';
+
+type ResetPasswordResult = {
+  name: string;
+  username: string;
+  password: string;
+};
 
 type OrganizationPageProps = {
   token: string;
@@ -68,9 +75,11 @@ export function OrganizationPage({ token, user, classes, loading, error }: Organ
   const [editingUser, setEditingUser] = useState<PermissionUser | null>(null);
   const [selectedUser, setSelectedUser] = useState<PermissionUser | null>(null);
   const [form, setForm] = useState<PermissionUserFormState>(() => createPermissionUserForm());
-  const [pageLoading, setPageLoading] = useState(false);
+  const [pageLoading, setPageLoading] = useState(true);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
+  const [resetPasswordResult, setResetPasswordResult] = useState<ResetPasswordResult | null>(null);
+  const [resetPasswordCopyFeedback, setResetPasswordCopyFeedback] = useState<string | null>(null);
   const [searchKeyword, setSearchKeyword] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
   const [editorGradeFilter, setEditorGradeFilter] = useState('all');
@@ -304,15 +313,35 @@ export function OrganizationPage({ token, user, classes, loading, error }: Organ
     }));
   }
 
-  async function handleResetPassword(id: number) {
+  async function handleResetPassword(user: PermissionUser) {
     setSubmitError(null);
     setSubmitSuccess(null);
     try {
-      const result = await adminApi.resetPermissionUserPassword(token, id);
-      setSubmitSuccess(`密码已重置为 ${result.data.defaultPassword}`);
+      const result = await adminApi.resetPermissionUserPassword(token, user.id);
+      setResetPasswordCopyFeedback(null);
+      setResetPasswordResult({
+        name: user.name,
+        username: user.username,
+        password: result.data.defaultPassword,
+      });
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : '密码重置失败');
     }
+  }
+
+  async function handleCopyResetPassword() {
+    if (!resetPasswordResult) return;
+    try {
+      await copyTextToClipboard(resetPasswordResult.password);
+      setResetPasswordCopyFeedback('密码已复制到剪贴板');
+    } catch {
+      setResetPasswordCopyFeedback('复制失败，请手动复制上方密码');
+    }
+  }
+
+  function closeResetPasswordDialog() {
+    setResetPasswordResult(null);
+    setResetPasswordCopyFeedback(null);
   }
 
   async function handleToggleStatus(row: PermissionUser) {
@@ -481,6 +510,7 @@ export function OrganizationPage({ token, user, classes, loading, error }: Organ
     <Shell
       title="安全中心"
       subtitle="在同一入口管理账号与角色，并巡查敏感操作记录"
+      loading={(loading || pageLoading) && activeTab !== 'audit' && activeTab !== 'ops'}
       user={user}
       status={
         <>
@@ -638,7 +668,7 @@ export function OrganizationPage({ token, user, classes, loading, error }: Organ
                       <td className="security-actions-cell">
                         <button className="op-btn" type="button" onClick={() => openDetail(row)}>查看详情</button>
                         <button className="op-btn" type="button" onClick={() => openEdit(row)}>编辑账号</button>
-                        <button className="op-btn" type="button" onClick={() => void handleResetPassword(row.id)}>重置密码</button>
+                        <button className="op-btn" type="button" onClick={() => void handleResetPassword(row)}>重置密码</button>
                         <button className="op-btn" type="button" onClick={() => void handleToggleStatus(row)}>
                           {row.status === 'enabled' ? '停用账号' : '启用账号'}
                         </button>
@@ -955,7 +985,7 @@ export function OrganizationPage({ token, user, classes, loading, error }: Organ
             {editingUser ? (
               <label className="checkbox-item">
                 <input type="checkbox" checked={form.resetPassword} onChange={(event) => setForm((prev) => ({ ...prev, resetPassword: event.target.checked }))} />
-                同时重置密码为 123456
+                同时重置为随机临时密码
               </label>
             ) : null}
             <div className="form-actions">
@@ -1034,6 +1064,30 @@ export function OrganizationPage({ token, user, classes, loading, error }: Organ
                   查看相关班级
                 </button>
               </div>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
+      {resetPasswordResult ? (
+        <Modal
+          title="密码已重置"
+          subtitle={`${resetPasswordResult.name}（${resetPasswordResult.username}）的新登录密码如下，请妥善保管并及时告知本人`}
+          onClose={closeResetPasswordDialog}
+        >
+          <div className="reset-password-result">
+            <div className="reset-password-value" aria-label="新登录密码">
+              {resetPasswordResult.password}
+            </div>
+            {resetPasswordCopyFeedback ? (
+              <p className="reset-password-copy-feedback">{resetPasswordCopyFeedback}</p>
+            ) : null}
+            <div className="modal-actions">
+              <button className="btn btn-ghost" type="button" onClick={closeResetPasswordDialog}>
+                关闭
+              </button>
+              <button className="btn btn-primary" type="button" onClick={() => void handleCopyResetPassword()}>
+                复制
+              </button>
             </div>
           </div>
         </Modal>

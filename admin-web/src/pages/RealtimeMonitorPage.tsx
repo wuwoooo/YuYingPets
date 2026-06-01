@@ -126,13 +126,22 @@ export function RealtimeMonitorPage({ token, user }: RealtimeMonitorPageProps) {
     const socket = io(`${WS_BASE_URL}/ws`, {
       transports: ['websocket'],
       reconnection: true,
+      auth: { token },
     });
     socketRef.current = socket;
 
-    socket.on('connect', () => {
-      setConnectionStatus('online');
+    const subscribeRooms = () => {
       socket.emit('subscribe.school', { schoolId });
       classes.forEach((item) => socket.emit('subscribe.class', { classId: item.id }));
+    };
+
+    socket.on('auth.ready', (payload: { ok?: boolean }) => {
+      if (payload?.ok === false) {
+        setConnectionStatus('offline');
+        return;
+      }
+      setConnectionStatus('online');
+      subscribeRooms();
     });
     socket.on('disconnect', () => setConnectionStatus('offline'));
     socket.on('connect_error', () => setConnectionStatus('offline'));
@@ -149,7 +158,7 @@ export function RealtimeMonitorPage({ token, user }: RealtimeMonitorPageProps) {
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [classes, scheduleRefresh]);
+  }, [classes, scheduleRefresh, token]);
 
   useEffect(() => {
     const shouldPoll = connectionStatus !== 'online';
@@ -288,6 +297,7 @@ export function RealtimeMonitorPage({ token, user }: RealtimeMonitorPageProps) {
     <Shell
       title="实时运行监控"
       subtitle="监控评价事件、展示终端和需要处理的班级异常"
+      loading={loading}
       user={user}
       status={
         <>

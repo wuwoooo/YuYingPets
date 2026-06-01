@@ -11,6 +11,24 @@ import { rootLogger } from '@/logging/root-logger';
 
 const errLogger = rootLogger.child({ context: 'http_exception' });
 
+function extractExceptionMessage(exception: unknown, body: Record<string, unknown>) {
+  if (exception instanceof Error && exception.message) {
+    return exception.message;
+  }
+  const message = body.message;
+  if (typeof message === 'string') {
+    return message;
+  }
+  if (Array.isArray(message) && typeof message[0] === 'string') {
+    return message[0];
+  }
+  return '';
+}
+
+function isMissingAuthorization(status: number, message: string) {
+  return status === HttpStatus.UNAUTHORIZED && message === '缺少 Authorization';
+}
+
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost) {
@@ -42,6 +60,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
             unknown
           >);
 
+    const exceptionMessage = extractExceptionMessage(exception, body);
     const logPayload = {
       msg: 'request_failed',
       requestId: request.requestId,
@@ -54,7 +73,17 @@ export class AllExceptionsFilter implements ExceptionFilter {
           : { message: String(exception) },
     };
 
-    if (status >= 500) {
+    if (isMissingAuthorization(status, exceptionMessage)) {
+      // 未携带 token 的 401 属于预期行为（如 display 未登录预览），避免污染 warn/error 日志
+      errLogger.debug({
+        msg: logPayload.msg,
+        requestId: logPayload.requestId,
+        method: logPayload.method,
+        path: logPayload.path,
+        statusCode: logPayload.statusCode,
+        error: { name: logPayload.error.name, message: logPayload.error.message },
+      });
+    } else if (status >= 500) {
       errLogger.error(logPayload);
     } else {
       errLogger.warn(logPayload);

@@ -12,7 +12,7 @@ export class TeacherSchedulesController {
   constructor(private readonly teacherSchedulesService: TeacherSchedulesService) {}
 
   @Post('import-from-xls')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }))
   importFromXls(
     @Headers('authorization') authorization: string | undefined,
     @Body() body: ImportTeacherScheduleDto,

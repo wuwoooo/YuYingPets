@@ -3,6 +3,9 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ModuleType, Prisma } from '@prisma/client';
 import { PrismaService } from '@/prisma/prisma.service';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import { Cache } from 'cache-manager';
+import { Inject } from '@nestjs/common';
 import type { AuthUser } from '@/common/auth/auth-user.interface';
 import { AuthService } from '../auth/auth.service';
 import { OperationLogService } from '../operation-log/operation-log.service';
@@ -39,6 +42,66 @@ const PET_CATEGORY_PRIORITY: Record<string, number> = {
 };
 const VISIBLE_PET_CATEGORIES = ['star', 'zodiac'];
 
+/** 本学期行为风险分档：要求负向事件或积分回撤达到显著水平，避免单次提醒即上榜 */
+const ANALYTICS_RISK_THRESHOLDS = {
+  entryNegativeCount: 5,
+  entryScoreDelta: -15,
+  highNegativeCount: 12,
+  highScoreDelta: -25,
+  highComboNegativeCount: 8,
+  highComboScoreDelta: -18,
+  mediumNegativeCount: 8,
+  mediumComboNegativeCount: 5,
+  mediumComboScoreDelta: -12,
+} as const;
+
+type AnalyticsRiskLevel = 'high' | 'medium' | 'low';
+
+function qualifiesAnalyticsRiskStudent(input: { negativeCount: number; scoreDelta: number }) {
+  return (
+    input.negativeCount >= ANALYTICS_RISK_THRESHOLDS.entryNegativeCount ||
+    input.scoreDelta <= ANALYTICS_RISK_THRESHOLDS.entryScoreDelta
+  );
+}
+
+function classifyAnalyticsRiskLevel(input: {
+  negativeCount: number;
+  scoreDelta: number;
+}): AnalyticsRiskLevel | null {
+  if (!qualifiesAnalyticsRiskStudent(input)) return null;
+  const { negativeCount, scoreDelta } = input;
+  if (
+    negativeCount >= ANALYTICS_RISK_THRESHOLDS.highNegativeCount ||
+    scoreDelta <= ANALYTICS_RISK_THRESHOLDS.highScoreDelta ||
+    (negativeCount >= ANALYTICS_RISK_THRESHOLDS.highComboNegativeCount &&
+      scoreDelta <= ANALYTICS_RISK_THRESHOLDS.highComboScoreDelta)
+  ) {
+    return 'high';
+  }
+  if (
+    negativeCount >= ANALYTICS_RISK_THRESHOLDS.mediumNegativeCount ||
+    (negativeCount >= ANALYTICS_RISK_THRESHOLDS.mediumComboNegativeCount &&
+      scoreDelta <= ANALYTICS_RISK_THRESHOLDS.mediumComboScoreDelta)
+  ) {
+    return 'medium';
+  }
+  return 'low';
+}
+
+function buildAnalyticsRiskReason(input: {
+  negativeCount: number;
+  scoreDelta: number;
+  riskLevel: AnalyticsRiskLevel;
+}) {
+  if (input.riskLevel === 'high') {
+    return '本学期负向事件频繁，积分回撤明显，建议优先干预';
+  }
+  if (input.riskLevel === 'medium') {
+    return '本学期负向信号持续聚集，建议班主任跟进';
+  }
+  return '本学期出现一定负向波动，建议持续观察';
+}
+
 function normalizePetCategory(category: string | null | undefined): string {
   return (category ?? '').trim().toLowerCase();
 }
@@ -56,11 +119,33 @@ function comparePetCatalogOrder(
 @Injectable()
 export class AdminInsightsService {
   constructor(
+    @Inject(CACHE_MANAGER) private cacheManager: Cache,
     private readonly prisma: PrismaService,
     private readonly authService: AuthService,
     private readonly operationLogService: OperationLogService,
     private readonly configService: ConfigService,
   ) {}
+
+  async analyticsSummary(
+    authorization: string | undefined,
+    filters?: { gradeName?: string; classId?: number; subjectCode?: string; startDate?: string; endDate?: string },
+  ) {
+    return this.analytics(authorization, { ...filters, skipAi: true, skipHeatmap: true });
+  }
+
+  async analyticsHeatmap(
+    authorization: string | undefined,
+    filters?: { gradeName?: string; classId?: number; subjectCode?: string; startDate?: string; endDate?: string },
+  ) {
+    return this.analytics(authorization, { ...filters, skipAi: true, skipSummary: true });
+  }
+
+  async analyticsAi(
+    authorization: string | undefined,
+    filters?: { gradeName?: string; classId?: number; subjectCode?: string; regenerateAi?: boolean; startDate?: string; endDate?: string },
+  ) {
+    return this.analytics(authorization, { ...filters, skipHeatmap: true });
+  }
 
   async analytics(
     authorization: string | undefined,
@@ -71,9 +156,18 @@ export class AdminInsightsService {
       regenerateAi?: boolean;
       startDate?: string;
       endDate?: string;
+      skipAi?: boolean;
+      skipHeatmap?: boolean;
+      skipSummary?: boolean;
     },
   ) {
     const user = await this.authService.getAuthUserFromAuthorization(authorization);
+
+    const cacheKey = `analytics:${user.id}:${filters?.classId || ''}:${filters?.gradeName || ''}:${filters?.startDate || ''}:${filters?.endDate || ''}:${filters?.subjectCode || ''}:${filters?.regenerateAi || ''}:${filters?.skipAi || ''}:${filters?.skipHeatmap || ''}:${filters?.skipSummary || ''}`;
+    const cachedData = await this.cacheManager.get(cacheKey);
+    if (cachedData) {
+      return cachedData;
+    }
 
     const accessibleClassIds = await this.getAccessibleClassIds(user);
     const classWhere: Prisma.ClassroomWhereInput = {
@@ -101,8 +195,26 @@ export class AdminInsightsService {
     const hasClassScope = resolvedClassIds.length > 0;
 
     const dateRange = this.resolveAnalyticsDateRange(filters?.startDate, filters?.endDate);
+    const scoreRecordWhereBase = {
+      schoolId: user.schoolId,
+      ...(hasClassScope ? { classId: { in: resolvedClassIds } } : { classId: BigInt(-1) }),
+    };
+    const todayDate = this.getLocalDateString();
+    const rollingStartDate = this.shiftDateString(todayDate, -6);
+    const rollingStartAt = new Date(`${rollingStartDate}T00:00:00.000Z`);
+    const todayStartAt = new Date(`${todayDate}T00:00:00.000Z`);
+    const todayEndAt = new Date(`${this.shiftDateString(todayDate, 1)}T00:00:00.000Z`);
 
-    const [students, rules, scoreRecords] = await Promise.all([
+    const [
+      students,
+      rules,
+      scoreRecords,
+      heatMapTimelineRecords,
+      pulseTimelineRecords,
+      totalScoreRecordCount,
+      todayScoreRecordCount,
+      currentSemester,
+    ] = await Promise.all([
       this.prisma.student.findMany({
         where: {
           schoolId: user.schoolId,
@@ -120,8 +232,7 @@ export class AdminInsightsService {
       }),
       this.prisma.scoreRecord.findMany({
         where: {
-          schoolId: user.schoolId,
-          ...(hasClassScope ? { classId: { in: resolvedClassIds } } : { classId: BigInt(-1) }),
+          ...scoreRecordWhereBase,
           createdAt: {
             gte: dateRange.startAt,
             lt: dateRange.endAtExclusive,
@@ -135,7 +246,107 @@ export class AdminInsightsService {
         orderBy: { createdAt: 'desc' },
         take: 8000,
       }),
+      filters?.skipHeatmap ? Promise.resolve([]) : this.prisma.scoreRecord.findMany({
+        where: {
+          ...scoreRecordWhereBase,
+          createdAt: {
+            gte: dateRange.startAt,
+            lt: dateRange.endAtExclusive,
+          },
+        },
+        select: {
+          occurredAt: true,
+          createdAt: true,
+          subjectCode: true,
+          rule: {
+            select: {
+              subjectCode: true,
+              moduleType: true,
+            },
+          },
+        },
+      }),
+      this.prisma.scoreRecord.findMany({
+        where: {
+          ...scoreRecordWhereBase,
+          createdAt: {
+            gte: rollingStartAt,
+            lt: todayEndAt,
+          },
+        },
+        select: {
+          createdAt: true,
+          scoreDelta: true,
+          sentiment: true,
+          subjectCode: true,
+          rule: {
+            select: {
+              subjectCode: true,
+              moduleType: true,
+            },
+          },
+        },
+        orderBy: { createdAt: 'asc' },
+      }),
+      this.prisma.scoreRecord.count({ where: scoreRecordWhereBase }),
+      this.prisma.scoreRecord.count({
+        where: {
+          ...scoreRecordWhereBase,
+          createdAt: {
+            gte: todayStartAt,
+            lt: todayEndAt,
+          },
+        },
+      }),
+      this.prisma.semester.findFirst({
+        where: {
+          schoolId: user.schoolId,
+          isCurrent: true,
+          status: 'enabled',
+        },
+        select: {
+          id: true,
+          name: true,
+          startDate: true,
+          endDate: true,
+        },
+      }),
     ]);
+
+    const riskScoreRecords = currentSemester
+      ? await this.prisma.scoreRecord.findMany({
+          where: {
+            ...scoreRecordWhereBase,
+            semesterId: currentSemester.id,
+            student: {
+              deletedAt: null,
+              status: 'enabled',
+            },
+          },
+          select: {
+            studentId: true,
+            scoreDelta: true,
+            sentiment: true,
+            subjectCode: true,
+            rule: {
+              select: {
+                subjectCode: true,
+                moduleType: true,
+              },
+            },
+            student: {
+              select: {
+                name: true,
+              },
+            },
+            classroom: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        })
+      : [];
 
     const subjectFilterRaw = filters?.subjectCode?.trim();
     if (subjectFilterRaw) {
@@ -144,13 +355,30 @@ export class AdminInsightsService {
     const scopedScoreRecords = subjectFilterRaw
       ? scoreRecords.filter((record) => this.recordMatchesAnalyticsSubject(record, subjectFilterRaw))
       : scoreRecords;
+    const scopedHeatMapTimelineRecords = subjectFilterRaw
+      ? heatMapTimelineRecords.filter((record) =>
+          this.recordMatchesAnalyticsSubject(record, subjectFilterRaw),
+        )
+      : heatMapTimelineRecords;
+    const scopedRiskScoreRecords = subjectFilterRaw
+      ? riskScoreRecords.filter((record) =>
+          this.recordMatchesAnalyticsSubject(record, subjectFilterRaw),
+        )
+      : riskScoreRecords;
+    const scopedPulseTimelineRecords = subjectFilterRaw
+      ? pulseTimelineRecords.filter((record) =>
+          this.recordMatchesAnalyticsSubject(record, subjectFilterRaw),
+        )
+      : pulseTimelineRecords;
+    const scorePulseStats = this.resolveScorePulseStats(scopedPulseTimelineRecords, todayDate);
 
     const sumStudentScore = (studentsOfClass: Array<{ profile: { currentScore: number } | null }>) =>
       studentsOfClass.reduce((sum, student) => sum + (student.profile?.currentScore ?? 0), 0);
 
     const getClassScore = (classroom: (typeof classes)[number]) => classroom.classScoreProfile?.currentScore ?? 0;
 
-    const totalScore = classes.reduce((sum, classroom) => sum + getClassScore(classroom), 0);
+    // 全校总积分 = 全体学生个人当前积分之和，而非班级积分（classScoreProfile）之和
+    const totalScore = students.reduce((sum, student) => sum + (student.profile?.currentScore ?? 0), 0);
     const positiveRuleCount = scopedScoreRecords.filter((item) => item.sentiment === 'positive').length;
     const negativeRuleCount = scopedScoreRecords.filter((item) => item.sentiment === 'negative').length;
     const averageScore = students.length > 0
@@ -160,13 +388,53 @@ export class AdminInsightsService {
 
     const gradeTrend = Array.from(
       classes.reduce((map, item) => {
-        const current = map.get(item.gradeName) ?? { score: 0, count: 0 };
-        current.score += getClassScore(item);
-        current.count += 1;
+        const current = map.get(item.gradeName) ?? { scoreSum: 0, studentCount: 0 };
+        current.scoreSum += sumStudentScore(item.students);
+        current.studentCount += item.students.length;
         map.set(item.gradeName, current);
         return map;
-      }, new Map<string, { score: number; count: number }>()),
-    ).map(([name, value]) => ({ name, value: value.count > 0 ? Math.round(value.score / value.count) : 0 }));
+      }, new Map<string, { scoreSum: number; studentCount: number }>()),
+    ).map(([name, value]) => ({
+      name,
+      value: value.studentCount > 0 ? Math.round(value.scoreSum / value.studentCount) : 0,
+    }));
+
+    const topClasses = classes
+      .map((item) => ({
+        id: toNumber(item.id),
+        name: item.name,
+        currentScoreTotal: sumStudentScore(item.students),
+        classScore: getClassScore(item),
+      }))
+      .sort(
+        (left, right) =>
+          right.classScore - left.classScore ||
+          right.currentScoreTotal - left.currentScoreTotal ||
+          left.name.localeCompare(right.name, 'zh-CN'),
+      )
+      .slice(0, 10);
+
+    const topClassesByStudentScore = [...topClasses]
+      .sort(
+        (left, right) =>
+          right.currentScoreTotal - left.currentScoreTotal ||
+          right.classScore - left.classScore ||
+          left.name.localeCompare(right.name, 'zh-CN'),
+      )
+      .slice(0, 10)
+      .map((item) => ({
+        id: item.id,
+        name: item.name,
+        studentScoreTotal: item.currentScoreTotal,
+      }));
+
+    const topClassesByClassScore = topClasses
+      .slice(0, 10)
+      .map((item) => ({
+        id: item.id,
+        name: item.name,
+        classScore: item.classScore,
+      }));
 
     const ruleDistribution = Array.from(
       scopedScoreRecords.reduce((map, item) => {
@@ -190,15 +458,6 @@ export class AdminInsightsService {
       .slice(0, 6)
       .map(([name, value]) => ({ name, value }));
 
-    const topClasses = classes
-      .map((item) => ({
-        id: toNumber(item.id),
-        name: item.name,
-        currentScoreTotal: getClassScore(item),
-      }))
-      .sort((left, right) => right.currentScoreTotal - left.currentScoreTotal)
-      .slice(0, 8);
-
     const topStudents = classes
       .flatMap((item) =>
         item.students.map((student) => ({
@@ -214,22 +473,9 @@ export class AdminInsightsService {
 
     const heatMapRows = ['早读', '上午', '午后', '晚辅'];
     const heatMapCols = ['一', '二', '三', '四', '五'];
-    const heatMap = heatMapRows.map((rowName, rowIndex) => ({
-      row: rowName,
-      values: heatMapCols.map((_, colIndex) => {
-        const count = scopedScoreRecords.filter((record) => {
-          const date = record.createdAt;
-          const day = date.getDay();
-          const hour = date.getHours();
-          const bucket = hour < 9 ? 0 : hour < 12 ? 1 : hour < 17 ? 2 : 3;
-          const normalizedDay = day === 0 ? 4 : day - 1;
-          return bucket === rowIndex && normalizedDay === colIndex;
-        }).length;
-        return count;
-      }),
-    }));
+    const heatMap = this.buildHeatMap(scopedHeatMapTimelineRecords, heatMapRows, heatMapCols);
 
-    const riskStudentMap = scopedScoreRecords.reduce((map, item) => {
+    const riskStudentMap = scopedRiskScoreRecords.reduce((map, item) => {
       const studentId = toNumber(item.studentId) ?? 0;
       const current = map.get(studentId) ?? {
         studentId,
@@ -253,25 +499,106 @@ export class AdminInsightsService {
       scoreDelta: number;
     }>());
 
-    const riskStudents = Array.from(riskStudentMap.values())
-      .map((item) => ({
+    const allRiskStudents = Array.from(riskStudentMap.values())
+      .map((item) => {
+        const riskLevel = classifyAnalyticsRiskLevel(item);
+        if (!riskLevel) return null;
+        return {
+          ...item,
+          riskLevel,
+          reason: buildAnalyticsRiskReason({
+            negativeCount: item.negativeCount,
+            scoreDelta: item.scoreDelta,
+            riskLevel,
+          }),
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null)
+      .sort((left, right) => right.negativeCount - left.negativeCount || left.scoreDelta - right.scoreDelta);
+
+    const riskStudentStats = {
+      high: allRiskStudents.filter((item) => item.riskLevel === 'high').length,
+      medium: allRiskStudents.filter((item) => item.riskLevel === 'medium').length,
+      low: allRiskStudents.filter((item) => item.riskLevel === 'low').length,
+      total: allRiskStudents.length,
+    };
+
+    // 与 riskStudentStats.total 保持一致，驾驶舱「更多」弹窗需展示全量名单
+    const riskStudents = allRiskStudents;
+    const scoreDetailSummary = Array.from(
+      scopedScoreRecords.reduce((map, record) => {
+        const studentId = toNumber(record.studentId) ?? 0;
+        if (!studentId) return map;
+        const current = map.get(studentId) ?? {
+          studentId,
+          studentName: record.student?.name ?? `学生#${studentId}`,
+          classId: toNumber(record.classId) ?? 0,
+          className: record.classroom?.name ?? '当前班级',
+          totalScoreDelta: 0,
+          positiveCount: 0,
+          negativeCount: 0,
+          recordCount: 0,
+          records: [] as Array<{
+            id: number;
+            scoreDelta: number;
+            ruleName: string | null;
+            dimension: string | null;
+            tag: string | null;
+            remark: string | null;
+            subjectCode: string | null;
+            operatorName: string | null;
+            createdAt: Date;
+          }>,
+        };
+        current.totalScoreDelta += record.scoreDelta;
+        current.recordCount += 1;
+        if (record.scoreDelta > 0) current.positiveCount += 1;
+        if (record.scoreDelta < 0) current.negativeCount += 1;
+        current.records.push({
+          id: toNumber(record.id) ?? 0,
+          scoreDelta: record.scoreDelta,
+          ruleName: record.rule?.name ?? null,
+          dimension: record.dimension,
+          tag: record.tag,
+          remark: record.remark,
+          subjectCode: record.subjectCode,
+          operatorName: record.operatorName,
+          createdAt: record.createdAt,
+        });
+        map.set(studentId, current);
+        return map;
+      }, new Map<number, {
+        studentId: number;
+        studentName: string;
+        classId: number;
+        className: string;
+        totalScoreDelta: number;
+        positiveCount: number;
+        negativeCount: number;
+        recordCount: number;
+        records: Array<{
+          id: number;
+          scoreDelta: number;
+          ruleName: string | null;
+          dimension: string | null;
+          tag: string | null;
+          remark: string | null;
+          subjectCode: string | null;
+          operatorName: string | null;
+          createdAt: Date;
+        }>;
+      }>()),
+    )
+      .map(([, item]) => ({
         ...item,
-        riskLevel:
-          item.negativeCount >= 6 || item.scoreDelta <= -8
-            ? 'high'
-            : item.negativeCount >= 3 || item.scoreDelta < 0
-              ? 'medium'
-              : 'low',
-        reason:
-          item.negativeCount >= 6 || item.scoreDelta <= -8
-            ? '近期负向事件偏多，积分回落明显'
-            : item.negativeCount >= 3
-              ? '近阶段负向信号有聚集趋势'
-              : '已有零散负向信号，建议持续观察',
+        records: item.records.sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime() || right.id - left.id),
       }))
-      .filter((item) => item.negativeCount > 0)
-      .sort((left, right) => right.negativeCount - left.negativeCount || left.scoreDelta - right.scoreDelta)
-      .slice(0, 6);
+      .sort(
+        (left, right) =>
+          right.totalScoreDelta - left.totalScoreDelta ||
+          right.recordCount - left.recordCount ||
+          left.studentName.localeCompare(right.studentName, 'zh-CN'),
+      );
 
     const scopedClass = filters?.classId
       ? classes.find((item) => (toNumber(item.id) ?? 0) === filters.classId)
@@ -296,13 +623,13 @@ export class AdminInsightsService {
       ruleDistribution,
       subjectDistribution,
       topClasses,
-      riskStudents,
+      riskStudents: allRiskStudents,
     })}${academicHintLine ? `\n\n【教务最近一次全科导入】${academicHintLine}` : ''}`;
     const fallbackSuggestion = `${this.buildAnalyticsSuggestion({
       activeDays,
       subjectDistribution,
       ruleDistribution,
-      riskStudents,
+      riskStudents: allRiskStudents,
     })}${academicHintLine ? '（若上述摘要含进退步，请安排任课与班主任对名单做归因复核。）' : ''}`;
     const fallbackReportSummary = `${this.buildAnalyticsReportSummary({
       gradeName: filters?.gradeName,
@@ -315,63 +642,77 @@ export class AdminInsightsService {
       negativeRuleCount,
       ruleDistribution,
       subjectDistribution,
-      riskStudents,
+      riskStudents: allRiskStudents,
     })}${academicHintLine ? ` ${academicHintLine}` : ''}`;
-    const aiInsight = scopedClass
-      ? await this.resolveClassAnalyticsInsight({
-          schoolId: toNumber(user.schoolId) ?? 0,
-          classId: filters?.classId ?? (toNumber(scopedClass.id) ?? 0),
-          className: scopedClass.name,
-          gradeName: scopedClass.gradeName,
-          dateRangeLabel: dateRange.label,
-          dateRangeKey: dateRange.key,
-          reportDate: dateRange.endDate,
-          regenerateAi: Boolean(filters?.regenerateAi),
-          totalScore,
-          averageScore,
-          activeDays,
-          positiveRuleCount,
-          negativeRuleCount,
-          gradeTrend,
-          ruleDistribution,
-          subjectDistribution,
-          topClasses,
-          riskStudents,
-          fallbackSummary,
-          fallbackSuggestion,
-          fallbackReportSummary,
-          academicFacts: academicFactsForAi,
-          subjectScopeCode: subjectFilterRaw || undefined,
-        })
-      : await this.resolveGlobalAnalyticsInsight({
-          schoolId: toNumber(user.schoolId) ?? 0,
-          gradeName: filters?.gradeName,
-          dateRangeLabel: dateRange.label,
-          dateRangeKey: dateRange.key,
-          reportDate: dateRange.endDate,
-          regenerateAi: Boolean(filters?.regenerateAi),
-          totalScore,
-          averageScore,
-          activeDays,
-          positiveRuleCount,
-          negativeRuleCount,
-          gradeTrend,
-          ruleDistribution,
-          subjectDistribution,
-          topClasses,
-          riskStudents,
-          fallbackSummary,
-          fallbackSuggestion,
-          fallbackReportSummary,
-        });
 
-    return {
+    let aiInsight: any = null;
+    if (!filters?.skipAi) {
+      aiInsight = scopedClass
+        ? await this.resolveClassAnalyticsInsight({
+            schoolId: toNumber(user.schoolId) ?? 0,
+            classId: filters?.classId ?? (toNumber(scopedClass.id) ?? 0),
+            className: scopedClass.name,
+            gradeName: scopedClass.gradeName,
+            dateRangeLabel: dateRange.label,
+            dateRangeKey: dateRange.key,
+            reportDate: dateRange.endDate,
+            regenerateAi: Boolean(filters?.regenerateAi),
+            totalScore,
+            averageScore,
+            activeDays,
+            positiveRuleCount,
+            negativeRuleCount,
+            gradeTrend,
+            ruleDistribution,
+            subjectDistribution,
+            topClasses,
+            topClassesByStudentScore,
+            topClassesByClassScore,
+            riskStudents: allRiskStudents,
+            fallbackSummary,
+            fallbackSuggestion,
+            fallbackReportSummary,
+            academicFacts: academicFactsForAi,
+            subjectScopeCode: subjectFilterRaw || undefined,
+          })
+        : await this.resolveGlobalAnalyticsInsight({
+            schoolId: toNumber(user.schoolId) ?? 0,
+            gradeName: filters?.gradeName,
+            dateRangeLabel: dateRange.label,
+            dateRangeKey: dateRange.key,
+            reportDate: dateRange.endDate,
+            regenerateAi: Boolean(filters?.regenerateAi),
+            totalScore,
+            averageScore,
+            activeDays,
+            positiveRuleCount,
+            negativeRuleCount,
+            gradeTrend,
+            ruleDistribution,
+            subjectDistribution,
+            topClasses,
+            topClassesByStudentScore,
+            topClassesByClassScore,
+            riskStudents: allRiskStudents,
+            fallbackSummary,
+            fallbackSuggestion,
+            fallbackReportSummary,
+          });
+    }
+
+    const response = {
       code: 0,
       message: 'ok',
       data: {
         totalScore,
         positiveRuleCount,
         negativeRuleCount,
+        totalScoreRecordCount,
+        todayScoreRecordCount,
+        todayPositiveCount: scorePulseStats.todayPositiveCount,
+        todayNegativeCount: scorePulseStats.todayNegativeCount,
+        recent24hScoreRecordCount: scorePulseStats.recent24hScoreRecordCount,
+        dailyTrend: scorePulseStats.dailyTrend,
         averageScore,
         activeDays,
         gradeTrend,
@@ -380,6 +721,8 @@ export class AdminInsightsService {
         topClasses,
         topStudents,
         riskStudents,
+        scoreDetailSummary,
+        riskStudentStats,
         aiInsight,
         heatMap: {
           rows: heatMapRows,
@@ -388,6 +731,11 @@ export class AdminInsightsService {
         },
       },
     };
+
+    if (!filters?.regenerateAi) {
+      await this.cacheManager.set(cacheKey, response, 300000); // 5 mins
+    }
+    return response;
   }
 
   async analyticsReportStatus(
@@ -826,7 +1174,7 @@ export class AdminInsightsService {
     negativeRuleCount: number;
     ruleDistribution: Array<{ name: string; value: number }>;
     subjectDistribution: Array<{ name: string; value: number }>;
-    topClasses: Array<{ id: number | null; name: string; currentScoreTotal: number }>;
+    topClasses: Array<{ id: number | null; name: string; currentScoreTotal: number; classScore?: number }>;
     riskStudents: Array<{ studentName: string; negativeCount: number }>;
   }) {
     const scopeLabel = input.className ? `${input.className}` : input.gradeName ? `${input.gradeName}` : '当前筛选范围';
@@ -905,7 +1253,9 @@ export class AdminInsightsService {
     gradeTrend: Array<{ name: string; value: number }>;
     ruleDistribution: Array<{ name: string; value: number }>;
     subjectDistribution: Array<{ name: string; value: number }>;
-    topClasses: Array<{ id: number | null; name: string; currentScoreTotal: number }>;
+    topClasses: Array<{ id: number | null; name: string; currentScoreTotal: number; classScore?: number }>;
+    topClassesByStudentScore: Array<{ id: number | null; name: string; studentScoreTotal: number }>;
+    topClassesByClassScore: Array<{ id: number | null; name: string; classScore: number }>;
     riskStudents: Array<{
       studentId: number;
       studentName: string;
@@ -973,6 +1323,8 @@ export class AdminInsightsService {
       ruleDistribution: input.ruleDistribution,
       subjectDistribution: input.subjectDistribution,
       topClasses: input.topClasses,
+      topClassesByStudentScore: input.topClassesByStudentScore,
+      topClassesByClassScore: input.topClassesByClassScore,
       riskStudents: input.riskStudents,
       fallbackSummary: input.fallbackSummary,
       fallbackSuggestion: input.fallbackSuggestion,
@@ -1022,7 +1374,9 @@ export class AdminInsightsService {
     gradeTrend: Array<{ name: string; value: number }>;
     ruleDistribution: Array<{ name: string; value: number }>;
     subjectDistribution: Array<{ name: string; value: number }>;
-    topClasses: Array<{ id: number | null; name: string; currentScoreTotal: number }>;
+    topClasses: Array<{ id: number | null; name: string; currentScoreTotal: number; classScore?: number }>;
+    topClassesByStudentScore: Array<{ id: number | null; name: string; studentScoreTotal: number }>;
+    topClassesByClassScore: Array<{ id: number | null; name: string; classScore: number }>;
     riskStudents: Array<{
       studentId: number;
       studentName: string;
@@ -1086,6 +1440,8 @@ export class AdminInsightsService {
       ruleDistribution: input.ruleDistribution,
       subjectDistribution: input.subjectDistribution,
       topClasses: input.topClasses,
+      topClassesByStudentScore: input.topClassesByStudentScore,
+      topClassesByClassScore: input.topClassesByClassScore,
       riskStudents: input.riskStudents,
       fallbackSummary: input.fallbackSummary,
       fallbackSuggestion: input.fallbackSuggestion,
@@ -1129,7 +1485,9 @@ export class AdminInsightsService {
     gradeTrend: Array<{ name: string; value: number }>;
     ruleDistribution: Array<{ name: string; value: number }>;
     subjectDistribution: Array<{ name: string; value: number }>;
-    topClasses: Array<{ id: number | null; name: string; currentScoreTotal: number }>;
+    topClasses: Array<{ id: number | null; name: string; currentScoreTotal: number; classScore?: number }>;
+    topClassesByStudentScore: Array<{ id: number | null; name: string; studentScoreTotal: number }>;
+    topClassesByClassScore: Array<{ id: number | null; name: string; classScore: number }>;
     riskStudents: Array<{
       studentId: number;
       studentName: string;
@@ -1187,6 +1545,7 @@ export class AdminInsightsService {
                     'suggestion 必须是可执行动作，至少 2 条动作意图（可写在一句中），并标明优先关注对象。',
                     'reportSummary 需要能直接用于校务汇报：先结论，再依据，再行动建议。',
                     '若 academicFacts.latestImportedExamLabel 存在：说明最近一次教务全科成绩导入快照；须在 summary/reportSummary/suggestion 中同步提及学业侧的要点，但必须严格遵从 academicFacts 数字，禁止臆造分值或名单。',
+                    '积分口径：studentScoreTotal 与 averageStudentScore 均指学生个人积分；classScore 指班级积分账户，与个人积分独立；不得把班级积分当作全校总积分。',
                   ].join(' '),
                 },
               ],
@@ -1198,20 +1557,28 @@ export class AdminInsightsService {
                   type: 'input_text',
                   text: JSON.stringify(
                     {
+                      metricsGuide: {
+                        studentScoreTotal: '全校/范围内学生个人当前积分合计',
+                        averageStudentScore: '学生个人积分人均值',
+                        gradeAverageStudentScore: '各年级学生个人积分人均值',
+                        topClassesByStudentScore: '按班内学生积分合计排序',
+                        topClassesByClassScore: '按班级积分账户排序，与个人积分独立',
+                      },
                       scope: {
                         gradeName: input.gradeName || null,
                         className: input.className || null,
                         dateRange: input.dateRangeLabel,
                       },
-                      totalScore: input.totalScore,
-                      averageScore: input.averageScore,
+                      studentScoreTotal: input.totalScore,
+                      averageStudentScore: input.averageScore,
                       activeDays: input.activeDays,
                       positiveRuleCount: input.positiveRuleCount,
                       negativeRuleCount: input.negativeRuleCount,
-                      gradeTrend: input.gradeTrend,
+                      gradeAverageStudentScore: input.gradeTrend,
                       ruleDistribution: input.ruleDistribution,
                       subjectDistribution: input.subjectDistribution,
-                      topClasses: input.topClasses,
+                      topClassesByStudentScore: input.topClassesByStudentScore,
+                      topClassesByClassScore: input.topClassesByClassScore,
                       riskStudents: input.riskStudents,
                       academicFacts: input.academicFacts ?? {
                         hint: '无教务最近一次全科快照或尚未聚合',
@@ -1453,6 +1820,104 @@ export class AdminInsightsService {
     return `${year}-${month}-${day}`;
   }
 
+  private buildRollingDailyTrend(
+    records: Array<{ createdAt: Date; scoreDelta: number; sentiment: string }>,
+    todayDate: string,
+  ) {
+    const buckets = new Map<string, { total: number; score: number; positive: number; negative: number }>();
+    for (let offset = -6; offset <= 0; offset += 1) {
+      const date = this.shiftDateString(todayDate, offset);
+      buckets.set(date, { total: 0, score: 0, positive: 0, negative: 0 });
+    }
+    for (const record of records) {
+      const dateKey = record.createdAt.toISOString().slice(0, 10);
+      const bucket = buckets.get(dateKey);
+      if (!bucket) continue;
+      bucket.total += 1;
+      bucket.score += record.scoreDelta;
+      if (record.scoreDelta >= 0 && record.sentiment !== 'negative') bucket.positive += 1;
+      if (record.scoreDelta < 0 || record.sentiment === 'negative') bucket.negative += 1;
+    }
+    return Array.from(buckets.entries()).map(([date, value]) => ({
+      date,
+      ...value,
+    }));
+  }
+
+  private resolveScorePulseStats(
+    records: Array<{ createdAt: Date; scoreDelta: number; sentiment: string }>,
+    todayDate: string,
+  ) {
+    const dailyTrend = this.buildRollingDailyTrend(records, todayDate);
+    const recent24hCutoff = Date.now() - 24 * 60 * 60 * 1000;
+    let todayPositiveCount = 0;
+    let todayNegativeCount = 0;
+    let recent24hScoreRecordCount = 0;
+    for (const record of records) {
+      const dateKey = record.createdAt.toISOString().slice(0, 10);
+      if (dateKey === todayDate) {
+        if (record.scoreDelta >= 0 && record.sentiment !== 'negative') todayPositiveCount += 1;
+        if (record.scoreDelta < 0 || record.sentiment === 'negative') todayNegativeCount += 1;
+      }
+      if (record.createdAt.getTime() >= recent24hCutoff) recent24hScoreRecordCount += 1;
+    }
+    return {
+      dailyTrend,
+      todayPositiveCount,
+      todayNegativeCount,
+      recent24hScoreRecordCount,
+    };
+  }
+
+  private buildHeatMap(
+    records: Array<{ occurredAt: Date | null; createdAt: Date }>,
+    rows: string[],
+    cols: string[],
+  ) {
+    const matrix = rows.map(() => cols.map(() => 0));
+    for (const record of records) {
+      const eventTime = record.occurredAt ?? record.createdAt;
+      const colIndex = this.getShanghaiWeekdayColumnIndex(eventTime);
+      if (colIndex < 0 || colIndex >= cols.length) continue;
+      const rowIndex = this.getHeatMapTimeBucket(eventTime);
+      if (rowIndex < 0 || rowIndex >= rows.length) continue;
+      matrix[rowIndex][colIndex] += 1;
+    }
+    return rows.map((rowName, rowIndex) => ({
+      row: rowName,
+      values: matrix[rowIndex],
+    }));
+  }
+
+  private getShanghaiWeekdayColumnIndex(date: Date) {
+    const weekday = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Shanghai',
+      weekday: 'short',
+    }).format(date);
+    const weekdayMap: Record<string, number> = {
+      Mon: 0,
+      Tue: 1,
+      Wed: 2,
+      Thu: 3,
+      Fri: 4,
+    };
+    return weekdayMap[weekday] ?? -1;
+  }
+
+  private getHeatMapTimeBucket(date: Date) {
+    const hour = Number(
+      new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Shanghai',
+        hour: 'numeric',
+        hour12: false,
+      }).format(date),
+    );
+    if (hour < 9) return 0;
+    if (hour < 12) return 1;
+    if (hour < 17) return 2;
+    return 3;
+  }
+
   private resolveAnalyticsDateRange(startDate?: string, endDate?: string) {
     const today = this.getLocalDateString();
     const resolvedStartDate = startDate?.trim() || this.shiftDateString(today, -29);
@@ -1551,7 +2016,7 @@ export class AdminInsightsService {
       const base = dateRangeKey ? `class-${cid}-${dateRangeKey}` : `class-${cid}`;
       return `${base}${subjectSuffix}`;
     }
-    const scope = gradeName ? `global-grade-${gradeName}` : 'global-all';
+    const scope = gradeName ? `global-grade-${gradeName}-v2` : 'global-all-v2';
     return dateRangeKey ? `${scope}-${dateRangeKey}` : scope;
   }
 

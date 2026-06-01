@@ -47,6 +47,10 @@ export class RealtimeService {
     this.realtimeGateway.server.to(`class:${classId}`).emit('class.group.changed', payload);
   }
 
+  emitClassGroupScoreChanged(classId: number, payload: Record<string, unknown>) {
+    this.realtimeGateway.server.to(`class:${classId}`).emit('class.group_score.changed', payload);
+  }
+
   emitClassConfigChanged(classId: number, payload: Record<string, unknown>) {
     this.realtimeGateway.server.to(`class:${classId}`).emit('class.config.changed', payload);
   }
@@ -57,6 +61,10 @@ export class RealtimeService {
 
   emitCallQueueChanged(classId: number, payload: Record<string, unknown> | null) {
     this.realtimeGateway.server.to(`class:${classId}`).emit('call.queue.changed', payload);
+  }
+
+  emitHonorGranted(classId: number, payload: Record<string, unknown>) {
+    this.realtimeGateway.server.to(`class:${classId}`).emit('class.honor.granted', payload);
   }
 }
 

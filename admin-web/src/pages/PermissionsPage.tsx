@@ -175,6 +175,7 @@ export function PermissionsPage({
     <Shell
       title="账号管理"
       subtitle="统一维护教师账号、角色分工和负责班级"
+      loading={loading || pageLoading}
       user={user}
       status={
         <>
@@ -272,7 +273,7 @@ export function PermissionsPage({
             {editingTeacher ? (
               <label className="checkbox-item">
                 <input type="checkbox" checked={form.resetPassword} onChange={(event) => setForm((prev) => ({ ...prev, resetPassword: event.target.checked }))} />
-                同时重置密码为 123456
+                同时重置为随机临时密码
               </label>
             ) : null}
             <div className="form-actions">

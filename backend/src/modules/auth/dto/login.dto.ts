@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEnum, IsString } from 'class-validator';
+import { IsEnum, IsString, MinLength } from 'class-validator';
 
 export enum LoginTerminalType {
   ADMIN = 'admin',
@@ -13,6 +13,7 @@ export class LoginDto {
 
   @ApiProperty()
   @IsString()
+  @MinLength(6)
   password!: string;
 
   @ApiProperty({ enum: LoginTerminalType })

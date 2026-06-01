@@ -1,5 +1,7 @@
 import { forwardRef, useImperativeHandle, useRef } from 'react';
 import type { ChangeEvent, InputHTMLAttributes, MouseEvent } from 'react';
+import { DatePickerField } from './DatePickerField';
+import { DateTimePickerField } from './DateTimePickerField';
 
 type PickerInputType = 'date' | 'time' | 'month' | 'week' | 'datetime-local';
 
@@ -13,13 +15,57 @@ type PickerCapableInput = HTMLInputElement & {
 };
 
 export const PickerInput = forwardRef<HTMLInputElement, PickerInputProps>(function PickerInput(
-  { className, wrapperClassName = '', disabled, readOnly, type, ...props },
+  { className, wrapperClassName = '', disabled, readOnly, type, value, onChange, min, max, ...props },
   ref,
 ) {
   const inputRef = useRef<HTMLInputElement>(null);
   const timeSelectionStepRef = useRef(0);
 
   useImperativeHandle(ref, () => inputRef.current as HTMLInputElement, []);
+
+  if (type === 'date') {
+    return (
+      <DatePickerField
+        ref={ref}
+        className={className}
+        wrapperClassName={wrapperClassName}
+        disabled={disabled}
+        readOnly={readOnly}
+        value={typeof value === 'string' ? value : ''}
+        min={typeof min === 'string' ? min : undefined}
+        max={typeof max === 'string' ? max : undefined}
+        onChange={(nextValue) => {
+          onChange?.({
+            target: { value: nextValue },
+            currentTarget: { value: nextValue },
+          } as ChangeEvent<HTMLInputElement>);
+        }}
+        {...props}
+      />
+    );
+  }
+
+  if (type === 'datetime-local') {
+    return (
+      <DateTimePickerField
+        ref={ref}
+        className={className}
+        wrapperClassName={wrapperClassName}
+        disabled={disabled}
+        readOnly={readOnly}
+        value={typeof value === 'string' ? value : ''}
+        min={typeof min === 'string' ? min : undefined}
+        max={typeof max === 'string' ? max : undefined}
+        onChange={(nextValue) => {
+          onChange?.({
+            target: { value: nextValue },
+            currentTarget: { value: nextValue },
+          } as ChangeEvent<HTMLInputElement>);
+        }}
+        {...props}
+      />
+    );
+  }
 
   const openPicker = (event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
@@ -47,7 +93,7 @@ export const PickerInput = forwardRef<HTMLInputElement, PickerInputProps>(functi
   };
 
   const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
-    props.onChange?.(event);
+    onChange?.(event);
     if (type === 'time') {
       if (timeSelectionStepRef.current === 0) {
         timeSelectionStepRef.current = 1;
@@ -69,6 +115,9 @@ export const PickerInput = forwardRef<HTMLInputElement, PickerInputProps>(functi
         disabled={disabled}
         readOnly={readOnly}
         type={type}
+        value={value}
+        min={min}
+        max={max}
         onChange={handleChange}
       />
       <button

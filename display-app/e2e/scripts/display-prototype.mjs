@@ -117,6 +117,12 @@ async function run() {
       null,
       { timeout: 10000 },
     );
+    result.groupScoreRankingVisible = await page.evaluate(() => {
+      const list = document.querySelector("#groupScoreRankingList");
+      const resetBtn = document.querySelector(".group-score-reset-btn");
+      return Boolean(list && resetBtn);
+    });
+    log(`小组排行区域已渲染：${result.groupScoreRankingVisible ? "是" : "否"}`);
     await page.evaluate((studentName) => setStudentGroupByName(studentName, 4), groupBefore.name);
     await page.evaluate(async () => {
       await saveGroupManageChanges();

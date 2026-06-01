@@ -1,20 +1,37 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useSearchParams } from 'react-router-dom';
-import { useAdminView } from '../context/AdminViewContext';
+import { DatePickerField } from '../components/DatePickerField';
 import { Modal } from '../components/Modal';
+import { useAdminView } from '../context/AdminViewContext';
+import { useConfirmDialog } from '../context/ConfirmDialogContext';
+import { ScoreConfirmModal } from '../components/evaluation/ScoreConfirmModal';
+import { EvaluationStudentGrid } from '../components/evaluation/EvaluationStudentGrid';
+import { EvaluationToolbar } from '../components/evaluation/EvaluationToolbar';
+import { StudentScoreModal } from '../components/evaluation/StudentScoreModal';
+import type { ScoreModalTab, ScoreTarget, StudentSortKey } from '../components/evaluation/evaluationUtils';
+import { expandRuleSubjectCodes } from '../components/evaluation/evaluationUtils';
+import { ScoreRecordListItem, ScoreRecordReverseModal } from '../components/ScoreRecordReverseModal';
 import { Shell } from '../components/Shell';
-import { resolveSubjectLabel, ruleSceneOptions } from '../constants/admin';
+import { useEvaluationRules } from '../hooks/useEvaluationRules';
 import type {
   AdminClass,
   AdminStudent,
+  AnalyticsData,
   ClassScoreRecord,
   ClassGroupSummary,
+  GroupScoreRankingRow,
+  GroupScoreRecordRow,
+  Honor,
+  HonorRecord,
   ScoreRecord,
   ScoreRule,
   SessionScope,
   SessionUser,
+  TeacherReviewContext,
 } from '../lib/api';
 import { adminApi } from '../lib/api';
+import { canGrantStudentHonors } from '../utils/adminPermissions';
+import { canShowScoreRecordReverse, formatScoreDelta, formatScoreRecordLabel } from '../utils/scoreRecordReverse';
 
 type EvaluationPageProps = {
   token: string;
@@ -23,6 +40,7 @@ type EvaluationPageProps = {
   classes: AdminClass[];
   students: AdminStudent[];
   rules: ScoreRule[];
+  honors: Honor[];
   loading: boolean;
   error: string | null;
   onSaved: () => Promise<void>;
@@ -31,11 +49,20 @@ type EvaluationPageProps = {
 type EvaluationMode = 'single' | 'batch' | 'group';
 type ClassEvaluationMode = 'single' | 'batch';
 
-const modeOptions: Array<{ value: EvaluationMode; label: string; desc: string }> = [
-  { value: 'single', label: '单人评价', desc: '适合课堂即时点名加减分。' },
-  { value: 'batch', label: '批量评价', desc: '对多名学生一次应用同一条规则。' },
-  { value: 'group', label: '小组评价', desc: '按小组统一加减分，适合合作任务。' },
-];
+type RecentSubmitRecord = {
+  scoreRecordId: number;
+  studentId: number;
+  studentName: string;
+  ruleName: string;
+  scoreDelta: number;
+  currentScore: number;
+};
+
+type ReverseTarget = {
+  record: ScoreRecord;
+  studentName: string;
+  currentScore: number | null;
+};
 
 const roleTitleMap: Record<string, { title: string; subtitle: string }> = {
   homeroom_teacher: {
@@ -47,41 +74,6 @@ const roleTitleMap: Record<string, { title: string; subtitle: string }> = {
     subtitle: '班级与学科请在页面右上角切换；本页不再重复班级、年级下拉筛选。',
   },
 };
-
-const sceneLabelMap: Record<string, string> = {
-  classroom: '课堂表现',
-  homework: '作业完成',
-  discipline: '纪律习惯',
-  cleaning: '值日卫生',
-  reading: '阅读成长',
-  sports: '体育活动',
-  exam: '考试测评',
-  activity: '活动',
-};
-
-const subjectRuleCompatibility: Record<string, string[]> = {
-  computer: ['computer', 'arts_it'],
-  art: ['art', 'arts_it'],
-  music: ['music', 'arts_it'],
-  pe: ['pe', 'arts_it'],
-};
-
-function expandRuleSubjectCodes(subjectCodes: string[]) {
-  return Array.from(
-    new Set(subjectCodes.flatMap((subjectCode) => subjectRuleCompatibility[subjectCode] ?? [subjectCode])),
-  );
-}
-
-function canUseSubjectRule(subjectCodes: string[], ruleSubjectCode?: string | null) {
-  if (!ruleSubjectCode) return false;
-  return expandRuleSubjectCodes(subjectCodes).includes(ruleSubjectCode);
-}
-
-function subjectFilterMatchesRule(subjectFilter: string, ruleSubjectCode?: string | null) {
-  if (subjectFilter === 'all') return true;
-  if (!ruleSubjectCode) return false;
-  return expandRuleSubjectCodes([subjectFilter]).includes(ruleSubjectCode);
-}
 
 function getClassRuleMetricLabel(name: string) {
   return name.replace(/(优秀|待改进)$/u, '').trim();
@@ -140,6 +132,7 @@ export function EvaluationPage({
   classes,
   students,
   rules,
+  honors,
   loading,
   error,
   onSaved,
@@ -154,6 +147,9 @@ export function EvaluationPage({
     subtitle: '统一查看学生评价规则、提交评价并回看最近记录。',
   };
   const canManageClassScore = ['super_admin', 'school_admin', 'academic_admin', 'moral_admin', 'grade_admin'].includes(user?.roleCode ?? '');
+  const allowGrantStudentHonors = canGrantStudentHonors(user?.roleCode);
+  const [studentHonorRecords, setStudentHonorRecords] = useState<HonorRecord[]>([]);
+  const [studentHonorsLoading, setStudentHonorsLoading] = useState(false);
 
   const classIdsInScope = useMemo(() => {
     const rawIds = scopes.map((item) => item.classId).filter((item): item is number => typeof item === 'number');
@@ -189,15 +185,14 @@ export function EvaluationPage({
   const [selectedStudentId, setSelectedStudentId] = useState<number | null>(null);
   const [selectedStudentIds, setSelectedStudentIds] = useState<number[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null);
-  const [selectedRuleId, setSelectedRuleId] = useState<number | null>(null);
   const [subjectFilter, setSubjectFilter] = useState<string>('all');
-  const [scoreTypeFilter, setScoreTypeFilter] = useState<'all' | 'add' | 'deduct'>('all');
-  const [sceneFilter, setSceneFilter] = useState<string>('all');
-  const [ruleKeyword, setRuleKeyword] = useState('');
-  const [recentRuleIds, setRecentRuleIds] = useState<number[]>([]);
-  const [showMoreRules, setShowMoreRules] = useState(false);
-  const [showAllQuickAdd, setShowAllQuickAdd] = useState(false);
-  const [showAllQuickDeduct, setShowAllQuickDeduct] = useState(false);
+  const [studentKeyword, setStudentKeyword] = useState('');
+  const [studentSort, setStudentSort] = useState<StudentSortKey>('name-asc');
+  const [groupFilter, setGroupFilter] = useState<number | 'all'>('all');
+  const [scoreModalTarget, setScoreModalTarget] = useState<ScoreTarget | null>(null);
+  const [scoreModalTab, setScoreModalTab] = useState<ScoreModalTab>('score');
+  const [modalScoreRecords, setModalScoreRecords] = useState<ScoreRecord[]>([]);
+  const [studentScoreOverrides, setStudentScoreOverrides] = useState<Record<number, number>>({});
   const [confirmRule, setConfirmRule] = useState<ScoreRule | null>(null);
   const [confirmRemark, setConfirmRemark] = useState('');
   const [records, setRecords] = useState<ScoreRecord[]>([]);
@@ -207,6 +202,55 @@ export function EvaluationPage({
   const [submitLoading, setSubmitLoading] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
+  const [recordStudentFilter, setRecordStudentFilter] = useState<number | 'all'>('all');
+  const [recordKeyword, setRecordKeyword] = useState('');
+  const [recentSubmitRecords, setRecentSubmitRecords] = useState<RecentSubmitRecord[]>([]);
+  const [reverseTarget, setReverseTarget] = useState<ReverseTarget | null>(null);
+  const [reverseLoading, setReverseLoading] = useState(false);
+  const today = new Date().toISOString().slice(0, 10);
+  const summaryDefaultStartDate = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const [summaryStartDate, setSummaryStartDate] = useState(summaryDefaultStartDate);
+  const [summaryEndDate, setSummaryEndDate] = useState(today);
+  const [recordStartDate, setRecordStartDate] = useState(summaryDefaultStartDate);
+  const [recordEndDate, setRecordEndDate] = useState(today);
+  const [summaryStudentKeyword, setSummaryStudentKeyword] = useState('');
+  const [scoreSummaryLoading, setScoreSummaryLoading] = useState(false);
+  const [scoreSummaryError, setScoreSummaryError] = useState<string | null>(null);
+  const [scoreSummaryRows, setScoreSummaryRows] = useState<NonNullable<AnalyticsData['scoreDetailSummary']>>([]);
+  const [groupScoreManageOpen, setGroupScoreManageOpen] = useState(false);
+  const [groupScoreManageTargetId, setGroupScoreManageTargetId] = useState<number | null>(null);
+  const [groupScoreRankingRows, setGroupScoreRankingRows] = useState<GroupScoreRankingRow[]>([]);
+  const [groupScoreRecords, setGroupScoreRecords] = useState<GroupScoreRecordRow[]>([]);
+  const [groupScoreRecordsLoading, setGroupScoreRecordsLoading] = useState(false);
+  const [groupScoreRecordsError, setGroupScoreRecordsError] = useState<string | null>(null);
+  const [groupScoreDeltaInput, setGroupScoreDeltaInput] = useState('');
+  const [groupScoreRemarkInput, setGroupScoreRemarkInput] = useState('');
+  const [groupScoreSubmitLoading, setGroupScoreSubmitLoading] = useState(false);
+  const [groupScoreResetLoading, setGroupScoreResetLoading] = useState(false);
+  const [groupScoreRecordFilter, setGroupScoreRecordFilter] = useState<'current' | 'all'>('current');
+  const { confirm } = useConfirmDialog();
+
+  const homeroomClassIds = useMemo(
+    () => availableClasses.filter((item) => item.homeroomTeacher?.id === user?.id).map((item) => item.id),
+    [availableClasses, user?.id],
+  );
+
+  const displayedRecords = useMemo(() => {
+    let rows = records;
+    if (recordKeyword.trim()) {
+      const keyword = recordKeyword.trim().toLowerCase();
+      rows = rows.filter((item) => {
+        const student = students.find((studentRow) => studentRow.id === item.studentId);
+        const studentName = student?.name ?? '';
+        const haystack = [studentName, item.ruleName, item.tag, item.dimension, item.remark]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        return haystack.includes(keyword);
+      });
+    }
+    return rows.slice(0, 30);
+  }, [recordKeyword, records, students]);
 
   const selectedClass = availableClasses.find((item) => item.id === selectedClassId) ?? null;
   const classStudents = useMemo(
@@ -214,40 +258,315 @@ export function EvaluationPage({
     [selectedClassId, students],
   );
 
+  const displayClassStudents = useMemo(
+    () =>
+      classStudents.map((item) => ({
+        ...item,
+        currentScore: studentScoreOverrides[item.id] ?? item.currentScore,
+      })),
+    [classStudents, studentScoreOverrides],
+  );
+  const groupRankMap = useMemo(() => {
+    const sorted = [...groups].sort(
+      (left, right) =>
+        (right.groupScore ?? 0) - (left.groupScore ?? 0) ||
+        right.studentCount - left.studentCount ||
+        left.groupNo - right.groupNo,
+    );
+    const rankMap = new Map<number, number>();
+    let lastScore: number | null = null;
+    let currentRank = 0;
+    sorted.forEach((item, index) => {
+      if (lastScore === null || (item.groupScore ?? 0) !== lastScore) {
+        currentRank = index + 1;
+        lastScore = item.groupScore ?? 0;
+      }
+      rankMap.set(item.id, currentRank);
+    });
+    return rankMap;
+  }, [groups]);
+  const sortedOverviewGroups = useMemo(
+    () =>
+      [...groups].sort(
+        (left, right) =>
+          (groupRankMap.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (groupRankMap.get(right.id) ?? Number.MAX_SAFE_INTEGER) ||
+          (right.groupScore ?? 0) - (left.groupScore ?? 0) ||
+          right.studentCount - left.studentCount ||
+          left.groupNo - right.groupNo,
+      ),
+    [groupRankMap, groups],
+  );
+  const scoreSummaryTitle = isSubjectTeacher ? '评分明细汇总' : '积分明细汇总';
+  const scoreSummaryDescription = isSubjectTeacher
+    ? '按时间查看当前学科、当前班级里，你给学生打出的评价积分汇总。'
+    : '按时间查看当前班级学生获得的积分汇总。';
+  const normalizedScoreSummaryRows = useMemo(() => {
+    const summaryMap = new Map(scoreSummaryRows.map((item) => [item.studentId, item]));
+    return [...classStudents]
+      .map((student) => {
+        const matched = summaryMap.get(student.id);
+        if (matched) return matched;
+        return {
+          studentId: student.id,
+          studentName: student.name,
+          classId: student.classId,
+          className: selectedClass?.name ?? '',
+          totalScoreDelta: 0,
+          positiveCount: 0,
+          negativeCount: 0,
+          recordCount: 0,
+          records: [],
+        };
+      })
+      .sort(
+        (left, right) =>
+          right.totalScoreDelta - left.totalScoreDelta ||
+          right.recordCount - left.recordCount ||
+          left.studentName.localeCompare(right.studentName, 'zh-CN'),
+      );
+  }, [classStudents, scoreSummaryRows, selectedClass?.name]);
+  const filteredScoreSummaryRows = useMemo(() => {
+    const keyword = summaryStudentKeyword.trim().toLowerCase();
+    if (!keyword) return normalizedScoreSummaryRows;
+    return normalizedScoreSummaryRows.filter((item) => item.studentName.toLowerCase().includes(keyword));
+  }, [normalizedScoreSummaryRows, summaryStudentKeyword]);
+  const scoreSummaryPeriodStats = useMemo(() => {
+    let recordCount = 0;
+    let totalAddScore = 0;
+    let totalDeductScore = 0;
+    scoreSummaryRows.forEach((student) => {
+      student.records.forEach((record) => {
+        recordCount += 1;
+        if (record.scoreDelta >= 0) {
+          totalAddScore += record.scoreDelta;
+        } else {
+          totalDeductScore += Math.abs(record.scoreDelta);
+        }
+      });
+    });
+    return { recordCount, totalAddScore, totalDeductScore };
+  }, [scoreSummaryRows]);
+  const scoreRecordQuery = useMemo(
+    () => ({
+      classId: selectedClassId ?? undefined,
+      ...(recordStudentFilter !== 'all' ? { studentId: recordStudentFilter } : {}),
+      ...(isSubjectTeacher && activeSubjectView?.subjectCode ? { subjectCode: activeSubjectView.subjectCode } : {}),
+      startDate: recordStartDate,
+      endDate: recordEndDate,
+    }),
+    [activeSubjectView?.subjectCode, isSubjectTeacher, recordEndDate, recordStartDate, recordStudentFilter, selectedClassId],
+  );
+  const canManageGroupScore = ['super_admin', 'school_admin', 'academic_admin', 'homeroom_teacher'].includes(user?.roleCode ?? '');
+  const summaryQuickRange = useMemo(() => {
+    const monthStart = `${today.slice(0, 8)}01`;
+    const quick7dStart = shiftDate(today, -6);
+    const quick30dStart = shiftDate(today, -29);
+    if (summaryEndDate === today) {
+      if (summaryStartDate === quick7dStart) return '7d';
+      if (summaryStartDate === quick30dStart) return '30d';
+      if (summaryStartDate === monthStart) return 'month';
+    }
+    return null;
+  }, [summaryEndDate, summaryStartDate, today]);
+  const activeGroupScoreRow = useMemo(
+    () => groupScoreRankingRows.find((item) => item.id === groupScoreManageTargetId) ?? null,
+    [groupScoreManageTargetId, groupScoreRankingRows],
+  );
+
+  useEffect(() => {
+    setStudentScoreOverrides({});
+  }, [selectedClassId]);
+
+  const evaluationRules = useEvaluationRules({
+    rules,
+    selectedClassId,
+    subjectCodesByClass,
+    subjectFilter,
+    roleCode: user?.roleCode,
+  });
+
+  const {
+    scoreTypeFilter,
+    setScoreTypeFilter,
+    sceneFilter,
+    setSceneFilter,
+    ruleKeyword,
+    setRuleKeyword,
+    recentRuleIds,
+    selectedRuleId,
+    setSelectedRuleId,
+    showMoreRules,
+    setShowMoreRules,
+    showAllQuickAdd,
+    setShowAllQuickAdd,
+    showAllQuickDeduct,
+    setShowAllQuickDeduct,
+    availableRules,
+    highFrequencyRules,
+    recentRules,
+    sceneOptions,
+    sortedQuickRules,
+    quickAddRules,
+    quickDeductRules,
+    moreRules,
+    selectedRule,
+    handleRuleSelect,
+  } = evaluationRules;
+
+  const reloadStudentHonorRecords = useCallback(async (studentId: number, classId: number) => {
+    setStudentHonorsLoading(true);
+    try {
+      const response = await adminApi.honorRecords(token, {
+        targetType: 'student',
+        studentId,
+        classId,
+      });
+      setStudentHonorRecords(
+        [...response.data].sort(
+          (left, right) => new Date(right.grantedAt).getTime() - new Date(left.grantedAt).getTime(),
+        ),
+      );
+    } catch {
+      setStudentHonorRecords([]);
+    } finally {
+      setStudentHonorsLoading(false);
+    }
+  }, [token]);
+
+  function applyScoreOverridesFromItems(
+    items: Array<{ studentProfile: { studentId: number | null; currentScore: number } }>,
+  ) {
+    setStudentScoreOverrides((prev) => {
+      const next = { ...prev };
+      items.forEach((item) => {
+        if (item.studentProfile.studentId != null) {
+          next[item.studentProfile.studentId] = item.studentProfile.currentScore;
+        }
+      });
+      return next;
+    });
+  }
+
+  async function refreshScoreModalAfterSubmit(options: {
+    mode: EvaluationMode;
+    selectedStudentId: number | null;
+    batchItems?: Array<{ studentProfile: { studentId: number | null; currentScore: number } }>;
+  }) {
+    await reloadCurrentClassData();
+    void onSaved();
+    if (options.batchItems?.length) {
+      applyScoreOverridesFromItems(options.batchItems);
+    }
+    if (options.mode === 'single' && options.selectedStudentId) {
+      void loadModalScoreRecords(options.selectedStudentId);
+    }
+  }
+
+  const loadModalScoreRecords = useCallback(
+    async (studentId: number) => {
+      if (!selectedClassId) {
+        setModalScoreRecords([]);
+        return;
+      }
+      try {
+        const response = await adminApi.scoreRecords(token, {
+          classId: selectedClassId,
+          studentId,
+          ...(isSubjectTeacher && activeSubjectView?.subjectCode ? { subjectCode: activeSubjectView.subjectCode } : {}),
+        });
+        setModalScoreRecords(response.data);
+      } catch {
+        setModalScoreRecords([]);
+      }
+    },
+    [activeSubjectView?.subjectCode, isSubjectTeacher, selectedClassId, token],
+  );
+
+  function syncScoreSelection(target: ScoreTarget) {
+    if (target.type === 'single') {
+      setMode('single');
+      setSelectedStudentId(target.studentId);
+      setRecordStudentFilter(target.studentId);
+    } else if (target.type === 'batch') {
+      setMode('batch');
+      setSelectedStudentIds(target.studentIds);
+      setRecordStudentFilter('all');
+    } else {
+      setMode('group');
+      setSelectedGroupId(target.groupId);
+      setRecordStudentFilter('all');
+    }
+  }
+
+  function openScoreModal(target: ScoreTarget, tab: ScoreModalTab = 'score') {
+    syncScoreSelection(target);
+    setScoreModalTarget(target);
+    setScoreModalTab(tab);
+    if (target.type === 'single' && selectedClassId) {
+      void reloadStudentHonorRecords(target.studentId, selectedClassId);
+      void loadModalScoreRecords(target.studentId);
+    } else {
+      setStudentHonorRecords([]);
+      setModalScoreRecords([]);
+    }
+  }
+
+  function closeScoreModal() {
+    setScoreModalTarget(null);
+    setModalScoreRecords([]);
+  }
+
+  function openStudentHonorGrant(studentId: number, _studentName: string) {
+    if (!selectedClassId) return;
+    openScoreModal({ type: 'single', studentId }, 'honor');
+  }
+
+  function handleStudentCardClick(studentId: number) {
+    if (mode !== 'single') return;
+    openScoreModal({ type: 'single', studentId });
+  }
+
+  function handleOpenBatchScore() {
+    if (selectedStudentIds.length === 0) {
+      setSubmitError('请至少选择一名学生');
+      return;
+    }
+    openScoreModal({ type: 'batch', studentIds: [...selectedStudentIds] });
+  }
+
+  function handleOpenGroupScore() {
+    if (!selectedGroupId) {
+      setSubmitError('请先选择小组');
+      return;
+    }
+    openScoreModal({ type: 'group', groupId: selectedGroupId });
+  }
+
+  function handleGroupOverviewClick(groupId: number) {
+    setSelectedGroupId(groupId);
+    openGroupScoreManage(groupId);
+  }
+
+  useEffect(() => {
+    if (isClassEvaluationPage || !scoreModalTarget || scoreModalTarget.type !== 'single' || !selectedClassId) {
+      if (!scoreModalTarget) {
+        setStudentHonorRecords([]);
+      }
+      return;
+    }
+    void reloadStudentHonorRecords(scoreModalTarget.studentId, selectedClassId);
+  }, [isClassEvaluationPage, reloadStudentHonorRecords, scoreModalTarget, selectedClassId]);
+
   const availableSubjectFilters = useMemo(() => {
     const currentSubjectCodes = selectedClassId ? subjectCodesByClass.get(selectedClassId) ?? [] : [];
     return ['all', ...expandRuleSubjectCodes(currentSubjectCodes)];
   }, [selectedClassId, subjectCodesByClass]);
-
-  const availableRules = useMemo(() => {
-    const currentSubjectCodes = selectedClassId ? subjectCodesByClass.get(selectedClassId) ?? [] : [];
-    return rules.filter((item) => {
-      if (item.scoreTarget !== 'student') return false;
-      if (!item.adminEnabled) return false;
-      if (scoreTypeFilter !== 'all' && item.scoreType !== scoreTypeFilter) return false;
-      if (sceneFilter !== 'all' && item.sceneCode !== sceneFilter) return false;
-      if (item.moduleType === 'subject' && !subjectFilterMatchesRule(subjectFilter, item.subjectCode)) return false;
-      if (ruleKeyword.trim()) {
-        const keyword = ruleKeyword.trim().toLowerCase();
-        const haystack = [item.name, item.subjectCode, item.tag, item.dimension, item.description]
-          .filter(Boolean)
-          .join(' ')
-          .toLowerCase();
-        if (!haystack.includes(keyword)) return false;
-      }
-      if (item.moduleType === 'general') return true;
-      if (['super_admin', 'school_admin', 'academic_admin', 'moral_admin', 'grade_admin'].includes(user?.roleCode ?? '')) return true;
-      if (user?.roleCode === 'homeroom_teacher' && currentSubjectCodes.length === 0) return false;
-      return canUseSubjectRule(currentSubjectCodes, item.subjectCode);
-    });
-  }, [ruleKeyword, rules, sceneFilter, scoreTypeFilter, selectedClassId, subjectCodesByClass, subjectFilter, user?.roleCode]);
 
   const availableClassRules = useMemo(() => {
     const classRules = rules.filter((item) => {
       if (!item.adminEnabled || item.scoreTarget !== 'class') return false;
       if (item.moduleType !== 'general') return false;
       if (scoreTypeFilter !== 'all' && item.scoreType !== scoreTypeFilter) return false;
-      if (sceneFilter !== 'all' && item.sceneCode !== sceneFilter) return false;
       if (ruleKeyword.trim()) {
         const keyword = ruleKeyword.trim().toLowerCase();
         const haystack = [item.name, item.subjectCode, item.tag, item.dimension, item.description]
@@ -266,32 +585,7 @@ export function EvaluationPage({
     return Array.from(deduped.values());
   }, [ruleKeyword, rules, sceneFilter, scoreTypeFilter]);
 
-  const highFrequencyRules = useMemo(
-    () => availableRules.filter((item) => item.isHighFrequency).sort((a, b) => Number(b.adminEnabled) - Number(a.adminEnabled)),
-    [availableRules],
-  );
-
-  const recentRules = useMemo(
-    () =>
-      recentRuleIds
-        .map((id) => availableRules.find((item) => item.id === id))
-        .filter((item): item is ScoreRule => Boolean(item))
-        .slice(0, 6),
-    [availableRules, recentRuleIds],
-  );
-
-  const sceneOptions = useMemo(() => {
-    const sceneSet = new Set(
-      rules
-        .filter((item) => item.adminEnabled)
-        .map((item) => item.sceneCode)
-        .filter(Boolean),
-    );
-    return ruleSceneOptions.filter((item) => sceneSet.has(item.value));
-  }, [rules]);
-
   const activeRules = isClassEvaluationPage ? availableClassRules : availableRules;
-  const selectedRule = activeRules.find((item) => item.id === selectedRuleId) ?? null;
   const positiveCount = records.filter((item) => item.scoreDelta > 0).length;
   const negativeCount = records.filter((item) => item.scoreDelta < 0).length;
   const averageScore = classStudents.length
@@ -333,7 +627,7 @@ export function EvaluationPage({
   }, [availableClasses, availableSubjectFilters, isSubjectTeacher, searchParams, subjectFilter]);
 
   useEffect(() => {
-    if (!selectedClassId) return;
+    if (!selectedClassId || isClassEvaluationPage) return;
     const queryStudentId = searchParams.get('studentId');
     const parsedStudentId = queryStudentId ? Number(queryStudentId) : null;
 
@@ -341,12 +635,33 @@ export function EvaluationPage({
       setSelectedStudentId(parsedStudentId);
       if (mode === 'batch') {
         setSelectedStudentIds([parsedStudentId]);
+        return;
       }
-    } else {
-      setSelectedStudentId((prev) => (classStudents.some((item) => item.id === prev) ? prev : classStudents[0]?.id ?? null));
-      setSelectedStudentIds((prev) => prev.filter((item) => classStudents.some((student) => student.id === item)));
+      if (mode === 'single') {
+        syncScoreSelection({ type: 'single', studentId: parsedStudentId });
+        setScoreModalTarget({ type: 'single', studentId: parsedStudentId });
+        setScoreModalTab('score');
+        void reloadStudentHonorRecords(parsedStudentId, selectedClassId);
+        void loadModalScoreRecords(parsedStudentId);
+      }
+      return;
     }
-  }, [classStudents, mode, searchParams, selectedClassId]);
+
+    setSelectedStudentIds((prev) => prev.filter((item) => classStudents.some((student) => student.id === item)));
+  }, [
+    classStudents,
+    isClassEvaluationPage,
+    loadModalScoreRecords,
+    mode,
+    reloadStudentHonorRecords,
+    searchParams,
+    selectedClassId,
+  ]);
+
+  useEffect(() => {
+    if (isClassEvaluationPage) return;
+    setRecordStudentFilter(mode === 'single' && selectedStudentId ? selectedStudentId : 'all');
+  }, [isClassEvaluationPage, mode, selectedStudentId]);
 
   useEffect(() => {
     if (!selectedClassId) return;
@@ -374,7 +689,7 @@ export function EvaluationPage({
     setSubmitError(null);
 
     Promise.all([
-      adminApi.scoreRecords(token, { classId: selectedClassId }),
+      adminApi.scoreRecords(token, scoreRecordQuery),
       adminApi.classGroups(token, selectedClassId),
       canManageClassScore ? adminApi.classScoreRecords(token, { classId: selectedClassId }) : Promise.resolve({ data: [] as ClassScoreRecord[] }),
     ])
@@ -398,7 +713,176 @@ export function EvaluationPage({
     return () => {
       active = false;
     };
-  }, [canManageClassScore, selectedClassId, selectedGroupId, token]);
+  }, [canManageClassScore, scoreRecordQuery, selectedClassId, selectedGroupId, token]);
+
+  useEffect(() => {
+    if (!selectedClassId || isClassEvaluationPage) {
+      setScoreSummaryRows([]);
+      setScoreSummaryError(null);
+      setScoreSummaryLoading(false);
+      return;
+    }
+    let active = true;
+    setScoreSummaryLoading(true);
+    setScoreSummaryError(null);
+
+    const request = isSubjectTeacher && activeSubjectView
+      ? adminApi.teacherReviewContext(token, {
+          classId: activeSubjectView.classId,
+          subjectCode: activeSubjectView.subjectCode,
+          startDate: summaryStartDate,
+          endDate: summaryEndDate,
+        }).then((response) => response.data.scoreDetailSummary as TeacherReviewContext['scoreDetailSummary'])
+      : adminApi.analyticsSummary(token, {
+          classId: selectedClassId,
+          startDate: summaryStartDate,
+          endDate: summaryEndDate,
+        }).then((response) => response.data.scoreDetailSummary ?? []);
+
+    request
+      .then((rows) => {
+        if (!active) return;
+        setScoreSummaryRows(rows);
+      })
+      .catch((err) => {
+        if (!active) return;
+        setScoreSummaryRows([]);
+        setScoreSummaryError(err instanceof Error ? err.message : '评分明细汇总加载失败');
+      })
+      .finally(() => {
+        if (active) setScoreSummaryLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [
+    activeSubjectView,
+    isClassEvaluationPage,
+    isSubjectTeacher,
+    selectedClassId,
+    summaryEndDate,
+    summaryStartDate,
+    token,
+  ]);
+
+  useEffect(() => {
+    if (!groupScoreManageOpen || !selectedClassId) return;
+    void refreshGroupScoreArtifacts(groupScoreManageTargetId);
+  }, [groupScoreManageOpen, groupScoreManageTargetId, groupScoreRecordFilter, selectedClassId]);
+
+  function shiftDate(date: string, offsetDays: number) {
+    const d = new Date(`${date}T00:00:00`);
+    d.setDate(d.getDate() + offsetDays);
+    return d.toISOString().slice(0, 10);
+  }
+
+  function applySummaryQuickRange(key: '7d' | '30d' | 'month') {
+    if (key === '7d') {
+      setSummaryStartDate(shiftDate(today, -6));
+      setSummaryEndDate(today);
+      return;
+    }
+    if (key === '30d') {
+      setSummaryStartDate(shiftDate(today, -29));
+      setSummaryEndDate(today);
+      return;
+    }
+    setSummaryStartDate(`${today.slice(0, 8)}01`);
+    setSummaryEndDate(today);
+  }
+
+  function formatSignedScore(value: number) {
+    return `${value > 0 ? '+' : ''}${value}`;
+  }
+
+  function formatGroupScoreRecordTime(value: string | null) {
+    if (!value) return '';
+    return new Intl.DateTimeFormat('zh-CN', {
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(new Date(value));
+  }
+
+  function openGroupScoreManage(groupId: number) {
+    setGroupScoreManageTargetId(groupId);
+    setGroupScoreRecordFilter('current');
+    setGroupScoreDeltaInput('');
+    setGroupScoreRemarkInput('');
+    setGroupScoreRecordsError(null);
+    setGroupScoreManageOpen(true);
+  }
+
+  function closeGroupScoreManage() {
+    setGroupScoreManageOpen(false);
+    setGroupScoreRecordFilter('current');
+    setGroupScoreDeltaInput('');
+    setGroupScoreRemarkInput('');
+    setGroupScoreRecordsError(null);
+  }
+
+  async function handleGroupScoreAdjustSubmit() {
+    if (!selectedClassId || !groupScoreManageTargetId || groupScoreSubmitLoading) return;
+    const scoreDelta = Number.parseInt(groupScoreDeltaInput.trim(), 10);
+    const remark = groupScoreRemarkInput.trim();
+    if (!Number.isInteger(scoreDelta) || scoreDelta === 0) {
+      setGroupScoreRecordsError('分值须为非 0 整数');
+      return;
+    }
+    if (!remark) {
+      setGroupScoreRecordsError('请填写事由');
+      return;
+    }
+    setGroupScoreSubmitLoading(true);
+    setGroupScoreRecordsError(null);
+    try {
+      await adminApi.adjustGroupScore(token, selectedClassId, {
+        classGroupId: groupScoreManageTargetId,
+        scoreDelta,
+        remark,
+        sourceTerminal: 'admin',
+      });
+      setGroupScoreDeltaInput('');
+      setGroupScoreRemarkInput('');
+      await refreshGroupScoreArtifacts(groupScoreManageTargetId);
+      setSubmitSuccess('小组积分已更新');
+    } catch (err) {
+      setGroupScoreRecordsError(err instanceof Error ? err.message : '调整小组积分失败');
+    } finally {
+      setGroupScoreSubmitLoading(false);
+    }
+  }
+
+  async function handleResetAllGroupScores() {
+    if (!selectedClassId || groupScoreResetLoading) return;
+    const hasNonZero = groupScoreRankingRows.some((item) => item.groupScore !== 0);
+    if (!hasNonZero) {
+      setGroupScoreRecordsError('当前各小组积分均为 0');
+      return;
+    }
+    const confirmed = await confirm({
+      title: '一键清零小组积分',
+      message: `确认将${selectedClass ? `${selectedClass.gradeName}${selectedClass.name}` : '当前班级'}的全部小组当前积分清零吗？\n此操作会保留积分记录，并为每个已清零小组写入一条清零记录。`,
+      confirmLabel: '确认清零',
+      cancelLabel: '取消',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
+    setGroupScoreResetLoading(true);
+    setGroupScoreRecordsError(null);
+    try {
+      await adminApi.resetGroupScores(token, selectedClassId, { sourceTerminal: 'admin' });
+      await refreshGroupScoreArtifacts(groupScoreManageTargetId);
+      setSubmitSuccess('全部小组积分已清零');
+    } catch (err) {
+      setGroupScoreRecordsError(err instanceof Error ? err.message : '小组积分清零失败');
+    } finally {
+      setGroupScoreResetLoading(false);
+    }
+  }
 
   function toggleBatchStudent(studentId: number) {
     setSelectedStudentIds((prev) =>
@@ -410,11 +894,6 @@ export function EvaluationPage({
     setSelectedClassScoreIds((prev) =>
       prev.includes(classId) ? prev.filter((item) => item !== classId) : [...prev, classId],
     );
-  }
-
-  function handleRuleSelect(ruleId: number) {
-    setSelectedRuleId(ruleId);
-    setRecentRuleIds((prev) => [ruleId, ...prev.filter((item) => item !== ruleId)].slice(0, 8));
   }
 
   function getSelectionError() {
@@ -447,13 +926,99 @@ export function EvaluationPage({
   async function reloadCurrentClassData() {
     if (!selectedClassId) return;
     const [recordResponse, groupResponse, classRecordResponse] = await Promise.all([
-      adminApi.scoreRecords(token, { classId: selectedClassId }),
+      adminApi.scoreRecords(token, scoreRecordQuery),
       adminApi.classGroups(token, selectedClassId),
       canManageClassScore ? adminApi.classScoreRecords(token, { classId: selectedClassId }) : Promise.resolve({ data: [] as ClassScoreRecord[] }),
     ]);
     setRecords(recordResponse.data);
     setGroups(groupResponse.data);
     setClassScoreRecords(classRecordResponse.data);
+  }
+
+  function applySummaryStudentToRecords(studentId: number) {
+    setRecordStudentFilter(studentId);
+    setRecordStartDate(summaryStartDate);
+    setRecordEndDate(summaryEndDate);
+    setRecordKeyword('');
+  }
+
+  async function loadGroupScoreArtifacts(classId: number, focusGroupId?: number | null) {
+    const [rankingResponse, recordsResponse] = await Promise.all([
+      adminApi.groupScoreRanking(token, classId),
+      adminApi.groupScoreRecords(token, classId, focusGroupId ?? undefined),
+    ]);
+    setGroupScoreRankingRows(rankingResponse.data);
+    setGroupScoreRecords(recordsResponse.data);
+  }
+
+  async function refreshGroupScoreArtifacts(focusGroupId?: number | null) {
+    if (!selectedClassId) return;
+    setGroupScoreRecordsLoading(true);
+    setGroupScoreRecordsError(null);
+    try {
+      const targetGroupId = groupScoreRecordFilter === 'all' ? null : (focusGroupId ?? groupScoreManageTargetId);
+      await loadGroupScoreArtifacts(selectedClassId, targetGroupId);
+      await reloadCurrentClassData();
+    } catch (err) {
+      setGroupScoreRecordsError(err instanceof Error ? err.message : '小组积分数据加载失败');
+    } finally {
+      setGroupScoreRecordsLoading(false);
+    }
+  }
+
+  function openReverseModal(record: ScoreRecord) {
+    const student = students.find((item) => item.id === record.studentId);
+    setReverseTarget({
+      record,
+      studentName: student?.name ?? `学生#${record.studentId}`,
+      currentScore: student?.currentScore ?? null,
+    });
+  }
+
+  async function handleReverseConfirm(remark: string) {
+    if (!reverseTarget || reverseLoading) return;
+    setReverseLoading(true);
+    setSubmitError(null);
+    try {
+      const response = await adminApi.reverseScoreRecord(token, reverseTarget.record.id, { remark });
+      await Promise.all([onSaved(), reloadCurrentClassData()]);
+      setRecentSubmitRecords((prev) => prev.filter((item) => item.scoreRecordId !== reverseTarget.record.id));
+      setReverseTarget(null);
+      setSubmitSuccess(
+        `评价已撤销，${reverseTarget.studentName} 当前积分 ${response.data.studentProfile.currentScore} 分`,
+      );
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : '撤销评价失败');
+      throw err;
+    } finally {
+      setReverseLoading(false);
+    }
+  }
+
+  function buildRecentSubmitRecordsFromBatch(
+    items: Array<{
+      scoreRecordId: number;
+      scoreDelta: number;
+      studentProfile: { studentId: number | null; currentScore: number };
+    }>,
+    rule: ScoreRule,
+    studentIds: number[],
+  ): RecentSubmitRecord[] {
+    return items
+      .filter((item) => item.studentProfile.studentId != null)
+      .map((item) => {
+        const studentId = Number(item.studentProfile.studentId);
+        const student = classStudents.find((row) => row.id === studentId) ?? students.find((row) => row.id === studentId);
+        return {
+          scoreRecordId: item.scoreRecordId,
+          studentId,
+          studentName: student?.name ?? `学生#${studentId}`,
+          ruleName: rule.name,
+          scoreDelta: item.scoreDelta,
+          currentScore: item.studentProfile.currentScore,
+        };
+      })
+      .filter((item) => studentIds.length === 0 || studentIds.includes(item.studentId));
   }
 
   async function submitEvaluation(rule: ScoreRule, remark: string) {
@@ -463,40 +1028,64 @@ export function EvaluationPage({
     setSubmitSuccess(null);
 
     try {
+      let submitBatchItems:
+        | Array<{ studentProfile: { studentId: number | null; currentScore: number } }>
+        | undefined;
+
       if (mode === 'single') {
         if (!selectedStudentId) throw new Error('请先选择学生');
-        await adminApi.createScoreRecord(token, {
+        const response = await adminApi.createScoreRecord(token, {
           classId: selectedClassId,
           studentId: selectedStudentId,
           ruleId: rule.id,
           remark: remark.trim() || undefined,
           sourceTerminal: 'admin',
         });
+        const student = classStudents.find((item) => item.id === selectedStudentId);
+        setRecentSubmitRecords([
+          {
+            scoreRecordId: response.data.scoreRecordId,
+            studentId: selectedStudentId,
+            studentName: student?.name ?? `学生#${selectedStudentId}`,
+            ruleName: rule.name,
+            scoreDelta: response.data.scoreDelta,
+            currentScore: response.data.studentProfile.currentScore,
+          },
+        ]);
+        submitBatchItems = [{ studentProfile: response.data.studentProfile }];
       }
 
       if (mode === 'batch') {
         if (selectedStudentIds.length === 0) throw new Error('请至少选择一名学生');
-        await adminApi.createScoreRecordBatch(token, {
+        const response = await adminApi.createScoreRecordBatch(token, {
           classId: selectedClassId,
           studentIds: selectedStudentIds,
           ruleId: rule.id,
           remark: remark.trim() || undefined,
           sourceTerminal: 'admin',
         });
+        setRecentSubmitRecords(buildRecentSubmitRecordsFromBatch(response.data.items, rule, selectedStudentIds));
+        submitBatchItems = response.data.items;
       }
 
       if (mode === 'group') {
         if (!selectedGroupId) throw new Error('当前班级暂无可评价小组');
-        await adminApi.createScoreRecordGroup(token, {
+        const response = await adminApi.createScoreRecordGroup(token, {
           classId: selectedClassId,
           classGroupId: selectedGroupId,
           ruleId: rule.id,
           remark: remark.trim() || undefined,
           sourceTerminal: 'admin',
         });
+        setRecentSubmitRecords(buildRecentSubmitRecordsFromBatch(response.data.items, rule, []));
+        submitBatchItems = response.data.items;
       }
 
-      await Promise.all([onSaved(), reloadCurrentClassData()]);
+      await refreshScoreModalAfterSubmit({
+        mode,
+        selectedStudentId: mode === 'single' ? selectedStudentId : null,
+        batchItems: submitBatchItems,
+      });
       if (mode === 'batch') setSelectedStudentIds([]);
       setConfirmRule(null);
       setConfirmRemark('');
@@ -551,43 +1140,6 @@ export function EvaluationPage({
     }
   }
 
-  const recentRuleOrder = useMemo(() => {
-    const order = new Map<number, number>();
-    recentRuleIds.forEach((id, index) => {
-      order.set(id, index);
-    });
-    return order;
-  }, [recentRuleIds]);
-
-  const sortedQuickRules = useMemo(() => {
-    const quickRules = highFrequencyRules.slice().sort((left, right) => {
-      const leftRecent = recentRuleOrder.get(left.id);
-      const rightRecent = recentRuleOrder.get(right.id);
-      if (leftRecent !== undefined || rightRecent !== undefined) {
-        if (leftRecent === undefined) return 1;
-        if (rightRecent === undefined) return -1;
-        return leftRecent - rightRecent;
-      }
-      return right.scoreValue - left.scoreValue;
-    });
-
-    return {
-      add: quickRules.filter((item) => item.scoreType === 'add'),
-      deduct: quickRules.filter((item) => item.scoreType === 'deduct'),
-    };
-  }, [highFrequencyRules, recentRuleOrder]);
-
-  const quickAddRules = useMemo(
-    () => (showAllQuickAdd ? sortedQuickRules.add : sortedQuickRules.add.slice(0, 4)),
-    [showAllQuickAdd, sortedQuickRules.add],
-  );
-
-  const quickDeductRules = useMemo(
-    () => (showAllQuickDeduct ? sortedQuickRules.deduct : sortedQuickRules.deduct.slice(0, 4)),
-    [showAllQuickDeduct, sortedQuickRules.deduct],
-  );
-
-  const moreRules = useMemo(() => availableRules.slice(0, 36), [availableRules]);
   const classRuleCards = useMemo(() => availableClassRules.slice(0, 36), [availableClassRules]);
   const groupedClassRuleCards = useMemo(() => {
     const groups = new Map<string, { metric: string; add?: ScoreRule; deduct?: ScoreRule }>();
@@ -743,6 +1295,7 @@ export function EvaluationPage({
     <Shell
       title={rolePresentation.title}
       subtitle={rolePresentation.subtitle}
+      loading={loading || pageLoading}
       user={user}
       status={
         <>
@@ -750,6 +1303,46 @@ export function EvaluationPage({
           {error ? <div className="status-card error">{error}</div> : null}
           {submitError ? <div className="status-card error">{submitError}</div> : null}
           {submitSuccess ? <div className="status-card success">{submitSuccess}</div> : null}
+          {!isClassEvaluationPage && recentSubmitRecords.length > 0 ? (
+            <div className="status-card evaluation-recent-reverse-card">
+              <div className="evaluation-recent-reverse-head">
+                <strong>{recentSubmitRecords.length === 1 ? '本次评价已提交' : `本次已为 ${recentSubmitRecords.length} 名学生评价`}</strong>
+                <button type="button" className="score-record-link-button" onClick={() => setRecentSubmitRecords([])}>
+                  关闭
+                </button>
+              </div>
+              <div className="evaluation-recent-reverse-list">
+                {recentSubmitRecords.map((item) => (
+                  <div className="evaluation-recent-reverse-item" key={item.scoreRecordId}>
+                    <span>
+                      {item.studentName} · {formatScoreRecordLabel({ ruleName: item.ruleName } as ScoreRecord)} · {formatScoreDelta(item.scoreDelta)}
+                    </span>
+                    <div className="evaluation-recent-reverse-actions">
+                      {allowGrantStudentHonors && !isClassEvaluationPage ? (
+                        <button
+                          type="button"
+                          className="score-record-reverse-button"
+                          onClick={() => openStudentHonorGrant(item.studentId, item.studentName)}
+                        >
+                          颁发荣誉
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        className="score-record-reverse-button"
+                        onClick={() => {
+                          const matched = records.find((row) => row.id === item.scoreRecordId);
+                          if (matched) openReverseModal(matched);
+                        }}
+                      >
+                        撤销本次
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </>
       }
     >
@@ -831,7 +1424,7 @@ export function EvaluationPage({
           <div className={`std-metric-card std-metric-card--amber${!isClassEvaluationPage ? '' : ''}`}>
             <div className="std-metric-card__top">
               <div className="std-metric-card__icon"><span className="sec-metric-glyph">记</span></div>
-              <span className="std-metric-card__label">{isClassEvaluationPage ? '最近班级评价' : '最近学生评价'}</span>
+              <span className="std-metric-card__label">{isClassEvaluationPage ? '最近班级评价' : '评价记录'}</span>
             </div>
             <div className="std-metric-card__value">
               {isClassEvaluationPage ? classScoreRecords.length : records.length}
@@ -966,25 +1559,7 @@ export function EvaluationPage({
                         onChange={(event) => setRuleKeyword(event.target.value)}
                         placeholder="搜索班级评价规则，例如：卫生、纪律、升旗"
                       />
-                      <div className="security-chip-row">
-                        <button
-                          type="button"
-                          className={`security-chip${sceneFilter === 'all' ? ' active' : ''}`}
-                          onClick={() => setSceneFilter('all')}
-                        >
-                          全部场景
-                        </button>
-                        {sceneOptions.map((item) => (
-                          <button
-                            key={item.value}
-                            type="button"
-                            className={`security-chip${sceneFilter === item.value ? ' active' : ''}`}
-                            onClick={() => setSceneFilter(item.value)}
-                          >
-                            {item.label}
-                          </button>
-                        ))}
-                      </div>
+
                       {classRecentRules.length > 0 ? (
                         <div className="evaluation-rule-section">
                           <div className="evaluation-rule-section-title">最近使用</div>
@@ -1083,255 +1658,134 @@ export function EvaluationPage({
               </div>
             </>
           ) : (
-            <>
-
-          <div className="evaluation-mode-grid">
-            {modeOptions.map((item) => (
-              <button
-                key={item.value}
-                type="button"
-                className={`evaluation-mode-card${mode === item.value ? ' active' : ''}`}
-                onClick={() => setMode(item.value)}
-              >
-                <strong>{item.label}</strong>
-                <span>{item.desc}</span>
-              </button>
-            ))}
-          </div>
-
-          <div className="detail-grid">
-            <div className="detail-card">
-              <h4>评价对象</h4>
-              {mode === 'single' ? (
-                <select value={selectedStudentId ?? ''} onChange={(event) => setSelectedStudentId(Number(event.target.value))}>
-                  {classStudents.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name} · {item.currentScore} 分
-                    </option>
-                  ))}
-                </select>
-              ) : null}
-              {mode === 'batch' ? (
-                <div className="evaluation-student-grid">
-                  {classStudents.map((item) => (
-                    <label key={item.id} className={`evaluation-student-card${selectedStudentIds.includes(item.id) ? ' active' : ''}`}>
-                      <input
-                        type="checkbox"
-                        checked={selectedStudentIds.includes(item.id)}
-                        onChange={() => toggleBatchStudent(item.id)}
-                      />
-                      <span>{item.name}</span>
-                      <b>{item.currentScore} 分</b>
-                    </label>
-                  ))}
-                </div>
-              ) : null}
-              {mode === 'group' ? (
-                <select value={selectedGroupId ?? ''} onChange={(event) => setSelectedGroupId(Number(event.target.value))}>
-                  {groups.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      第{item.groupNo}组 · {item.name} · {item.studentCount}人
-                    </option>
-                  ))}
-                </select>
-              ) : null}
-            </div>
-
-            <div className="detail-card">
-              <h4>规则选择</h4>
-              <div className="evaluation-action-board">
-                <div className="evaluation-action-header">
+            <div className="evaluation-classroom">
+              <EvaluationToolbar
+                keyword={studentKeyword}
+                onKeywordChange={setStudentKeyword}
+                sort={studentSort}
+                onSortChange={setStudentSort}
+                groupFilter={groupFilter}
+                onGroupFilterChange={setGroupFilter}
+                groups={groups}
+                mode={mode}
+                onModeChange={(nextMode) => {
+                  setMode(nextMode);
+                  if (nextMode !== 'batch') {
+                    setSelectedStudentIds([]);
+                  }
+                }}
+                selectedGroupId={selectedGroupId}
+                onGroupIdChange={setSelectedGroupId}
+                selectedCount={selectedStudentIds.length}
+                onOpenBatchScore={handleOpenBatchScore}
+                onOpenGroupScore={handleOpenGroupScore}
+                studentCount={classStudents.length}
+              />
+              <div className="evaluation-student-grid-wrap">
+                <EvaluationStudentGrid
+                  students={displayClassStudents}
+                  groups={groups}
+                  mode={mode}
+                  keyword={studentKeyword}
+                  groupFilter={groupFilter}
+                  sort={studentSort}
+                  selectedStudentIds={selectedStudentIds}
+                  onStudentClick={handleStudentCardClick}
+                  onToggleSelect={toggleBatchStudent}
+                  loading={pageLoading}
+                />
+              </div>
+              <div className="detail-card evaluation-score-summary-panel evaluation-score-summary-panel--main">
+                <div className="evaluation-score-summary-head">
                   <div>
-                    <strong>{selectionSummary.title}</strong>
-                    <p>{selectionSummary.subtitle}</p>
+                    <div className="panel-title">{scoreSummaryTitle}</div>
+                    <div className="evaluation-score-summary-subtitle">{scoreSummaryDescription}</div>
                   </div>
                 </div>
-                <div className="evaluation-rules-head">
-                  <div className="evaluation-rules-head-copy">
-                    <strong>{showMoreRules ? '全部规则' : '快捷规则'}</strong>
-                    <span>{showMoreRules ? '按加扣分、场景和关键词筛选后直接点选。' : '优先展示高频和最近常用规则。'}</span>
-                  </div>
+                <div className="evaluation-score-summary-toolbar">
+                  <DatePickerField
+                    wrapperClassName="picker-input-inline"
+                    className="filter-select filter-select--compact"
+                    aria-label="评分汇总开始日期"
+                    value={summaryStartDate}
+                    max={summaryEndDate}
+                    onChange={setSummaryStartDate}
+                  />
+                  <DatePickerField
+                    wrapperClassName="picker-input-inline"
+                    className="filter-select filter-select--compact"
+                    aria-label="评分汇总结束日期"
+                    value={summaryEndDate}
+                    min={summaryStartDate}
+                    max={today}
+                    onChange={setSummaryEndDate}
+                  />
+                  <input
+                    className="evaluation-rule-search evaluation-score-summary-search"
+                    value={summaryStudentKeyword}
+                    onChange={(event) => setSummaryStudentKeyword(event.target.value)}
+                    placeholder="按学生姓名筛选"
+                  />
+                </div>
+                <div className="security-chip-row evaluation-score-summary-chips">
                   <button
                     type="button"
-                    className={`ghost-button evaluation-more-toggle${showMoreRules ? ' active' : ''}`}
-                    onClick={() => setShowMoreRules((prev) => !prev)}
+                    className={`security-chip${summaryQuickRange === '7d' ? ' active' : ''}`}
+                    onClick={() => applySummaryQuickRange('7d')}
                   >
-                    {showMoreRules ? '返回快捷规则' : '更多规则'}
+                    近7天
+                  </button>
+                  <button
+                    type="button"
+                    className={`security-chip${summaryQuickRange === '30d' ? ' active' : ''}`}
+                    onClick={() => applySummaryQuickRange('30d')}
+                  >
+                    近30天
+                  </button>
+                  <button
+                    type="button"
+                    className={`security-chip${summaryQuickRange === 'month' ? ' active' : ''}`}
+                    onClick={() => applySummaryQuickRange('month')}
+                  >
+                    本月
                   </button>
                 </div>
-                {!showMoreRules ? (
-                  <div className="evaluation-quick-columns">
-                    <div className="evaluation-quick-section add">
-                      <div className="evaluation-quick-head">
-                        <strong>快捷加分</strong>
-                        <div className="evaluation-quick-head-actions">
-                          <span>点击后直接确认</span>
-                          {sortedQuickRules.add.length > 4 ? (
-                            <button
-                              type="button"
-                              className="evaluation-quick-toggle"
-                              onClick={() => setShowAllQuickAdd((prev) => !prev)}
-                            >
-                              {showAllQuickAdd ? '收起' : `更多 ${sortedQuickRules.add.length - 4} 条`}
-                            </button>
-                          ) : null}
+                <div className="evaluation-score-summary-period-stats">
+                  <span>本周期 {scoreSummaryPeriodStats.recordCount} 条评价</span>
+                  <span>共加 {scoreSummaryPeriodStats.totalAddScore} 分</span>
+                  <span>共扣 {scoreSummaryPeriodStats.totalDeductScore} 分</span>
+                </div>
+                {scoreSummaryError ? <div className="table-empty">{scoreSummaryError}</div> : null}
+                <div className="evaluation-score-summary-list">
+                  {scoreSummaryLoading ? (
+                    <div className="evaluation-score-summary-empty">评分明细汇总加载中...</div>
+                  ) : null}
+                  {!scoreSummaryLoading && filteredScoreSummaryRows.map((item) => (
+                    <button
+                      type="button"
+                      className={`evaluation-score-summary-card evaluation-score-summary-card--button${recordStudentFilter === item.studentId ? ' active' : ''}`}
+                      key={`score-summary-${item.studentId}`}
+                      onClick={() => applySummaryStudentToRecords(item.studentId)}
+                    >
+                      <div className="evaluation-score-summary-card-head">
+                        <div className="evaluation-score-summary-card-copy">
+                          <strong>{item.studentName}</strong>
+                          <span>{item.recordCount} 条（正向 {item.positiveCount} / 负向 {item.negativeCount}）</span>
+                        </div>
+                        <div className={`evaluation-score-summary-total ${item.totalScoreDelta < 0 ? 'deduct' : 'add'}`}>
+                          {formatSignedScore(item.totalScoreDelta)} 分
                         </div>
                       </div>
-                      <div className="evaluation-quick-grid">
-                        {quickAddRules.map((item) => (
-                          <button
-                            key={item.id}
-                            type="button"
-                            className={`evaluation-rule-card evaluation-quick-rule add${selectedRuleId === item.id ? ' active' : ''}`}
-                            onClick={() => openRuleConfirm(item)}
-                          >
-                            <strong>
-                              {item.name} +{item.scoreValue} 分
-                            </strong>
-                          </button>
-                        ))}
-                        {quickAddRules.length === 0 ? <div className="table-empty">当前没有可用的快捷加分规则。</div> : null}
-                      </div>
+                    </button>
+                  ))}
+                  {!scoreSummaryLoading && !scoreSummaryError && filteredScoreSummaryRows.length === 0 ? (
+                    <div className="evaluation-score-summary-empty">
+                      {normalizedScoreSummaryRows.length === 0 ? '当前班级暂无可展示的学生。' : '没有匹配的学生。'}
                     </div>
-                    <div className="evaluation-quick-section deduct">
-                      <div className="evaluation-quick-head">
-                        <strong>快捷扣分</strong>
-                        <div className="evaluation-quick-head-actions">
-                          <span>适合课堂即时处理</span>
-                          {sortedQuickRules.deduct.length > 4 ? (
-                            <button
-                              type="button"
-                              className="evaluation-quick-toggle"
-                              onClick={() => setShowAllQuickDeduct((prev) => !prev)}
-                            >
-                              {showAllQuickDeduct ? '收起' : `更多 ${sortedQuickRules.deduct.length - 4} 条`}
-                            </button>
-                          ) : null}
-                        </div>
-                      </div>
-                      <div className="evaluation-quick-grid">
-                        {quickDeductRules.map((item) => (
-                          <button
-                            key={item.id}
-                            type="button"
-                            className={`evaluation-rule-card evaluation-quick-rule deduct${selectedRuleId === item.id ? ' active' : ''}`}
-                            onClick={() => openRuleConfirm(item)}
-                          >
-                            <strong>
-                              {item.name} -{item.scoreValue} 分
-                            </strong>
-                          </button>
-                        ))}
-                        {quickDeductRules.length === 0 ? <div className="table-empty">当前没有可用的快捷扣分规则。</div> : null}
-                      </div>
-                    </div>
-                  </div>
-                ) : null}
-                {showMoreRules ? (
-                  <div className="evaluation-more-panel">
-                    <div className="evaluation-rule-toolbar">
-                      <div className="security-chip-row">
-                        <button
-                          type="button"
-                          className={`security-chip${scoreTypeFilter === 'add' ? ' active' : ''}`}
-                          onClick={() => setScoreTypeFilter('add')}
-                        >
-                          全部加分
-                        </button>
-                        <button
-                          type="button"
-                          className={`security-chip${scoreTypeFilter === 'deduct' ? ' active' : ''}`}
-                          onClick={() => setScoreTypeFilter('deduct')}
-                        >
-                          全部扣分
-                        </button>
-                        <button
-                          type="button"
-                          className={`security-chip${scoreTypeFilter === 'all' ? ' active' : ''}`}
-                          onClick={() => setScoreTypeFilter('all')}
-                        >
-                          全部规则
-                        </button>
-                      </div>
-                      <input
-                        className="evaluation-rule-search"
-                        value={ruleKeyword}
-                        onChange={(event) => setRuleKeyword(event.target.value)}
-                        placeholder="搜索规则名称"
-                      />
-                      {!isSubjectTeacher ? (
-                        <div className="security-chip-row">
-                          <button
-                            type="button"
-                            className={`security-chip${sceneFilter === 'all' ? ' active' : ''}`}
-                            onClick={() => setSceneFilter('all')}
-                          >
-                            全部场景
-                          </button>
-                          {sceneOptions.map((item) => (
-                            <button
-                              key={item.value}
-                              type="button"
-                              className={`security-chip${sceneFilter === item.value ? ' active' : ''}`}
-                              onClick={() => setSceneFilter(item.value)}
-                            >
-                              {item.label}
-                            </button>
-                          ))}
-                        </div>
-                      ) : null}
-                      {recentRules.length > 0 ? (
-                        <div className="evaluation-rule-section">
-                          <div className="evaluation-rule-section-title">最近使用</div>
-                          <div className="security-chip-row">
-                            {recentRules.map((item) => (
-                              <button
-                                key={item.id}
-                                type="button"
-                                className={`security-chip${selectedRuleId === item.id ? ' active' : ''}`}
-                                onClick={() => openRuleConfirm(item)}
-                              >
-                                {item.name}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      ) : null}
-                    </div>
-                    <div className="evaluation-rule-list">
-                      {moreRules.map((item) => (
-                        <button
-                          key={item.id}
-                          type="button"
-                          className={`evaluation-rule-card${selectedRuleId === item.id ? ' active' : ''}`}
-                          onClick={() => openRuleConfirm(item)}
-                        >
-                          <strong>
-                            {item.name} {item.scoreType === 'deduct' ? '-' : '+'}
-                            {item.scoreValue} 分
-                          </strong>
-                        </button>
-                      ))}
-                      {moreRules.length === 0 ? <div className="table-empty">当前筛选条件下没有可用规则。</div> : null}
-                    </div>
-                  </div>
-                ) : null}
-                {selectedRule ? (
-                  <div className="evaluation-rule-preview compact">
-                    <span className={`settings-tag${selectedRule.scoreType === 'deduct' ? ' danger' : ' success'}`}>
-                      最近选中
-                    </span>
-                    <strong>
-                      {selectedRule.name} · {selectedRule.scoreType === 'deduct' ? '-' : '+'}
-                      {selectedRule.scoreValue} 分
-                    </strong>
-                    <p>{selectedRule.description || selectedRule.aiSummaryText || '该规则暂无补充说明。'}</p>
-                  </div>
-                ) : null}
+                  ) : null}
+                </div>
               </div>
             </div>
-          </div>
-            </>
           )}
         </div>
 
@@ -1340,14 +1794,26 @@ export function EvaluationPage({
           <div className="panel admin-list-panel">
             <div className="panel-title">小组概览</div>
             <div className="mini-list">
-              {groups.length > 0 ? (
-                groups.map((item) => (
-                  <div className="mini-list-item" key={item.id}>
-                    <div>
-                      <strong>第{item.groupNo}组 · {item.name}</strong>
-                      <span>{item.studentCount} 人 · 当前 {item.currentScoreTotal} 分</span>
+              {sortedOverviewGroups.length > 0 ? (
+                sortedOverviewGroups.map((item) => (
+                  <div
+                    className="mini-list-item clickable"
+                    key={item.id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => handleGroupOverviewClick(item.id)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        handleGroupOverviewClick(item.id);
+                      }
+                    }}
+                  >
+                    <div className="evaluation-group-overview-item">
+                      <strong className="evaluation-group-overview-name">第 {groupRankMap.get(item.id) ?? '-'} 名 · {item.name}</strong>
+                      <span className="evaluation-group-overview-metric">积分 {(item.groupScore ?? 0)} 分</span>
+                      <span className="evaluation-group-overview-metric">人数 {item.studentCount} 人</span>
                     </div>
-                    <b>{item.students.map((student) => student.name).join('、') || '暂无成员'}</b>
                   </div>
                 ))
               ) : (
@@ -1389,122 +1855,339 @@ export function EvaluationPage({
 
           {!isClassEvaluationPage ? (
           <div className="panel admin-list-panel">
-            <div className="panel-title">{isClassEvaluationPage ? '最近班级评价' : '最近学生评价'}</div>
+            <div className="panel-title">评价记录</div>
+            <div className="evaluation-record-toolbar">
+              <select
+                className="filter-select filter-select--compact"
+                value={recordStudentFilter === 'all' ? 'all' : String(recordStudentFilter)}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setRecordStudentFilter(value === 'all' ? 'all' : Number(value));
+                }}
+              >
+                <option value="all">全班</option>
+                {classStudents.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+              <DatePickerField
+                wrapperClassName="picker-input-inline"
+                className="filter-select filter-select--compact"
+                aria-label="评价记录开始日期"
+                value={recordStartDate}
+                max={recordEndDate}
+                onChange={setRecordStartDate}
+              />
+              <DatePickerField
+                wrapperClassName="picker-input-inline"
+                className="filter-select filter-select--compact"
+                aria-label="评价记录结束日期"
+                value={recordEndDate}
+                min={recordStartDate}
+                max={today}
+                onChange={setRecordEndDate}
+              />
+              <div className="search-box evaluation-record-search">
+                <span className="s-icon">⌕</span>
+                <input
+                  placeholder="搜索学生或规则"
+                  value={recordKeyword}
+                  onChange={(event) => setRecordKeyword(event.target.value)}
+                />
+              </div>
+            </div>
             <div className="mini-list">
-              {isClassEvaluationPage ? (
-                classScoreRecords.slice(0, 12).map((item) => (
-                  <div className="mini-list-item" key={`${item.id}-${item.createdAt}`}>
-                    <div>
-                      <strong>
-                        {item.className} · {item.scoreDelta > 0 ? '+' : ''}
-                        {item.scoreDelta} 分
-                      </strong>
-                      <span>
-                        {item.ruleName || item.tag || item.dimension || item.sceneCode || '班级评价'} · {formatDateTime(item.createdAt)}
-                      </span>
-                    </div>
-                    <b>{item.operatorName || item.sourceRole}</b>
-                  </div>
-                ))
-              ) : records.slice(0, 12).map((item) => {
+              {displayedRecords.map((item) => {
                 const student = students.find((studentRow) => studentRow.id === item.studentId);
                 return (
-                  <div className="mini-list-item" key={`${item.id}-${item.createdAt}`}>
-                    <div>
-                      <strong>
-                        {student?.name ?? `学生#${item.studentId}`} · {item.scoreDelta > 0 ? '+' : ''}
-                        {item.scoreDelta} 分
-                      </strong>
-                      <span>
-                        {item.ruleName || item.tag || item.dimension || item.sceneCode || '评价记录'} · {formatDateTime(item.createdAt)}
-                      </span>
-                    </div>
-                    <b>{item.operatorName || item.sourceRole}</b>
-                  </div>
+                  <ScoreRecordListItem
+                    key={`${item.id}-${item.createdAt}`}
+                    record={item}
+                    studentName={student?.name ?? `学生#${item.studentId}`}
+                    showStudentName={recordStudentFilter === 'all'}
+                    canReverse={canShowScoreRecordReverse(item, user, { homeroomClassIds })}
+                    onReverse={() => openReverseModal(item)}
+                  />
                 );
               })}
-              {isClassEvaluationPage && classScoreRecords.length === 0 ? <div className="table-empty">当前班级还没有班级评价记录。</div> : null}
-              {!isClassEvaluationPage && records.length === 0 ? <div className="table-empty">当前班级还没有学生评价记录。</div> : null}
+              {displayedRecords.length === 0 ? <div className="table-empty">当前筛选条件下还没有评价记录。</div> : null}
             </div>
           </div>
           ) : null}
         </div>
       </div>
-      {confirmRule ? (
+      {!isClassEvaluationPage ? (
+        <StudentScoreModal
+          open={scoreModalTarget !== null}
+          target={scoreModalTarget}
+          initialTab={scoreModalTab}
+          students={displayClassStudents}
+          groups={groups}
+          classId={selectedClassId ?? 0}
+          className={selectedClass ? `${selectedClass.gradeName}${selectedClass.name}` : ''}
+          token={token}
+          honors={honors}
+          allowGrantHonors={allowGrantStudentHonors}
+          isSubjectTeacher={isSubjectTeacher}
+          honorRecords={studentHonorRecords}
+          honorsLoading={studentHonorsLoading}
+          recentScoreRecords={modalScoreRecords}
+          rulesPanelProps={{
+            selectedRuleId,
+            showMoreRules,
+            setShowMoreRules,
+            sortedQuickRules,
+            quickAddRules,
+            quickDeductRules,
+            showAllQuickAdd,
+            setShowAllQuickAdd,
+            showAllQuickDeduct,
+            setShowAllQuickDeduct,
+            scoreTypeFilter,
+            setScoreTypeFilter,
+            sceneFilter,
+            setSceneFilter,
+            ruleKeyword,
+            setRuleKeyword,
+            sceneOptions,
+            recentRules,
+            moreRules,
+            selectedRule,
+            onRuleClick: openRuleConfirm,
+          }}
+          onClose={closeScoreModal}
+          onHonorGranted={async () => {
+            await onSaved();
+            if (scoreModalTarget?.type === 'single' && selectedClassId) {
+              await reloadStudentHonorRecords(scoreModalTarget.studentId, selectedClassId);
+            }
+          }}
+        />
+      ) : null}
+      {groupScoreManageOpen && !isClassEvaluationPage && selectedClassId ? (
         <Modal
-          title={`${isClassEvaluationPage ? '确认班级' : '确认学生'}${confirmRule.scoreType === 'deduct' ? '扣分' : '加分'}`}
-          subtitle="确认后会立即写入评价记录，可填写补充说明。"
+          title="小组积分管理"
+          subtitle=""
+          onClose={closeGroupScoreManage}
+        >
+          <div className="group-score-manage-modal">
+            <div className="group-score-manage-layout">
+              <section className="group-score-manage-sidebar">
+                <div className="group-score-manage-section-head">
+                  <span>小组积分排行</span>
+                  <em>{selectedClass ? `${selectedClass.gradeName}${selectedClass.name} · ${groupScoreRankingRows.length} 组` : `${groupScoreRankingRows.length} 组`}</em>
+                </div>
+                <div className="group-score-manage-toolbar">
+                  <button
+                    type="button"
+                    className="group-score-reset-btn"
+                    onClick={() => void handleResetAllGroupScores()}
+                    disabled={!canManageGroupScore || groupScoreResetLoading}
+                  >
+                    {groupScoreResetLoading ? '清零中...' : '一键清零'}
+                  </button>
+                </div>
+                <div className="group-score-ranking-list">
+                  {groupScoreRankingRows.length > 0 ? (
+                    groupScoreRankingRows.map((row) => (
+                      <button
+                        type="button"
+                        key={`group-score-rank-${row.id}`}
+                        className={`group-score-ranking-item${groupScoreManageTargetId === row.id ? ' active' : ''}`}
+                        onClick={() => {
+                          setGroupScoreManageTargetId(row.id);
+                          if (groupScoreRecordFilter !== 'all') {
+                            setGroupScoreRecordFilter('current');
+                          }
+                        }}
+                      >
+                        <span className="group-score-ranking-rank">{row.rank}</span>
+                        <span className="group-score-ranking-name">{row.name}</span>
+                        <span className="group-score-ranking-score">{formatSignedScore(row.groupScore)}</span>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="group-score-ranking-empty">当前班级暂无小组。</div>
+                  )}
+                </div>
+              </section>
+              <section className="group-score-manage-main">
+                <div className="group-score-manage-current">
+                  <div className="group-score-manage-current-copy">
+                    <span className="group-score-manage-current-label">当前选中</span>
+                    <strong>{activeGroupScoreRow?.name ?? '请选择小组'}</strong>
+                    <p>
+                      {activeGroupScoreRow ? `第${activeGroupScoreRow.rank}名 · 当前 ${activeGroupScoreRow.groupScore} 分 · 累计 ${activeGroupScoreRow.groupTotalScore} 分` : '点击左侧小组后可调整积分并查看记录'}
+                    </p>
+                  </div>
+                  {activeGroupScoreRow ? (
+                    <div className={`group-score-manage-current-score ${activeGroupScoreRow.groupScore < 0 ? 'down' : 'up'}`}>
+                      <span>实时积分</span>
+                      <b>{formatSignedScore(activeGroupScoreRow.groupScore)} 分</b>
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="group-score-adjust-panel">
+                  <div className="group-score-manage-section-head">
+                    <span>积分调整</span>
+                    <em>正数加分，负数扣分，0 不允许提交</em>
+                  </div>
+                  <div className="group-score-adjust-form">
+                    <label className="group-score-adjust-field compact">
+                      <span>分值</span>
+                      <input
+                        type="number"
+                        step="1"
+                        placeholder="例如 +3 / -2"
+                        value={groupScoreDeltaInput}
+                        onChange={(event) => setGroupScoreDeltaInput(event.target.value)}
+                        disabled={!canManageGroupScore || !activeGroupScoreRow}
+                      />
+                    </label>
+                    <label className="group-score-adjust-field grow">
+                      <span>事由</span>
+                      <textarea
+                        rows={3}
+                        maxLength={255}
+                        placeholder="请填写本次小组积分调整事由，例如：合作展示优秀、值日未完成"
+                        value={groupScoreRemarkInput}
+                        onChange={(event) => setGroupScoreRemarkInput(event.target.value)}
+                        disabled={!canManageGroupScore || !activeGroupScoreRow}
+                      />
+                    </label>
+                  </div>
+                  <div className="group-score-adjust-actions">
+                    <button
+                      type="button"
+                      className="btn btn-outline"
+                      onClick={closeGroupScoreManage}
+                    >
+                      关闭
+                    </button>
+                    <button
+                      type="button"
+                      className="btn"
+                      onClick={() => void handleGroupScoreAdjustSubmit()}
+                      disabled={!canManageGroupScore || !activeGroupScoreRow || groupScoreSubmitLoading}
+                    >
+                      {groupScoreSubmitLoading ? '提交中...' : '确认调整'}
+                    </button>
+                  </div>
+                </div>
+
+                {groupScoreRecordsError ? <div className="group-score-adjust-error">{groupScoreRecordsError}</div> : null}
+
+                <div className="group-score-records-block">
+                  <div className="group-score-manage-section-head">
+                    <span>小组积分记录</span>
+                    <em>
+                      {groupScoreRecordFilter === 'all'
+                        ? `全部小组最近 ${groupScoreRecords.length} 条`
+                        : activeGroupScoreRow
+                          ? `${activeGroupScoreRow.name} 最近 ${groupScoreRecords.length} 条`
+                          : '最近记录'}
+                    </em>
+                  </div>
+                  <div className="group-score-records-filter">
+                    <div className="security-chip-row">
+                      <button
+                        type="button"
+                        className={`security-chip${groupScoreRecordFilter === 'current' ? ' active' : ''}`}
+                        onClick={() => setGroupScoreRecordFilter('current')}
+                        disabled={!activeGroupScoreRow}
+                      >
+                        当前小组
+                      </button>
+                      <button
+                        type="button"
+                        className={`security-chip${groupScoreRecordFilter === 'all' ? ' active' : ''}`}
+                        onClick={() => setGroupScoreRecordFilter('all')}
+                      >
+                        全部小组
+                      </button>
+                    </div>
+                  </div>
+                  <div className="group-score-records-list">
+                    {groupScoreRecordsLoading ? (
+                      <div className="group-score-records-empty">加载中...</div>
+                    ) : groupScoreRecords.length > 0 ? (
+                      groupScoreRecords.map((record) => (
+                        <div className="group-score-record-item" key={`group-score-record-${record.id}`}>
+                          <div className="group-score-record-item-hd">
+                            <span className="group-score-record-group">{record.groupName || `第${record.groupNo}组`}</span>
+                            <span className={`group-score-record-delta ${record.scoreDelta >= 0 ? 'up' : 'down'}`}>
+                              {formatSignedScore(record.scoreDelta)}
+                            </span>
+                          </div>
+                          <div className="group-score-record-remark">{record.remark || '—'}</div>
+                          <div className="group-score-record-meta">
+                            {(record.operatorName || '班主任')} · {formatGroupScoreRecordTime(record.occurredAt || record.createdAt)}
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="group-score-records-empty">暂无积分记录</div>
+                    )}
+                  </div>
+                </div>
+              </section>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
+      {confirmRule ? (
+        <ScoreConfirmModal
+          rule={confirmRule}
+          variant={isClassEvaluationPage ? 'class' : 'student'}
+          targetTitle={
+            isClassEvaluationPage
+              ? classMode === 'batch'
+                ? `批量班级评价 · ${selectedClassScoreIds.length} 个班级`
+                : selectedClass
+                  ? `班级评价 · ${selectedClass.gradeName} ${selectedClass.name}`
+                  : '班级评价'
+              : selectionSummary.title
+          }
+          targetSubtitle={
+            isClassEvaluationPage
+              ? classMode === 'batch'
+                ? availableClasses
+                    .filter((item) => selectedClassScoreIds.includes(item.id))
+                    .slice(0, 4)
+                    .map((item) => `${item.gradeName}${item.name}`)
+                    .join('、') || '请先选择班级'
+                : `当前班级积分 ${selectedClass?.classScore ?? 0} 分`
+              : selectionSummary.subtitle
+          }
+          confirmRemark={confirmRemark}
+          onRemarkChange={setConfirmRemark}
+          submitLoading={submitLoading}
           onClose={() => {
             if (submitLoading) return;
             setConfirmRule(null);
             setConfirmRemark('');
           }}
-        >
-          <div className="evaluation-confirm-shell">
-            <div className="evaluation-confirm-summary">
-              <div className="evaluation-confirm-item">
-                <span>评价对象</span>
-                <strong>
-                  {isClassEvaluationPage
-                    ? classMode === 'batch'
-                      ? `批量班级评价 · ${selectedClassScoreIds.length} 个班级`
-                      : selectedClass
-                        ? `班级评价 · ${selectedClass.gradeName} ${selectedClass.name}`
-                        : '班级评价'
-                    : selectionSummary.title}
-                </strong>
-                <p>
-                  {isClassEvaluationPage
-                    ? classMode === 'batch'
-                      ? availableClasses
-                          .filter((item) => selectedClassScoreIds.includes(item.id))
-                          .slice(0, 4)
-                          .map((item) => `${item.gradeName}${item.name}`)
-                          .join('、') || '请先选择班级'
-                      : `当前班级积分 ${selectedClass?.classScore ?? 0} 分`
-                    : selectionSummary.subtitle}
-                </p>
-              </div>
-              <div className="evaluation-confirm-item">
-                <span>所选规则</span>
-                <strong>
-                  {confirmRule.name} · {confirmRule.scoreType === 'deduct' ? '-' : '+'}
-                  {confirmRule.scoreValue} 分
-                </strong>
-                <p>
-                  {sceneLabelMap[confirmRule.sceneCode] ?? '通用场景'} ·{' '}
-                  {confirmRule.subjectCode ? resolveSubjectLabel(confirmRule.subjectCode) : '通用规则'}
-                </p>
-              </div>
-            </div>
-            <label className="evaluation-confirm-remark">
-              <span>备注</span>
-              <textarea
-                className="evaluation-remark"
-                value={confirmRemark}
-                onChange={(event) => setConfirmRemark(event.target.value)}
-                placeholder="可填写课堂背景、补充说明或表扬内容。"
-              />
-            </label>
-            <div className="form-actions">
-              <button type="button" className="ghost-button" onClick={() => setConfirmRule(null)} disabled={submitLoading}>
-                取消
-              </button>
-              <button
-                type="button"
-                className="toolbar-button"
-                onClick={() =>
-                  isClassEvaluationPage
-                    ? submitClassEvaluation(confirmRule, confirmRemark)
-                    : submitEvaluation(confirmRule, confirmRemark)
-                }
-                disabled={submitLoading}
-              >
-                {submitLoading ? '提交中...' : confirmRule.scoreType === 'deduct' ? '确认扣分' : '确认加分'}
-              </button>
-            </div>
-          </div>
-        </Modal>
+          onConfirm={() =>
+            isClassEvaluationPage
+              ? void submitClassEvaluation(confirmRule, confirmRemark)
+              : void submitEvaluation(confirmRule, confirmRemark)
+          }
+        />
+      ) : null}
+      {reverseTarget ? (
+        <ScoreRecordReverseModal
+          record={reverseTarget.record}
+          studentName={reverseTarget.studentName}
+          currentScore={reverseTarget.currentScore}
+          onClose={() => {
+            if (reverseLoading) return;
+            setReverseTarget(null);
+          }}
+          onConfirm={handleReverseConfirm}
+        />
       ) : null}
       </div>
     </Shell>

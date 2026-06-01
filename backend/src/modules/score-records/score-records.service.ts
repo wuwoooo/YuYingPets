@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -6,9 +7,11 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '@/prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
+import { AuthUser } from '@/common/auth/auth-user.interface';
 import { ScoreRecordCreateDto } from './dto/score-record-create.dto';
 import { ScoreRecordBatchDto } from './dto/score-record-batch.dto';
 import { ScoreRecordGroupDto } from './dto/score-record-group.dto';
+import { ScoreRecordReverseDto } from './dto/score-record-reverse.dto';
 import { toNumber } from '@/common/utils/bigint.util';
 import { TerminalSource } from '@/common/types/terminal-source.type';
 import { OperationLogService } from '../operation-log/operation-log.service';
@@ -17,6 +20,7 @@ import {
   normalizePetGrowthThresholds,
   resolveMatchedPetStage,
 } from '@/common/utils/pet-growth.util';
+import { syncUnlockedDecorationsForLevel } from '@/common/utils/pet-decoration-unlock.util';
 
 @Injectable()
 export class ScoreRecordsService {
@@ -27,11 +31,21 @@ export class ScoreRecordsService {
     private readonly realtimeService: RealtimeService,
   ) {}
 
-  async list(query: Record<string, string>) {
+  async list(authorization: string | undefined, query: Record<string, string>) {
+    const user = authorization
+      ? await this.authService.getAuthUserFromAuthorization(authorization).catch(() => null)
+      : null;
+    const classId = query.classId ? BigInt(query.classId) : undefined;
+    if (user && classId) {
+      this.authService.ensureCanAccessClass(user, classId);
+    }
+    const occurredAtFilter = this.buildOccurredAtFilter(query.startDate, query.endDate);
     const scoreRecordWhere = {
-      classId: query.classId ? BigInt(query.classId) : undefined,
+      classId,
       studentId: query.studentId ? BigInt(query.studentId) : undefined,
       subjectCode: query.subjectCode || undefined,
+      operatorId: user?.roleCode === 'subject_teacher' ? user.id : undefined,
+      occurredAt: occurredAtFilter,
     };
 
     const [scoreRows, rewardOrderRows] = await Promise.all([
@@ -39,6 +53,9 @@ export class ScoreRecordsService {
         where: scoreRecordWhere,
         include: {
           rule: {
+            select: { name: true },
+          },
+          reversedBy: {
             select: { name: true },
           },
         },
@@ -49,8 +66,10 @@ export class ScoreRecordsService {
         ? Promise.resolve([])
         : this.prisma.rewardOrder.findMany({
             where: {
-              classId: query.classId ? BigInt(query.classId) : undefined,
+              classId,
               studentId: query.studentId ? BigInt(query.studentId) : undefined,
+              operatorId: user?.roleCode === 'subject_teacher' ? user.id : undefined,
+              createdAt: this.buildCreatedAtFilter(query.startDate, query.endDate),
             },
             include: {
               reward: {
@@ -64,7 +83,7 @@ export class ScoreRecordsService {
           }),
     ]);
 
-    const scoreItems = scoreRows.map(({ rule, ...row }) => ({
+    const scoreItems = scoreRows.map(({ rule, reversedBy, ...row }) => ({
       ...row,
       id: toNumber(row.id),
       schoolId: toNumber(row.schoolId),
@@ -74,6 +93,8 @@ export class ScoreRecordsService {
       classGroupId: toNumber(row.classGroupId),
       ruleId: toNumber(row.ruleId),
       operatorId: toNumber(row.operatorId),
+      reversedById: toNumber(row.reversedById),
+      reversedByName: reversedBy?.name ?? null,
       ruleName: rule?.name ?? null,
     }));
 
@@ -99,6 +120,10 @@ export class ScoreRecordsService {
       ruleName: `兑换奖励：${row.reward.name}`,
       occurredAt: row.createdAt,
       createdAt: row.createdAt,
+      reversedAt: null,
+      reversedById: null,
+      reversedByName: null,
+      reverseRemark: null,
     }));
 
     const rows = [...scoreItems, ...rewardOrderItems]
@@ -110,6 +135,43 @@ export class ScoreRecordsService {
       message: 'ok',
       data: rows,
     };
+  }
+
+  private buildOccurredAtFilter(startDate?: string, endDate?: string): Prisma.DateTimeFilter | undefined {
+    const range = this.resolveDateRange(startDate, endDate);
+    if (!range) return undefined;
+    return {
+      gte: range.start,
+      lte: range.end,
+    };
+  }
+
+  private buildCreatedAtFilter(startDate?: string, endDate?: string): Prisma.DateTimeFilter | undefined {
+    const range = this.resolveDateRange(startDate, endDate);
+    if (!range) return undefined;
+    return {
+      gte: range.start,
+      lte: range.end,
+    };
+  }
+
+  private resolveDateRange(startDate?: string, endDate?: string) {
+    const normalizedStart = this.normalizeDateString(startDate);
+    const normalizedEnd = this.normalizeDateString(endDate);
+    if (!normalizedStart && !normalizedEnd) return null;
+
+    const start = new Date(`${normalizedStart ?? normalizedEnd}T00:00:00`);
+    const end = new Date(`${normalizedEnd ?? normalizedStart}T23:59:59.999`);
+    if (start.getTime() <= end.getTime()) {
+      return { start, end };
+    }
+    return { start: end, end: start };
+  }
+
+  private normalizeDateString(value?: string) {
+    if (!value) return null;
+    const normalized = value.trim();
+    return /^\d{4}-\d{2}-\d{2}$/.test(normalized) ? normalized : null;
   }
 
   async create(authorization: string | undefined, body: ScoreRecordCreateDto) {
@@ -381,8 +443,226 @@ export class ScoreRecordsService {
     return items;
   }
 
-  reverse(id: number) {
-    return { code: 0, message: 'ok', data: { id } };
+  async reverse(authorization: string | undefined, id: number, body: ScoreRecordReverseDto) {
+    const user = await this.authService.getAuthUserFromAuthorization(authorization);
+    if (id <= 0) {
+      throw new BadRequestException('兑换记录不可撤销，请前往奖励管理处理');
+    }
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const record = await tx.scoreRecord.findUnique({
+        where: { id: BigInt(id) },
+        include: {
+          rule: { select: { name: true } },
+        },
+      });
+      if (!record) {
+        throw new NotFoundException('评价记录不存在');
+      }
+      if (record.reversedAt) {
+        throw new BadRequestException('该记录已撤销');
+      }
+
+      await this.ensureCanReverseScore(user, record);
+      const rollbackDelta = -record.scoreDelta;
+
+      const profile = await tx.studentProfile.findUnique({
+        where: { studentId: record.studentId },
+      });
+      if (!profile) {
+        throw new NotFoundException('学生积分档案不存在');
+      }
+
+      const nextCurrentScore = profile.currentScore + rollbackDelta;
+      const nextTotalScore = profile.totalScore + Math.max(rollbackDelta, 0);
+      const nextPositiveCount7d =
+        record.sentiment === 'positive' ? Math.max(0, profile.positiveCount7d - 1) : profile.positiveCount7d;
+      const nextNegativeCount7d =
+        record.sentiment === 'negative' ? Math.max(0, profile.negativeCount7d - 1) : profile.negativeCount7d;
+
+      const updatedProfile = await tx.studentProfile.update({
+        where: { studentId: record.studentId },
+        data: {
+          currentScore: nextCurrentScore,
+          totalScore: nextTotalScore,
+          positiveCount7d: nextPositiveCount7d,
+          negativeCount7d: nextNegativeCount7d,
+        },
+      });
+
+      const reversedAt = new Date();
+      await tx.scoreRecord.update({
+        where: { id: record.id },
+        data: {
+          reversedAt,
+          reversedById: user.id,
+          reverseRemark: body.remark.trim(),
+        },
+      });
+
+      const petChange = await this.rollbackStudentPetForReverse(tx, record);
+
+      return {
+        scoreRecordId: Number(record.id),
+        classId: Number(record.classId),
+        studentId: Number(record.studentId),
+        scoreDelta: record.scoreDelta,
+        rollbackDelta,
+        reversedAt,
+        reverseRemark: body.remark.trim(),
+        studentProfile: {
+          studentId: Number(record.studentId),
+          currentScore: updatedProfile.currentScore,
+          currentPetLevel: updatedProfile.currentPetLevel,
+        },
+        petChange,
+        ruleName: record.rule?.name ?? null,
+      };
+    });
+
+    await this.operationLogService.create({
+      schoolId: user.schoolId,
+      userId: user.id,
+      roleCode: user.roleCode,
+      terminalType: 'admin',
+      module: 'score_record',
+      action: 'reverse',
+      targetType: 'student',
+      targetId: BigInt(result.studentId),
+      detail: {
+        scoreRecordId: result.scoreRecordId,
+        classId: result.classId,
+        scoreDelta: result.scoreDelta,
+        reverseRemark: result.reverseRemark,
+      },
+    });
+
+    this.realtimeService.emitClassScoreChanged(result.classId, {
+      classId: result.classId,
+      studentIds: [result.studentId],
+      sourceTerminal: 'admin',
+      operatorName: user.name,
+      changes: [
+        {
+          studentId: result.studentId,
+          scoreDelta: result.rollbackDelta,
+          currentScore: result.studentProfile.currentScore,
+          currentPetLevel: result.studentProfile.currentPetLevel,
+        },
+      ],
+      upgrades: result.petChange.upgraded
+        ? [
+            {
+              studentId: result.studentId,
+              beforeLevel: result.petChange.beforeLevel,
+              afterLevel: result.petChange.afterLevel,
+            },
+          ]
+        : [],
+    });
+
+    return { code: 0, message: 'ok', data: result };
+  }
+
+  private async ensureCanReverseScore(
+    user: AuthUser,
+    record: { classId: bigint; operatorId: bigint; createdAt: Date },
+  ) {
+    this.authService.ensureCanAccessClass(user, record.classId);
+
+    const adminRoles = ['school_admin', 'academic_admin', 'grade_admin', 'moral_admin', 'super_admin'];
+    if (adminRoles.includes(user.roleCode)) {
+      return;
+    }
+
+    try {
+      await this.authService.ensureIsHomeroomOfClass(user, record.classId);
+      return;
+    } catch {
+      // 非班主任，继续检查是否为本人 24 小时内操作
+    }
+
+    const isOwner = record.operatorId === user.id;
+    const within24h = Date.now() - record.createdAt.getTime() <= 24 * 60 * 60 * 1000;
+    if (isOwner && within24h) {
+      return;
+    }
+
+    throw new ForbiddenException('无权撤销该评价记录');
+  }
+
+  private async rollbackStudentPetForReverse(
+    tx: Prisma.TransactionClient,
+    record: { id: bigint; studentId: bigint; scoreDelta: number },
+  ) {
+    const studentPet = await tx.studentPet.findUnique({
+      where: { studentId: record.studentId },
+      include: {
+        student: {
+          select: {
+            school: {
+              select: {
+                petGrowthThresholds: true,
+              },
+            },
+          },
+        },
+        pet: { include: { stages: { orderBy: { stageNo: 'asc' } } } },
+      },
+    });
+
+    if (!studentPet) {
+      return { upgraded: false as const };
+    }
+
+    const positiveDelta = Math.max(record.scoreDelta, 0);
+    if (positiveDelta === 0) {
+      return { upgraded: false as const };
+    }
+
+    const nextScore = Math.max(0, studentPet.totalScore - positiveDelta);
+    const thresholds = normalizePetGrowthThresholds(studentPet.student.school.petGrowthThresholds);
+    const matchedStage = resolveMatchedPetStage(studentPet.pet.stages, nextScore, thresholds);
+    const nextLevel = matchedStage?.levelNo ?? 1;
+    const nextStageNo = matchedStage?.stageNo ?? studentPet.currentStageNo;
+
+    if (nextLevel !== studentPet.currentLevel || nextStageNo !== studentPet.currentStageNo) {
+      await tx.studentPet.update({
+        where: { id: studentPet.id },
+        data: {
+          totalScore: nextScore,
+          currentLevel: nextLevel,
+          currentStageNo: nextStageNo,
+        },
+      });
+      await tx.studentProfile.update({
+        where: { studentId: record.studentId },
+        data: { currentPetLevel: nextLevel },
+      });
+      await tx.petLevelLog.create({
+        data: {
+          studentPetId: studentPet.id,
+          studentId: record.studentId,
+          beforeLevel: studentPet.currentLevel,
+          afterLevel: nextLevel,
+          beforeStageNo: studentPet.currentStageNo,
+          afterStageNo: nextStageNo,
+          triggerScoreRecordId: record.id,
+        },
+      });
+      return {
+        upgraded: true as const,
+        beforeLevel: studentPet.currentLevel,
+        afterLevel: nextLevel,
+      };
+    }
+
+    await tx.studentPet.update({
+      where: { id: studentPet.id },
+      data: { totalScore: nextScore },
+    });
+
+    return { upgraded: false as const };
   }
 
   private ensureCanWriteScore(roleCode: string, sourceTerminal: TerminalSource) {
@@ -523,6 +803,7 @@ export class ScoreRecordsService {
           select: {
             school: {
               select: {
+                id: true,
                 petGrowthThresholds: true,
               },
             },
@@ -545,6 +826,7 @@ export class ScoreRecordsService {
             totalScore: nextScore,
             currentLevel: matchedStage.levelNo,
             currentStageNo: matchedStage.stageNo,
+            decoFreeChangeLevel: matchedStage.levelNo,
           },
         });
         await tx.studentProfile.update({
@@ -567,6 +849,8 @@ export class ScoreRecordsService {
           beforeLevel: studentPet.currentLevel,
           afterLevel: matchedStage.levelNo,
         };
+
+        await syncUnlockedDecorationsForLevel(tx, studentPet.id, studentPet.student.school.id, matchedStage.levelNo);
       } else {
         await tx.studentPet.update({
           where: { id: studentPet.id },

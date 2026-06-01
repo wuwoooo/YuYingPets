@@ -1,26 +1,13 @@
-import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Modal } from '../components/Modal';
 import { Shell } from '../components/Shell';
-import type { 
-  AdminClass,
-  AdminStudent,
-  Reward,
-  RewardOrder,
-  RewardUpsertPayload,
-  SessionUser
-} from '../lib/api';
+import type { AdminClass, AdminStudent, Reward, RewardOrder, RewardUpsertPayload, SessionUser } from '../lib/api';
 import { adminApi } from '../lib/api';
+import { useConfirmDialog } from '../context/ConfirmDialogContext';
 import { resolveAssetUrl } from '../lib/assets';
-import type {
-  RewardFormState
-} from '../types/admin';
-import {
-  buildAutoCode,
-  createRewardForm,
-  formatEnabledStatus,
-  normalizeKeyword
-} from '../utils/adminForms';
-import { canManageRewards } from '../utils/adminPermissions';
+import type { RewardFormState } from '../types/admin';
+import { createRewardForm, formatEnabledStatus, normalizeKeyword } from '../utils/adminForms';
+import { canManageClassRewards, canManageRewards } from '../utils/adminPermissions';
 
 type RewardsPageProps = {
   token: string;
@@ -33,6 +20,10 @@ type RewardsPageProps = {
   onSaved: () => Promise<void>;
 };
 
+type RewardListTab = 'school' | 'class' | 'orders';
+type TeacherTab = 'rewards' | 'orders';
+const DEFAULT_ORDER_STATUS_OPTIONS = ['all', 'received'] as const;
+
 export function RewardsPage({
   token,
   user,
@@ -43,43 +34,73 @@ export function RewardsPage({
   error,
   onSaved,
 }: RewardsPageProps) {
-  const [tab, setTab] = useState('all');
+  const { confirm } = useConfirmDialog();
+  const allowManageGlobal = canManageRewards(user?.roleCode);
+  const allowManageClass = canManageClassRewards(user?.roleCode);
+  const isTeacherRewardRole = allowManageClass && !allowManageGlobal;
+
+  const accessibleClasses = useMemo(() => {
+    if (allowManageGlobal) {
+      return [...classes].sort((left, right) => left.gradeName.localeCompare(right.gradeName, 'zh-CN') || left.name.localeCompare(right.name, 'zh-CN'));
+    }
+    const assignedClassIds = new Set(user?.classAssignments?.map((item) => item.classId) ?? []);
+    return classes
+      .filter((item) => assignedClassIds.has(item.id) || item.homeroomTeacher?.id === user?.id)
+      .sort((left, right) => left.gradeName.localeCompare(right.gradeName, 'zh-CN') || left.name.localeCompare(right.name, 'zh-CN'));
+  }, [allowManageGlobal, classes, user?.classAssignments, user?.id]);
+
+  const [rewardTab, setRewardTab] = useState<RewardListTab>('school');
+  const [teacherTab, setTeacherTab] = useState<TeacherTab>('rewards');
+  const [selectedGradeCode, setSelectedGradeCode] = useState<string>('all');
+  const [activeClassId, setActiveClassId] = useState<number | null>(null);
+  const [searchKeyword, setSearchKeyword] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'enabled' | 'disabled'>('all');
   const [selectedReward, setSelectedReward] = useState<Reward | null>(null);
   const [rewardModalMode, setRewardModalMode] = useState<'records' | 'edit'>('records');
   const [showCreateReward, setShowCreateReward] = useState(false);
   const [rewardOrders, setRewardOrders] = useState<RewardOrder[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
+  const [classRewardOrders, setClassRewardOrders] = useState<RewardOrder[]>([]);
+  const [classOrdersLoading, setClassOrdersLoading] = useState(false);
+  const [classOrdersError, setClassOrdersError] = useState<string | null>(null);
+  const [orderStatusFilter, setOrderStatusFilter] = useState<'all' | string>('all');
   const [form, setForm] = useState<RewardFormState>(() => createRewardForm());
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
-  const [searchKeyword, setSearchKeyword] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'enabled' | 'disabled'>('all');
-  const [orderStatusFilter, setOrderStatusFilter] = useState<'all' | string>('all');
-  const [activeClassId, setActiveClassId] = useState<number | null>(null);
-  const [classRewardOrders, setClassRewardOrders] = useState<RewardOrder[]>([]);
-  const [classOrdersLoading, setClassOrdersLoading] = useState(false);
-  const [classOrdersError, setClassOrdersError] = useState<string | null>(null);
-  const [uploadingImage, setUploadingImage] = useState(false);
-  const allowManage = canManageRewards(user?.roleCode);
-  const isHomeroomTeacher = user?.roleCode === 'homeroom_teacher';
 
-  const homeroomClasses = useMemo(
-    () =>
-      classes
-        .filter((item) => item.homeroomTeacher?.id === user?.id || classes.length === 1)
-        .sort((left, right) => right.studentCount - left.studentCount || left.name.localeCompare(right.name, 'zh-CN')),
-    [classes, user?.id],
+  const gradeOptions = useMemo(
+    () => ['all', ...Array.from(new Set(accessibleClasses.map((item) => item.gradeCode).filter(Boolean)))],
+    [accessibleClasses],
+  );
+
+  const selectableClasses = useMemo(
+    () => accessibleClasses.filter((item) => selectedGradeCode === 'all' || item.gradeCode === selectedGradeCode),
+    [accessibleClasses, selectedGradeCode],
   );
 
   useEffect(() => {
-    if (!isHomeroomTeacher) return;
-    if (activeClassId && homeroomClasses.some((item) => item.id === activeClassId)) return;
-    setActiveClassId(homeroomClasses[0]?.id ?? null);
-  }, [activeClassId, homeroomClasses, isHomeroomTeacher]);
+    if (selectedGradeCode === 'all' || accessibleClasses.some((item) => item.gradeCode === selectedGradeCode)) return;
+    setSelectedGradeCode('all');
+  }, [accessibleClasses, selectedGradeCode]);
 
   useEffect(() => {
-    if (!isHomeroomTeacher || !activeClassId) {
+    if (activeClassId && selectableClasses.some((item) => item.id === activeClassId)) return;
+    setActiveClassId(null);
+  }, [activeClassId, selectableClasses]);
+
+  useEffect(() => {
+    if (allowManageGlobal) {
+      setRewardTab('school');
+      return;
+    }
+    if (isTeacherRewardRole) {
+      setTeacherTab('rewards');
+    }
+  }, [allowManageGlobal, isTeacherRewardRole]);
+
+  useEffect(() => {
+    if (!allowManageClass) {
       setClassRewardOrders([]);
       return;
     }
@@ -88,7 +109,7 @@ export function RewardsPage({
     setClassOrdersLoading(true);
     setClassOrdersError(null);
     adminApi
-      .rewardOrders(token, { classId: activeClassId })
+      .rewardOrders(token, activeClassId ? { classId: activeClassId } : undefined)
       .then((response) => {
         if (!active) return;
         setClassRewardOrders(response.data);
@@ -106,101 +127,123 @@ export function RewardsPage({
     return () => {
       active = false;
     };
-  }, [activeClassId, isHomeroomTeacher, token]);
-
-  const rewardCategories = useMemo(
-    () => ['all', ...Array.from(new Set(rewards.map((item) => item.category).filter(Boolean)))],
-    [rewards],
-  );
-
-  const rewardCards = useMemo(() => {
-    const keyword = normalizeKeyword(searchKeyword);
-    return rewards.filter((item) => {
-      const matchesTab = tab === 'all' || item.category === tab;
-      const matchesKeyword =
-        !keyword ||
-        normalizeKeyword(item.name).includes(keyword) ||
-        normalizeKeyword(item.code).includes(keyword) ||
-        normalizeKeyword(item.category).includes(keyword);
-      const matchesStatus = statusFilter === 'all' || item.status === statusFilter;
-      return matchesTab && matchesKeyword && matchesStatus;
-    });
-  }, [rewards, searchKeyword, statusFilter, tab]);
+  }, [activeClassId, allowManageClass, token]);
 
   const activeClass = useMemo(
-    () => homeroomClasses.find((item) => item.id === activeClassId) ?? null,
-    [activeClassId, homeroomClasses],
+    () => accessibleClasses.find((item) => item.id === activeClassId) ?? null,
+    [activeClassId, accessibleClasses],
   );
 
-  const orderStatusOptions = useMemo(
-    () => ['all', ...Array.from(new Set(classRewardOrders.map((item) => item.status).filter(Boolean)))],
-    [classRewardOrders],
+  const selectedClassIds = useMemo(() => new Set(selectableClasses.map((item) => item.id)), [selectableClasses]);
+
+  const classStudents = useMemo(
+    () => students.filter((item) => {
+      if (activeClassId) return item.classId === activeClassId;
+      return selectedClassIds.has(item.classId);
+    }),
+    [activeClassId, selectedClassIds, students],
   );
+
+  const visibleRewards = useMemo(() => {
+    const keyword = normalizeKeyword(searchKeyword);
+    const base = rewards.filter((item) => {
+      if (statusFilter !== 'all' && item.status !== statusFilter) return false;
+      if (keyword) {
+        const matched = [
+          item.name,
+          item.code,
+          item.createdByName ?? '',
+          item.sourceLabel,
+          item.category,
+        ].some((value) => normalizeKeyword(value).includes(keyword));
+        if (!matched) return false;
+      }
+
+      if (allowManageGlobal) {
+        if (rewardTab === 'school') return item.scopeType === 'global';
+        if (rewardTab === 'class') {
+          if (item.scopeType !== 'class') return false;
+          if (activeClassId && item.classId !== activeClassId) return false;
+          if (!activeClassId && item.classId && !selectedClassIds.has(item.classId)) return false;
+          return true;
+        }
+        return false;
+      }
+
+      if (item.scopeType !== 'class') return false;
+      if (activeClassId && item.classId !== activeClassId) return false;
+      if (!activeClassId && item.classId && !selectedClassIds.has(item.classId)) return false;
+      return true;
+    });
+
+    return base.sort((left, right) => left.scoreCost - right.scoreCost || left.name.localeCompare(right.name, 'zh-CN'));
+  }, [activeClassId, allowManageGlobal, rewardTab, rewards, searchKeyword, selectedClassIds, statusFilter]);
 
   const filteredClassOrders = useMemo(() => {
     const keyword = normalizeKeyword(searchKeyword);
     return classRewardOrders.filter((item) => {
-      const matchesKeyword =
-        !keyword ||
-        normalizeKeyword(item.student.name).includes(keyword) ||
-        normalizeKeyword(item.student.studentNo).includes(keyword) ||
-        normalizeKeyword(item.reward.name).includes(keyword);
-      const matchesStatus = orderStatusFilter === 'all' || item.status === orderStatusFilter;
-      return matchesKeyword && matchesStatus;
+      if (!activeClassId && !selectedClassIds.has(item.classId)) return false;
+      if (orderStatusFilter !== 'all' && item.status !== orderStatusFilter) return false;
+      if (!keyword) return true;
+      return [item.student.name, item.student.studentNo, item.reward.name].some((value) => normalizeKeyword(value).includes(keyword));
     });
-  }, [classRewardOrders, orderStatusFilter, searchKeyword]);
+  }, [activeClassId, classRewardOrders, orderStatusFilter, searchKeyword, selectedClassIds]);
 
   const classOrderStats = useMemo(() => {
-    const studentIds = new Set(classRewardOrders.map((item) => item.studentId));
-    const totalScoreCost = classRewardOrders.reduce((sum, item) => sum + item.scoreCost, 0);
-    const latestOrder = classRewardOrders[0] ?? null;
+    const studentIds = new Set(filteredClassOrders.map((item) => item.studentId));
+    const totalScoreCost = filteredClassOrders.reduce((sum, item) => sum + item.scoreCost, 0);
     return {
-      orderCount: classRewardOrders.length,
+      orderCount: filteredClassOrders.length,
       studentCount: studentIds.size,
       totalScoreCost,
-      latestOrder,
+      latestOrder: filteredClassOrders[0] ?? null,
     };
-  }, [classRewardOrders]);
+  }, [filteredClassOrders]);
 
-  const classStudents = useMemo(
-    () => students.filter((item) => item.classId === activeClassId),
-    [activeClassId, students],
-  );
+  const orderStatusOptions = useMemo(() => DEFAULT_ORDER_STATUS_OPTIONS, []);
 
   const studentOrderCounts = useMemo(() => {
     const map = new Map<number, { name: string; count: number; scoreCost: number }>();
-    classRewardOrders.forEach((item) => {
+    filteredClassOrders.forEach((item) => {
       const current = map.get(item.studentId) ?? { name: item.student.name, count: 0, scoreCost: 0 };
       current.count += 1;
       current.scoreCost += item.scoreCost;
       map.set(item.studentId, current);
     });
     return Array.from(map.values()).sort((left, right) => right.count - left.count || right.scoreCost - left.scoreCost).slice(0, 6);
-  }, [classRewardOrders]);
+  }, [filteredClassOrders]);
 
   function formatOrderStatus(status: string) {
-    const statusMap: Record<string, string> = {
-      pending: '待确认',
-      approved: '已确认',
-      received: '已领取',
-      rejected: '已拒绝',
-      cancelled: '已取消',
-    };
-    return statusMap[status] ?? status;
+    return status === 'received' ? '已领取' : status === 'cancelled' ? '已取消' : status;
   }
 
-  async function reloadClassRewardOrders() {
-    if (!activeClassId) return;
-    setClassOrdersLoading(true);
-    setClassOrdersError(null);
-    try {
-      const response = await adminApi.rewardOrders(token, { classId: activeClassId });
-      setClassRewardOrders(response.data);
-    } catch (err) {
-      setClassOrdersError(err instanceof Error ? err.message : '兑换记录加载失败');
-    } finally {
-      setClassOrdersLoading(false);
-    }
+  function canEditReward(item: Reward) {
+    if (allowManageGlobal) return true;
+    return item.scopeType === 'class' && item.createdBy === user?.id;
+  }
+
+  function openCreateReward() {
+    const defaultClassId =
+      activeClassId ?? selectableClasses[0]?.id ?? accessibleClasses[0]?.id ?? null;
+    setRewardModalMode('edit');
+    setSelectedReward(null);
+    setShowCreateReward(true);
+    setSubmitError(null);
+    setForm({
+      ...createRewardForm(),
+      scopeType: allowManageGlobal && rewardTab === 'school' ? 'global' : 'class',
+      classId: defaultClassId ? String(defaultClassId) : '',
+      isInfiniteStock: true,
+      category: allowManageGlobal && rewardTab === 'school' ? '' : 'class_custom',
+    });
+  }
+
+  function openRewardEditor(reward: Reward) {
+    setRewardModalMode('edit');
+    setSelectedReward(reward);
+    setShowCreateReward(false);
+    setSubmitError(null);
+    setForm(createRewardForm(reward));
   }
 
   async function openRewardRecords(reward: Reward) {
@@ -208,9 +251,8 @@ export function RewardsPage({
     setRewardModalMode('records');
     setOrdersLoading(true);
     setSubmitError(null);
-
     try {
-      const response = await adminApi.rewardOrders(token);
+      const response = await adminApi.rewardOrders(token, reward.classId ? { classId: reward.classId } : undefined);
       setRewardOrders(response.data.filter((item) => item.rewardId === reward.id));
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : '奖励记录加载失败');
@@ -219,27 +261,16 @@ export function RewardsPage({
     }
   }
 
-  function openRewardEditor(reward?: Reward) {
-    setRewardModalMode('edit');
-    setSelectedReward(reward ?? null);
-    setShowCreateReward(!reward);
-    setForm(createRewardForm(reward));
-    setSubmitError(null);
-  }
-
-  async function handleRewardImageUpload(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    event.target.value = '';
-    if (!file) return;
-    setUploadingImage(true);
-    setSubmitError(null);
+  async function reloadClassRewardOrders() {
+    setClassOrdersLoading(true);
+    setClassOrdersError(null);
     try {
-      const response = await adminApi.uploadRewardAsset(token, file);
-      setForm((prev) => ({ ...prev, imageUrl: response.data.url }));
+      const response = await adminApi.rewardOrders(token, activeClassId ? { classId: activeClassId } : undefined);
+      setClassRewardOrders(response.data);
     } catch (err) {
-      setSubmitError(err instanceof Error ? err.message : '奖励图片上传失败');
+      setClassOrdersError(err instanceof Error ? err.message : '兑换记录加载失败');
     } finally {
-      setUploadingImage(false);
+      setClassOrdersLoading(false);
     }
   }
 
@@ -252,28 +283,41 @@ export function RewardsPage({
 
     try {
       const name = form.name.trim();
+      const scopeType = form.scopeType;
       const scoreCostText = form.scoreCost.trim();
       const stockQtyText = form.stockQty.trim();
+      const classId = form.classId ? Number(form.classId) : undefined;
 
       if (!name || !scoreCostText) {
         throw new Error('请填写完整的奖励名称和所需积分');
       }
       if (!/^\d+$/.test(scoreCostText)) {
-        throw new Error('积分成本必须是大于等于 0 的整数');
+        throw new Error('所需积分必须是大于等于 0 的整数');
+      }
+      if (scopeType === 'class' && !classId) {
+        throw new Error('班级奖励必须选择班级');
+      }
+      if (!form.isInfiniteStock && !stockQtyText) {
+        throw new Error('有限库存奖励必须填写库存数量');
       }
       if (!form.isInfiniteStock && stockQtyText && !/^\d+$/.test(stockQtyText)) {
         throw new Error('库存数量必须是大于等于 0 的整数');
       }
 
       const payload: RewardUpsertPayload = {
-        code: buildAutoCode('reward', form.name, selectedReward?.code || form.code),
         name,
-        ...(form.category.trim() ? { category: form.category.trim() } : {}),
-        ...(form.imageUrl.trim() ? { imageUrl: form.imageUrl.trim() } : {}),
+        scopeType,
+        classId,
         scoreCost: Number(scoreCostText),
-        ...(!form.isInfiniteStock && stockQtyText ? { stockQty: Number(stockQtyText) } : {}),
         isInfiniteStock: form.isInfiniteStock,
+        ...(!form.isInfiniteStock && stockQtyText ? { stockQty: Number(stockQtyText) } : {}),
       };
+
+      if (scopeType === 'global') {
+        payload.code = form.code.trim() || undefined;
+        payload.category = form.category.trim() || undefined;
+        payload.imageUrl = form.imageUrl.trim() || undefined;
+      }
 
       if (selectedReward) {
         await adminApi.updateReward(token, selectedReward.id, payload);
@@ -301,7 +345,7 @@ export function RewardsPage({
       await onSaved();
       setSubmitSuccess(nextStatus === 'enabled' ? '奖励已启用' : '奖励已停用');
       if (selectedReward?.id === item.id) {
-        setSelectedReward((prev) => (prev ? { ...prev, status: nextStatus } : prev));
+        setSelectedReward({ ...item, status: nextStatus });
       }
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : '奖励状态更新失败');
@@ -309,13 +353,14 @@ export function RewardsPage({
   }
 
   async function deleteReward(item: Reward) {
-    const riskText =
-      item.rewardOrderCount > 0
-        ? `当前已有 ${item.rewardOrderCount} 条兑换记录，后端会阻止删除。建议改为停用。`
-        : '当前没有兑换记录，可以安全删除。';
-    if (!window.confirm(`确认删除奖励「${item.name}」吗？\n${riskText}`)) {
-      return;
-    }
+    const confirmed = await confirm({
+      title: '删除奖励',
+      message: `确认删除奖励「${item.name}」吗？${item.rewardOrderCount > 0 ? '\n该奖励已有兑换记录，通常应改为停用。' : ''}`,
+      confirmLabel: '确认删除',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
+
     try {
       setSubmitError(null);
       setSubmitSuccess(null);
@@ -330,88 +375,233 @@ export function RewardsPage({
     }
   }
 
-  if (isHomeroomTeacher) {
+  function renderRewardForm(submitLabel: string, close: () => void) {
+    const isClassReward = form.scopeType === 'class';
+    const selectedClassLabel =
+      accessibleClasses.find((item) => String(item.id) === form.classId)
+        ? `${accessibleClasses.find((item) => String(item.id) === form.classId)?.gradeName} ${accessibleClasses.find((item) => String(item.id) === form.classId)?.name}`
+        : '未选择班级';
+
     return (
-      <Shell
-        title="兑换处理"
-        subtitle="查看本班学生兑换记录，确认实物领取与班级反馈"
-        user={user}
-        status={
-          <>
-            {loading ? <div className="status-card">兑换数据加载中...</div> : null}
-            {error ? <div className="status-card error">{error}</div> : null}
-            {classOrdersError ? <div className="status-card error">{classOrdersError}</div> : null}
-          </>
-        }
-      >
-        <div className="page-header">
-          <div>
-            <h2>本班兑换处理</h2>
-            <p className="page-desc">
-              {activeClass ? `${activeClass.gradeName} ${activeClass.name}` : '当前账号尚未绑定班级'} · 只展示学生已经发起的兑换记录
+      <form className="reward-editor-form" onSubmit={handleRewardSubmit}>
+        <div className="reward-editor-hero">
+          <div className="reward-editor-hero-main">
+            <span className="reward-editor-kicker">{isClassReward ? '班级激励' : '学校奖励'}</span>
+            <h4>{isClassReward ? '创建一个更贴近日常班级管理的奖励' : '配置面向全校展示的统一奖励'}</h4>
+            <p>
+              {isClassReward
+                ? '班级奖励只在当前班级奖励池里出现。建议用简短、明确、容易兑现的名称，避免做成模糊口号。'
+                : '学校奖励适合做统一兑换项，可配置分类和图片，用于全校公共奖励中心展示。'}
             </p>
-          </div>
-          <div className="page-actions">
-            {homeroomClasses.length > 1 ? (
-              <select
-                className="filter-select"
-                value={activeClassId ?? ''}
-                onChange={(event) => setActiveClassId(Number(event.target.value) || null)}
-              >
-                {homeroomClasses.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.gradeName} {item.name}
-                  </option>
-                ))}
-              </select>
-            ) : null}
-            <div className="search-box">
-              <span className="s-icon">⌕</span>
-              <input
-                placeholder="搜索学生或奖励..."
-                value={searchKeyword}
-                onChange={(event) => setSearchKeyword(event.target.value)}
-              />
+            <div className="reward-editor-meta-row">
+              <span className="reward-editor-meta-pill">当前范围：{isClassReward ? '班级奖励' : '学校奖励'}</span>
+              <span className="reward-editor-meta-pill">库存模式：{form.isInfiniteStock ? '不限库存' : '有限库存'}</span>
             </div>
-            <select className="filter-select" value={orderStatusFilter} onChange={(event) => setOrderStatusFilter(event.target.value)}>
-              {orderStatusOptions.map((item) => (
-                <option key={item} value={item}>
-                  {item === 'all' ? '全部状态' : formatOrderStatus(item)}
-                </option>
-              ))}
-            </select>
-            <button className="ghost-button" type="button" onClick={() => void reloadClassRewardOrders()} disabled={classOrdersLoading || !activeClassId}>
-              {classOrdersLoading ? '刷新中...' : '刷新'}
-            </button>
+          </div>
+          <div className="reward-editor-summary-card">
+            <span>奖励预览</span>
+            <strong>{form.name.trim() || '未命名奖励'}</strong>
+            <b>{form.scoreCost.trim() || '0'} 分可兑</b>
+            <p>{isClassReward ? selectedClassLabel : (form.category.trim() || '学校公共奖励')}</p>
           </div>
         </div>
 
+        <div className="reward-editor-layout">
+          <section className="reward-editor-card">
+            <div className="reward-editor-card-head">
+              <div>
+                <h5>基础信息</h5>
+                <p>先确定奖励名称、范围和适用对象。</p>
+              </div>
+            </div>
+            <div className="reward-editor-fields">
+              <label className="reward-editor-field">
+                <span>奖励名称</span>
+                <input type="text" value={form.name} onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))} placeholder="例如：作业免写券、值日优先权" />
+              </label>
+              <label className="reward-editor-field">
+                <span>奖励范围</span>
+                <select
+                  value={form.scopeType}
+                  disabled={!allowManageGlobal || Boolean(selectedReward?.scopeType === 'class')}
+                  onChange={(event) => setForm((prev) => ({ ...prev, scopeType: event.target.value as 'global' | 'class' }))}
+                >
+                  <option value="global">学校奖励</option>
+                  <option value="class">班级奖励</option>
+                </select>
+              </label>
+              <label className="reward-editor-field reward-editor-field-wide">
+                <span>适用班级</span>
+                <select value={form.classId} disabled={!isClassReward || Boolean(selectedReward)} onChange={(event) => setForm((prev) => ({ ...prev, classId: event.target.value }))}>
+                  <option value="">请选择班级</option>
+                  {accessibleClasses.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.gradeName} {item.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          </section>
+
+          <section className="reward-editor-card">
+            <div className="reward-editor-card-head">
+              <div>
+                <h5>兑换规则</h5>
+                <p>控制学生需要多少分，以及是否限制可兑换次数。</p>
+              </div>
+            </div>
+            <div className="reward-editor-fields">
+              <label className="reward-editor-field">
+                <span>所需分值</span>
+                <input type="text" value={form.scoreCost} onChange={(event) => setForm((prev) => ({ ...prev, scoreCost: event.target.value }))} placeholder="20" />
+              </label>
+              <label className="reward-editor-field">
+                <span>库存数量</span>
+                <input
+                  type="text"
+                  value={form.stockQty}
+                  disabled={form.isInfiniteStock}
+                  onChange={(event) => setForm((prev) => ({ ...prev, stockQty: event.target.value }))}
+                  placeholder={isClassReward ? '有限库存时必填' : '不限库存可留空'}
+                />
+              </label>
+              <label className="reward-editor-switch reward-editor-field-wide">
+                <div>
+                  <strong>不限库存</strong>
+                  <span>适合长期有效的精神奖励或班级特权</span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={form.isInfiniteStock}
+                  onChange={(event) => setForm((prev) => ({ ...prev, isInfiniteStock: event.target.checked, stockQty: event.target.checked ? '' : prev.stockQty }))}
+                />
+              </label>
+            </div>
+          </section>
+
+          {!isClassReward ? (
+            <section className="reward-editor-card reward-editor-card-wide">
+              <div className="reward-editor-card-head">
+                <div>
+                  <h5>展示信息</h5>
+                  <p>学校奖励可补充分类和图片，用于奖励中心卡片展示。</p>
+                </div>
+              </div>
+              <div className="reward-editor-fields">
+                <label className="reward-editor-field">
+                  <span>奖励分类</span>
+                  <input type="text" value={form.category} onChange={(event) => setForm((prev) => ({ ...prev, category: event.target.value }))} placeholder="如：文化周边、实物奖励" />
+                </label>
+                <label className="reward-editor-field reward-editor-field-wide">
+                  <span>图片地址</span>
+                  <input type="text" value={form.imageUrl} onChange={(event) => setForm((prev) => ({ ...prev, imageUrl: event.target.value }))} placeholder="可留空" />
+                </label>
+              </div>
+            </section>
+          ) : null}
+        </div>
+
+        {submitError ? <div className="status-card error">{submitError}</div> : null}
+
+        <div className="reward-editor-actions">
+          <button type="button" className="ghost-button" onClick={close} disabled={submitting}>
+            取消
+          </button>
+          <button type="submit" className="toolbar-button" disabled={submitting}>
+            {submitting ? '提交中...' : submitLabel}
+          </button>
+        </div>
+      </form>
+    );
+  }
+
+  function renderRewardCards(items: Reward[]) {
+    return (
+      <div className="reward-grid">
+        {items.map((item) => {
+          const editable = canEditReward(item);
+          const showImage = item.scopeType === 'global' && item.imageUrl;
+          return (
+            <article className={`reward-card${item.status === 'disabled' ? ' is-disabled' : ''}`} key={item.id}>
+              <div className="reward-card-media">
+                {showImage ? <img src={resolveAssetUrl(item.imageUrl!)} alt="" /> : <span className="reward-fallback">{item.name.slice(0, 2)}</span>}
+                {item.status === 'disabled' ? <span className="reward-card-flag">已停用</span> : null}
+                <div className="reward-card-toolbar">
+                  <button type="button" className="reward-tool-btn" onClick={() => void openRewardRecords(item)} title="兑换记录">
+                    记录
+                  </button>
+                  {editable ? (
+                    <>
+                      <button type="button" className="reward-tool-btn" onClick={() => openRewardEditor(item)} title="编辑">
+                        编
+                      </button>
+                      <button type="button" className="reward-tool-btn" onClick={() => void toggleRewardStatus(item)} title={item.status === 'enabled' ? '停用' : '启用'}>
+                        {item.status === 'enabled' ? '停' : '启'}
+                      </button>
+                      <button type="button" className="reward-tool-btn danger" onClick={() => void deleteReward(item)} title="删除">
+                        删
+                      </button>
+                    </>
+                  ) : null}
+                </div>
+              </div>
+              <div className="reward-card-body">
+                <div className="reward-card-head">
+                  <h3 className="r-name">{item.name}</h3>
+                  <span className={`r-cat ${item.scopeType === 'class' ? 'privilege' : item.category}`}>{item.sourceLabel}</span>
+                </div>
+                <p className="reward-card-summary">
+                  <strong>{item.scoreCost}</strong> 积分
+                  <span className="reward-card-sep">·</span>
+                  {item.isInfiniteStock ? '库存不限' : `剩余 ${item.stockQty ?? 0} 份`}
+                  {item.createdByName ? (
+                    <>
+                      <span className="reward-card-sep">·</span>
+                      {item.createdByName}
+                    </>
+                  ) : null}
+                  {item.rewardOrderCount > 0 ? (
+                    <>
+                      <span className="reward-card-sep">·</span>
+                      {item.rewardOrderCount} 笔兑换
+                    </>
+                  ) : null}
+                </p>
+              </div>
+            </article>
+          );
+        })}
+        {items.length === 0 ? <div className="settings-note">当前条件下暂无奖励数据。</div> : null}
+      </div>
+    );
+  }
+
+  function renderOrdersPanel() {
+    return (
+      <>
         <div className="metric-strip">
           <div className="metric-card mc-blue">
             <div className="label">兑换记录</div>
             <div className="metric-value-line"><span className="value">{classOrderStats.orderCount}</span><span className="metric-value-suffix">条</span></div>
-            <div className="metric-footer"><span className="metric-sub">本班学生累计兑换</span></div>
+            <div className="metric-footer"><span className="metric-sub">{activeClass ? '本班累计兑换' : '当前筛选范围累计兑换'}</span></div>
           </div>
           <div className="metric-card mc-green">
             <div className="label">涉及学生</div>
             <div className="metric-value-line"><span className="value">{classOrderStats.studentCount}</span><span className="metric-value-suffix">人</span></div>
-            <div className="metric-footer"><span className="metric-sub">班级学生共 {classStudents.length} 人</span></div>
+            <div className="metric-footer"><span className="metric-sub">范围内学生共 {classStudents.length} 人</span></div>
           </div>
           <div className="metric-card mc-gold">
             <div className="label">消耗积分</div>
             <div className="metric-value-line"><span className="value">{classOrderStats.totalScoreCost}</span><span className="metric-value-suffix">分</span></div>
-            <div className="metric-footer"><span className="metric-sub">用于兑换奖励</span></div>
+            <div className="metric-footer"><span className="metric-sub">学生兑换消耗</span></div>
           </div>
           <div className="metric-card mc-teal">
             <div className="label">最近兑换</div>
-            <div className="metric-value-line">
-              <span className="value">{classOrderStats.latestOrder ? formatOrderStatus(classOrderStats.latestOrder.status) : '暂无'}</span>
-            </div>
+            <div className="metric-value-line"><span className="value">{classOrderStats.latestOrder ? formatOrderStatus(classOrderStats.latestOrder.status) : '暂无'}</span></div>
             <div className="metric-footer">
               <span className="metric-sub">
-                {classOrderStats.latestOrder
-                  ? `${classOrderStats.latestOrder.student.name} · ${classOrderStats.latestOrder.reward.name}`
-                  : '学生兑换后会出现在这里'}
+                {classOrderStats.latestOrder ? `${classOrderStats.latestOrder.student.name} · ${classOrderStats.latestOrder.reward.name}` : '兑换后会出现在这里'}
               </span>
             </div>
           </div>
@@ -447,7 +637,7 @@ export function RewardsPage({
                 {!classOrdersLoading && filteredClassOrders.length === 0 ? (
                   <tr>
                     <td className="table-empty" colSpan={6}>
-                      {classRewardOrders.length === 0 ? '本班暂无学生兑换记录。' : '没有匹配当前筛选条件的兑换记录。'}
+                      {classRewardOrders.length === 0 ? '当前筛选范围暂无兑换记录。' : '没有匹配当前筛选条件的兑换记录。'}
                     </td>
                   </tr>
                 ) : null}
@@ -476,7 +666,7 @@ export function RewardsPage({
                 <div className="mini-list-item">
                   <div>
                     <strong>暂无兑换</strong>
-                    <span>学生完成兑换后，这里会显示需要跟进的对象。</span>
+                    <span>学生发起兑换后，这里会显示排行。</span>
                   </div>
                   <b>待更新</b>
                 </div>
@@ -484,30 +674,73 @@ export function RewardsPage({
             </div>
           </div>
         </div>
-      </Shell>
+      </>
     );
   }
 
+  const shellTitle = allowManageGlobal ? '奖励中心' : '班级奖励';
+  const shellSubtitle = allowManageGlobal ? '统一维护学校奖励与班级奖励，并跟踪学生兑换情况' : '为自己的班级维护奖励，并查看学生兑换记录';
+  const showClassFilters =
+    (allowManageGlobal && rewardTab !== 'school') ||
+    (isTeacherRewardRole && (teacherTab === 'rewards' || teacherTab === 'orders'));
+  const selectedGradeName =
+    selectedGradeCode === 'all'
+      ? '全部年级'
+      : accessibleClasses.find((item) => item.gradeCode === selectedGradeCode)?.gradeName ?? selectedGradeCode;
+
   return (
     <Shell
-      title="奖励中心"
-      subtitle="围绕积分兑换、精神奖励与班级特权做统一配置和运营管理"
+      title={shellTitle}
+      subtitle={shellSubtitle}
+      loading={loading || ordersLoading}
       user={user}
       status={
         <>
           {loading ? <div className="status-card">奖励数据加载中...</div> : null}
           {error ? <div className="status-card error">{error}</div> : null}
+          {classOrdersError ? <div className="status-card error">{classOrdersError}</div> : null}
           {submitSuccess ? <div className="status-card success">{submitSuccess}</div> : null}
         </>
       }
     >
       <div className="page-header">
-        <h2>奖励中心</h2>
+        <div>
+          <h2>{allowManageGlobal ? '奖励与兑换' : '班级奖励维护'}</h2>
+          <p className="page-desc">
+            {allowManageGlobal
+              ? '学校奖励与班级奖励共用同一兑换链路，管理员可统一查看与代管。'
+              : activeClass
+                ? `${activeClass.gradeName} ${activeClass.name} · 可维护本班奖励并查看兑换记录`
+                : selectableClasses.length > 0
+                  ? `${selectedGradeName} · 可维护所选范围内的班级奖励并查看兑换记录`
+                : '当前账号尚未绑定班级'}
+          </p>
+        </div>
         <div className="page-actions">
+          {showClassFilters && gradeOptions.length > 0 ? (
+            <select className="filter-select" value={selectedGradeCode} onChange={(event) => setSelectedGradeCode(event.target.value)}>
+              <option value="all">全部年级</option>
+              {gradeOptions.filter((item) => item !== 'all').map((item) => (
+                <option key={item} value={item}>
+                  {accessibleClasses.find((row) => row.gradeCode === item)?.gradeName ?? item}
+                </option>
+              ))}
+            </select>
+          ) : null}
+          {showClassFilters && selectableClasses.length > 0 ? (
+            <select className="filter-select" value={activeClassId ?? ''} onChange={(event) => setActiveClassId(Number(event.target.value) || null)}>
+              <option value="">全部班级</option>
+              {selectableClasses.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.gradeName} {item.name}
+                </option>
+              ))}
+            </select>
+          ) : null}
           <div className="search-box">
             <span className="s-icon">⌕</span>
             <input
-              placeholder="搜索奖励名称..."
+              placeholder={allowManageGlobal ? '搜索奖励名称、来源或老师...' : '搜索奖励、老师或学生...'}
               value={searchKeyword}
               onChange={(event) => setSearchKeyword(event.target.value)}
             />
@@ -517,151 +750,93 @@ export function RewardsPage({
             <option value="enabled">启用中</option>
             <option value="disabled">已停用</option>
           </select>
-          {allowManage ? (
-            <button
-              className="btn btn-primary"
-              type="button"
-              onClick={() => openRewardEditor()}
-            >
+          {((allowManageGlobal && rewardTab !== 'orders') || (isTeacherRewardRole && teacherTab === 'rewards')) ? (
+            <button className="btn btn-primary" type="button" onClick={openCreateReward} disabled={!allowManageGlobal && selectableClasses.length === 0}>
               + 添加奖励
+            </button>
+          ) : null}
+          {((allowManageGlobal && rewardTab === 'orders') || (isTeacherRewardRole && teacherTab === 'orders')) ? (
+            <button className="ghost-button" type="button" onClick={() => void reloadClassRewardOrders()} disabled={classOrdersLoading}>
+              {classOrdersLoading ? '刷新中...' : '刷新'}
             </button>
           ) : null}
         </div>
       </div>
-      <div className="reward-tabs">
-        {rewardCategories.map((key) => (
-          <button
-            key={key}
-            type="button"
-            className={`reward-tab${tab === key ? ' active' : ''}`}
-            onClick={() => setTab(key)}
-          >
-            {key === 'all' ? '全部' : key}
-          </button>
-        ))}
-      </div>
-      <div className="reward-grid">
-        {rewardCards.map((item) => (
-          <article className={`reward-card${item.status === 'disabled' ? ' is-disabled' : ''}`} key={item.id}>
-            <div className="reward-card-media">
-              {item.imageUrl ? (
-                <img src={resolveAssetUrl(item.imageUrl)} alt="" />
-              ) : (
-                <span className="reward-fallback">{item.name.slice(0, 2)}</span>
-              )}
-              {item.status === 'disabled' ? <span className="reward-card-flag">已停用</span> : null}
-              <div className="reward-card-toolbar">
-                <button type="button" className="reward-tool-btn" onClick={() => void openRewardRecords(item)} title="兑换记录">
-                  记录
-                </button>
-                {allowManage ? (
-                  <>
-                    <button type="button" className="reward-tool-btn" onClick={() => openRewardEditor(item)} title="编辑">
-                      编
-                    </button>
-                    <button type="button" className="reward-tool-btn" onClick={() => void toggleRewardStatus(item)} title={item.status === 'enabled' ? '停用' : '启用'}>
-                      {item.status === 'enabled' ? '停' : '启'}
-                    </button>
-                    <button type="button" className="reward-tool-btn danger" onClick={() => void deleteReward(item)} title="删除">
-                      删
-                    </button>
-                  </>
-                ) : null}
-              </div>
-            </div>
-            <div className="reward-card-body">
-              <div className="reward-card-head">
-                <h3 className="r-name">{item.name}</h3>
-                <span className={`r-cat ${item.category}`}>{item.category}</span>
-              </div>
-              <p className="reward-card-summary">
-                <strong>{item.scoreCost}</strong> 积分
-                <span className="reward-card-sep">·</span>
-                {item.isInfiniteStock ? '库存不限' : `余 ${item.stockQty ?? 0}`}
-                {item.rewardOrderCount > 0 ? (
-                  <>
-                    <span className="reward-card-sep">·</span>
-                    {item.rewardOrderCount} 笔兑换
-                  </>
-                ) : null}
-              </p>
-            </div>
-          </article>
-        ))}
-        {rewardCards.length === 0 ? <div className="settings-note">当前分类下暂无奖励数据。</div> : null}
-      </div>
+
+      {allowManageGlobal ? (
+        <div className="reward-tabs">
+          {[
+            { key: 'school', label: '学校奖励' },
+            { key: 'class', label: '班级奖励' },
+            { key: 'orders', label: '兑换记录' },
+          ].map((item) => (
+            <button key={item.key} type="button" className={`reward-tab${rewardTab === item.key ? ' active' : ''}`} onClick={() => setRewardTab(item.key as RewardListTab)}>
+              {item.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {isTeacherRewardRole ? (
+        <div className="reward-tabs">
+          {[
+            { key: 'rewards', label: '班级奖励' },
+            { key: 'orders', label: '兑换记录' },
+          ].map((item) => (
+            <button key={item.key} type="button" className={`reward-tab${teacherTab === item.key ? ' active' : ''}`} onClick={() => setTeacherTab(item.key as TeacherTab)}>
+              {item.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {((allowManageGlobal && rewardTab === 'orders') || (isTeacherRewardRole && teacherTab === 'orders')) ? (
+        <>
+          <div className="page-actions" style={{ marginBottom: 16 }}>
+            <select className="filter-select" value={orderStatusFilter} onChange={(event) => setOrderStatusFilter(event.target.value)}>
+              {orderStatusOptions.map((item) => (
+                <option key={item} value={item}>
+                  {item === 'all' ? '全部状态' : formatOrderStatus(item)}
+                </option>
+              ))}
+            </select>
+          </div>
+          {renderOrdersPanel()}
+        </>
+      ) : renderRewardCards(visibleRewards)}
 
       {selectedReward ? (
         <Modal
-          title={`${selectedReward.name} · ${rewardModalMode === 'edit' ? '奖励编辑' : '奖励配置'}`}
-          subtitle={rewardModalMode === 'edit' ? '统一维护奖励资料、兑换成本与展示方式' : '查看奖励详情、兑换成本、库存状态与运营说明'}
+          title={`${selectedReward.name} · ${rewardModalMode === 'edit' ? '奖励编辑' : '奖励详情'}`}
+          subtitle={rewardModalMode === 'edit' ? '维护奖励名称、分值、库存与适用范围' : '查看奖励详情与最近兑换记录'}
           onClose={() => {
             if (submitting && rewardModalMode === 'edit') return;
             setSelectedReward(null);
           }}
         >
           {rewardModalMode === 'edit' ? (
-            <form className="form-grid" onSubmit={handleRewardSubmit}>
-              <label>
-                <span>奖励名称</span>
-                <input type="text" value={form.name} onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))} />
-              </label>
-              <label>
-                <span>奖励分类</span>
-                <input type="text" value={form.category} onChange={(event) => setForm((prev) => ({ ...prev, category: event.target.value }))} />
-              </label>
-              <label>
-                <span>图片地址</span>
-                <input type="text" value={form.imageUrl} onChange={(event) => setForm((prev) => ({ ...prev, imageUrl: event.target.value }))} placeholder="可留空" />
-              </label>
-              <label className="span-2">
-                <span>上传奖励图片</span>
-                <input type="file" accept="image/*" onChange={handleRewardImageUpload} disabled={uploadingImage || submitting} />
-                {form.imageUrl ? <div className="settings-note">当前图片：{form.imageUrl}</div> : null}
-              </label>
-              <label>
-                <span>积分成本</span>
-                <input type="text" value={form.scoreCost} onChange={(event) => setForm((prev) => ({ ...prev, scoreCost: event.target.value }))} />
-              </label>
-              <label>
-                <span>库存数量</span>
-                <input type="text" value={form.stockQty} onChange={(event) => setForm((prev) => ({ ...prev, stockQty: event.target.value }))} placeholder="不限库存可留空" />
-              </label>
-              <label className="checkbox-item span-2">
-                <input type="checkbox" checked={form.isInfiniteStock} onChange={(event) => setForm((prev) => ({ ...prev, isInfiniteStock: event.target.checked }))} />
-                不限库存
-              </label>
-              {submitError ? <div className="status-card error span-2">{submitError}</div> : null}
-              <div className="form-actions span-2">
-                <button type="button" className="ghost-button" onClick={() => setSelectedReward(null)} disabled={submitting}>
-                  取消
-                </button>
-                <button type="submit" className="toolbar-button" disabled={submitting}>
-                  {submitting ? '提交中...' : '保存奖励'}
-                </button>
-              </div>
-            </form>
+            renderRewardForm('保存奖励', () => setSelectedReward(null))
           ) : (
             <div className="detail-grid">
               <div className="detail-card">
                 <h4>奖励信息</h4>
                 <div className="detail-list">
                   <div><span>奖励名称</span><strong>{selectedReward.name}</strong></div>
-                  <div><span>奖励分类</span><strong>{selectedReward.category}</strong></div>
+                  <div><span>奖励范围</span><strong>{selectedReward.sourceLabel}</strong></div>
                   <div><span>状态</span><strong>{formatEnabledStatus(selectedReward.status)}</strong></div>
+                  <div><span>创建老师</span><strong>{selectedReward.createdByName ?? '系统预置'}</strong></div>
                 </div>
               </div>
               <div className="detail-card">
                 <h4>兑换配置</h4>
                 <div className="detail-list">
-                  <div><span>积分成本</span><strong>{selectedReward.scoreCost}</strong></div>
+                  <div><span>所需分值</span><strong>{selectedReward.scoreCost}</strong></div>
                   <div><span>库存</span><strong>{selectedReward.isInfiniteStock ? '不限' : selectedReward.stockQty ?? 0}</strong></div>
-                  <div><span>运营模式</span><strong>{selectedReward.isInfiniteStock ? '长期可兑换' : '库存型奖励'}</strong></div>
-                  <div><span>展示方式</span><strong>{selectedReward.imageUrl ? '含图片展示' : '文字卡片展示'}</strong></div>
+                  <div><span>展示方式</span><strong>{selectedReward.imageUrl ? '图片卡片' : '文字卡片'}</strong></div>
                 </div>
               </div>
               <div className="detail-card span-2">
-                <h4>兑换记录概览</h4>
+                <h4>最近兑换</h4>
                 {ordersLoading ? <div className="status-card">兑换记录加载中...</div> : null}
                 {submitError ? <div className="status-card error">{submitError}</div> : null}
                 {!ordersLoading ? (
@@ -682,63 +857,17 @@ export function RewardsPage({
           )}
         </Modal>
       ) : null}
+
       {showCreateReward ? (
         <Modal
           title="新增奖励"
-          subtitle=""
+          subtitle={form.scopeType === 'class' ? '班级奖励仅对当前班学生可见和可兑换' : '学校奖励面向全校统一展示'}
           onClose={() => {
             if (submitting) return;
             setShowCreateReward(false);
           }}
         >
-          <form className="form-grid" onSubmit={handleRewardSubmit}>
-            <label>
-              <span>奖励名称</span>
-              <input type="text" value={form.name} onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))} />
-            </label>
-            <label>
-              <span>奖励分类</span>
-              <input type="text" value={form.category} onChange={(event) => setForm((prev) => ({ ...prev, category: event.target.value }))} />
-            </label>
-            <label>
-              <span>图片地址</span>
-              <input type="text" value={form.imageUrl} onChange={(event) => setForm((prev) => ({ ...prev, imageUrl: event.target.value }))} placeholder="可留空" />
-            </label>
-            <label className="span-2">
-              <span>上传奖励图片</span>
-              <input type="file" accept="image/*" onChange={handleRewardImageUpload} disabled={uploadingImage || submitting} />
-              {form.imageUrl ? <div className="settings-note">当前图片：{form.imageUrl}</div> : null}
-            </label>
-            <label>
-              <span>积分成本</span>
-              <input type="text" value={form.scoreCost} onChange={(event) => setForm((prev) => ({ ...prev, scoreCost: event.target.value }))} />
-            </label>
-            <label>
-              <span>库存数量</span>
-              <input type="text" value={form.stockQty} onChange={(event) => setForm((prev) => ({ ...prev, stockQty: event.target.value }))} placeholder="不限库存可留空" />
-            </label>
-            <label className="checkbox-item span-2">
-              <input type="checkbox" checked={form.isInfiniteStock} onChange={(event) => setForm((prev) => ({ ...prev, isInfiniteStock: event.target.checked }))} />
-              不限库存
-            </label>
-            {submitError ? <div className="status-card error span-2">{submitError}</div> : null}
-            <div className="form-actions span-2">
-              <button
-                type="button"
-                className="ghost-button"
-                onClick={() => {
-                  if (submitting) return;
-                  setShowCreateReward(false);
-                }}
-                disabled={submitting}
-              >
-                取消
-              </button>
-              <button type="submit" className="toolbar-button" disabled={submitting}>
-                {submitting ? '提交中...' : '创建奖励'}
-              </button>
-            </div>
-          </form>
+          {renderRewardForm('创建奖励', () => setShowCreateReward(false))}
         </Modal>
       ) : null}
     </Shell>

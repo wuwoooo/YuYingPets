@@ -1,9 +1,10 @@
-import { ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { compare, hashSync } from 'bcryptjs';
 import { PrismaService } from '@/prisma/prisma.service';
 import { LoginDto } from './dto/login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { ProjectionLoginDto } from './dto/projection-login.dto';
 import { AuthUser } from '@/common/auth/auth-user.interface';
 import { toNumber } from '@/common/utils/bigint.util';
 
@@ -23,6 +24,20 @@ const DUTY_TAG_ROLE_MAP: Array<{ keywords: string[]; roleCode: string }> = [
 
 const DISPLAY_ADMIN_ROLE_CODES = ['super_admin', 'school_admin', 'academic_admin', 'moral_admin'];
 const DISPLAY_OPERATOR_ROLE_CODES = [...DISPLAY_ADMIN_ROLE_CODES, 'homeroom_teacher', 'subject_teacher'];
+const PROJECTION_TOKEN_EXPIRES_IN = '3650d';
+const COMMON_WEAK_PASSWORDS = new Set([
+  '123456',
+  '12345678',
+  '123456789',
+  '111111',
+  '000000',
+  '666666',
+  '888888',
+  'password',
+  'qwerty',
+  'abc123',
+  'admin',
+]);
 
 @Injectable()
 export class AuthService {
@@ -56,9 +71,7 @@ export class AuthService {
     const user = (
       await Promise.all(
         candidateUsers.map(async (candidate) => {
-          const passwordMatched =
-            candidate.passwordHash === dto.password ||
-            (await compare(dto.password, candidate.passwordHash).catch(() => false));
+          const passwordMatched = await compare(dto.password, candidate.passwordHash).catch(() => false);
           return passwordMatched ? candidate : null;
         }),
       )
@@ -93,6 +106,78 @@ export class AuthService {
           roleCode: user.role.code,
           roleName: user.role.name,
           dutyTags: this.normalizeDutyTags(user.dutyTags),
+          passwordChangeRequired: user.passwordChangeRequired,
+        },
+        scopes: user.scopes.map((scope) => ({
+          scopeType: scope.scopeType,
+          classId: toNumber(scope.classId),
+          gradeCode: scope.gradeCode,
+          subjectCode: scope.subjectCode,
+        })),
+        classAssignments: user.teacherClassAssignments.map((assignment) => ({
+          classId: toNumber(assignment.classId),
+          roleInClass: assignment.roleInClass,
+          subjectCode: assignment.subjectCode,
+          isPrimary: assignment.isPrimary,
+        })),
+      },
+    };
+  }
+
+  async projectionLogin(dto: ProjectionLoginDto) {
+    const username = dto.username.trim();
+    const password = dto.password.trim();
+    if (!username || !password) {
+      throw new UnauthorizedException('请输入投屏账号和密码');
+    }
+
+    const user = await this.prisma.user.findFirst({
+      where: {
+        deletedAt: null,
+        status: 'enabled',
+        passwordChangeRequired: false,
+        role: {
+          code: { in: DISPLAY_ADMIN_ROLE_CODES },
+        },
+      },
+      include: {
+        role: true,
+        scopes: true,
+        teacherClassAssignments: {
+          where: { status: 'enabled' },
+        },
+      },
+      orderBy: { id: 'asc' },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('未找到可用于投屏的校级账号');
+    }
+
+    const payload = {
+      sub: toNumber(user.id),
+      schoolId: toNumber(user.schoolId),
+      username: user.username,
+      roleCode: user.role.code,
+      terminalType: 'projection',
+    };
+
+    const token = await this.jwtService.signAsync(payload, {
+      expiresIn: PROJECTION_TOKEN_EXPIRES_IN,
+    });
+
+    return {
+      code: 0,
+      message: 'ok',
+      data: {
+        token,
+        user: {
+          id: toNumber(user.id),
+          name: user.name,
+          roleCode: user.role.code,
+          roleName: user.role.name,
+          dutyTags: this.normalizeDutyTags(user.dutyTags),
+          passwordChangeRequired: false,
         },
         scopes: user.scopes.map((scope) => ({
           scopeType: scope.scopeType,
@@ -124,6 +209,7 @@ export class AuthService {
           roleCode: user.roleCode,
           roleName: user.roleName,
           dutyTags: user.dutyTags,
+          passwordChangeRequired: user.passwordChangeRequired,
         },
         scopes: user.scopes.map((scope) => ({
           scopeType: scope.scopeType,
@@ -145,6 +231,22 @@ export class AuthService {
     return { code: 0, message: 'ok', data: null };
   }
 
+  private getWeakPasswordReason(
+    password: string,
+    user: { username: string; name: string; phone: string | null },
+  ) {
+    const normalized = password.trim();
+    const normalizedLower = normalized.toLowerCase();
+    const phone = String(user.phone ?? '').replace(/\D/g, '');
+    if (COMMON_WEAK_PASSWORDS.has(normalizedLower)) return '常见弱口令';
+    if (normalizedLower === user.username.trim().toLowerCase()) return '不能与用户名相同';
+    if (normalized === user.name.trim()) return '不能与姓名相同';
+    if (phone && normalized === phone) return '不能与手机号相同';
+    if (phone.length >= 6 && normalized === phone.slice(-6)) return '不能使用手机号后 6 位';
+    if (phone.length >= 8 && normalized === phone.slice(-8)) return '不能使用手机号后 8 位';
+    return null;
+  }
+
   async changePassword(authorization: string | undefined, dto: ChangePasswordDto) {
     const user = await this.getAuthUserFromAuthorization(authorization);
     const currentUser = await this.prisma.user.findFirst({
@@ -154,23 +256,31 @@ export class AuthService {
         deletedAt: null,
         status: 'enabled',
       },
-      select: { id: true, passwordHash: true },
+      select: { id: true, passwordHash: true, username: true, name: true, phone: true },
     });
 
     if (!currentUser) {
       throw new UnauthorizedException('用户不存在或已禁用');
     }
 
-    const passwordMatched =
-      currentUser.passwordHash === dto.currentPassword ||
-      (await compare(dto.currentPassword, currentUser.passwordHash).catch(() => false));
+    const passwordMatched = await compare(dto.currentPassword, currentUser.passwordHash).catch(() => false);
     if (!passwordMatched) {
       throw new UnauthorizedException('当前密码错误');
+    }
+    if (dto.currentPassword === dto.newPassword) {
+      throw new BadRequestException('新密码不能与当前密码相同');
+    }
+    const weakPasswordReason = this.getWeakPasswordReason(dto.newPassword, currentUser);
+    if (weakPasswordReason) {
+      throw new BadRequestException(`新密码过于简单：${weakPasswordReason}`);
     }
 
     await this.prisma.user.update({
       where: { id: currentUser.id },
-      data: { passwordHash: hashSync(dto.newPassword, 10) },
+      data: {
+        passwordHash: hashSync(dto.newPassword, 10),
+        passwordChangeRequired: false,
+      },
     });
 
     return { code: 0, message: 'ok', data: null };
@@ -190,6 +300,7 @@ export class AuthService {
       sub: number;
       schoolId: number;
       roleCode: string;
+      terminalType?: string;
     };
     try {
       payload = await this.jwtService.verifyAsync(token);
@@ -223,7 +334,9 @@ export class AuthService {
       name: user.name,
       roleCode: user.role.code,
       roleName: user.role.name,
+      terminalType: payload.terminalType,
       dutyTags: this.normalizeDutyTags(user.dutyTags),
+      passwordChangeRequired: user.passwordChangeRequired,
       scopes: user.scopes.map((scope) => ({
         scopeType: scope.scopeType,
         classId: scope.classId,
@@ -249,6 +362,23 @@ export class AuthService {
       user.scopes.some((scope) => scope.classId === targetClassId) ||
       user.classAssignments.some((assignment) => assignment.classId === targetClassId)
     );
+  }
+
+  /** 返回当前用户可访问的班级 ID；管理员返回 null 表示不限；无权限时返回 [-1] 以保证查询为空 */
+  getAccessibleClassIds(user: AuthUser): bigint[] | null {
+    if (this.hasAnyRole(user, DISPLAY_ADMIN_ROLE_CODES)) {
+      return null;
+    }
+
+    const classIds = Array.from(
+      new Set([
+        ...user.scopes
+          .map((scope) => scope.classId)
+          .filter((classId): classId is bigint => typeof classId === 'bigint'),
+        ...user.classAssignments.map((assignment) => assignment.classId),
+      ]),
+    );
+    return classIds.length ? classIds : [BigInt(-1)];
   }
 
   ensureCanAccessClass(user: AuthUser, classId: bigint | number) {
@@ -427,6 +557,11 @@ export class AuthService {
 
   canInitializeDisplayTerminal(user: AuthUser) {
     return this.hasAnyRole(user, [...DISPLAY_ADMIN_ROLE_CODES, 'homeroom_teacher']);
+  }
+
+  /** 系统管理员可绕过「一班级一终端」限制，用于线上测试大屏 */
+  canOverrideClassDisplayBinding(user: AuthUser) {
+    return user.roleCode === 'super_admin';
   }
 
   canOperateDisplay(user: AuthUser) {

@@ -1,5 +1,6 @@
-import { Body, Controller, Get, Headers, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, Param, Post, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { Public } from '@/common/auth/public.decorator';
 import { DisplayUnlockDto } from './dto/display-unlock.dto';
 import { DisplayService } from './display.service';
 import { DisplayLockDto } from './dto/display-lock.dto';
@@ -13,6 +14,7 @@ export class DisplayController {
   constructor(private readonly displayService: DisplayService) {}
 
   @Get('terminal-state')
+  @Public()
   terminalState(@Query('terminalCode') terminalCode: string) {
     return this.displayService.terminalState(terminalCode);
   }
@@ -20,6 +22,22 @@ export class DisplayController {
   @Get('terminals')
   terminals(@Headers('authorization') authorization: string | undefined) {
     return this.displayService.terminals(authorization);
+  }
+
+  @Delete('terminals/:id')
+  deleteTerminal(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+  ) {
+    return this.displayService.deleteTerminal(authorization, Number(id));
+  }
+
+  @Get('class-bindings')
+  classBindings(
+    @Headers('authorization') authorization: string | undefined,
+    @Query('terminalCode') terminalCode?: string,
+  ) {
+    return this.displayService.classBindings(authorization, terminalCode);
   }
 
   @Post('terminal-initialize')
@@ -36,8 +54,12 @@ export class DisplayController {
   }
 
   @Get('unlock-status')
-  unlockStatus(@Query('classId') classId: string, @Query('displayTerminalCode') code: string) {
-    return this.displayService.unlockStatus(Number(classId), code);
+  unlockStatus(
+    @Headers('authorization') authorization: string | undefined,
+    @Query('classId') classId: string,
+    @Query('displayTerminalCode') code: string,
+  ) {
+    return this.displayService.unlockStatus(authorization, Number(classId), code);
   }
 
   @Post('lock')
@@ -49,43 +71,58 @@ export class DisplayController {
   }
 
   @Get('entry-config')
+  @Public()
   entryConfig(@Query('classId') classId?: string) {
     return this.displayService.entryConfig(classId ? Number(classId) : undefined);
   }
 
   @Get('weather')
+  @Public()
   weather(@Query() query: DisplayWeatherQueryDto) {
     return this.displayService.weather(query);
   }
 
   @Get('pet-catalog')
+  @Public()
   petCatalog() {
     return this.displayService.petCatalog();
   }
 
   @Get('classes/:classId/home')
-  home(@Param('classId') classId: string) {
-    return this.displayService.home(Number(classId));
+  home(@Headers('authorization') authorization: string | undefined, @Param('classId') classId: string) {
+    return this.displayService.home(authorization, Number(classId));
   }
 
   @Get('classes/:classId/leaderboard')
-  leaderboard(@Param('classId') classId: string, @Query('type') type: string) {
-    return this.displayService.leaderboard(Number(classId), type);
+  leaderboard(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('classId') classId: string,
+    @Query('type') type: string,
+  ) {
+    return this.displayService.leaderboard(authorization, Number(classId), type);
   }
 
   @Get('classes/:classId/roster')
-  roster(@Param('classId') classId: string) {
-    return this.displayService.roster(Number(classId));
+  roster(@Headers('authorization') authorization: string | undefined, @Param('classId') classId: string) {
+    return this.displayService.roster(authorization, Number(classId));
   }
 
   @Get('classes/:classId/class-score-ranking')
-  classScoreRanking(@Param('classId') classId: string) {
-    return this.displayService.classScoreRanking(Number(classId));
+  classScoreRanking(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('classId') classId: string,
+  ) {
+    return this.displayService.classScoreRanking(authorization, Number(classId));
   }
 
   @Get('classes/:classId/academic-growth')
-  academicGrowth(@Param('classId') classId: string, @Query('examId') examId?: string) {
+  academicGrowth(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('classId') classId: string,
+    @Query('examId') examId?: string,
+  ) {
     return this.displayService.academicGrowth(
+      authorization,
       Number(classId),
       examId && Number.isInteger(Number(examId)) && Number(examId) > 0 ? Number(examId) : undefined,
     );
@@ -93,24 +130,35 @@ export class DisplayController {
 
   @Get('classes/:classId/academic-ai/:studentId/summary')
   academicAiSummary(
+    @Headers('authorization') authorization: string | undefined,
     @Param('classId') classId: string,
     @Param('studentId') studentId: string,
     @Query('periodType') periodType?: 'weekly' | 'monthly',
   ) {
-    return this.displayService.academicAiSummary(Number(classId), Number(studentId), periodType);
+    return this.displayService.academicAiSummary(authorization, Number(classId), Number(studentId), periodType);
   }
 
   @Post('classes/:classId/academic-ai/:studentId/generate')
   academicAiGenerate(
+    @Headers('authorization') authorization: string | undefined,
     @Param('classId') classId: string,
     @Param('studentId') studentId: string,
     @Body() body: AiGenerateDto,
   ) {
-    return this.displayService.academicAiGenerate(Number(classId), Number(studentId), body.periodType);
+    return this.displayService.academicAiGenerate(authorization, Number(classId), Number(studentId), body.periodType);
   }
 
   @Get('classes/:classId/reward-center')
-  rewardCenter(@Param('classId') classId: string) {
-    return this.displayService.rewardCenter(Number(classId));
+  rewardCenter(@Headers('authorization') authorization: string | undefined, @Param('classId') classId: string) {
+    return this.displayService.rewardCenter(authorization, Number(classId));
+  }
+
+  @Get('classes/:classId/honor-records')
+  honorRecords(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('classId') classId: string,
+    @Query() query: Record<string, string>,
+  ) {
+    return this.displayService.honorRecords(authorization, Number(classId), query);
   }
 }

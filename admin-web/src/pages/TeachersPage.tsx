@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import * as XLSX from 'xlsx';
 import { Modal } from '../components/Modal';
 import { PermissionScopeTableCell } from '../components/PermissionScopeTableCell';
 import { PickerInput } from '../components/PickerInput';
@@ -21,6 +20,7 @@ import { adminApi } from '../lib/api';
 import type { PermissionUserFormState } from '../types/admin';
 import { createPermissionUserForm, formatEnabledStatus, normalizeKeyword } from '../utils/adminForms';
 import { canManageTeachers } from '../utils/adminPermissions';
+import { readXlsxWorkbookRows, rowsToObjects } from '../utils/workbookRows';
 
 const teacherRoleCodes = ['homeroom_teacher', 'subject_teacher'];
 const managerRoleCodes = ['super_admin', 'school_admin', 'academic_admin', 'moral_admin'];
@@ -145,7 +145,7 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
   const [editingTeacher, setEditingTeacher] = useState<PermissionUser | null>(null);
   const [selectedTeacher, setSelectedTeacher] = useState<PermissionUser | null>(null);
   const [form, setForm] = useState<PermissionUserFormState>(() => createPermissionUserForm());
-  const [pageLoading, setPageLoading] = useState(false);
+  const [pageLoading, setPageLoading] = useState(true);
   const [pageError, setPageError] = useState<string | null>(null);
   const [editorError, setEditorError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
@@ -341,10 +341,9 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
     setImportFileName(file.name);
 
     try {
-      const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
-      const firstSheetName = workbook.SheetNames[0];
-      if (!firstSheetName) throw new Error('导入文件中没有工作表');
-      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets[firstSheetName], { defval: '' });
+      const [firstSheetRows] = await readXlsxWorkbookRows(file);
+      if (!firstSheetRows) throw new Error('导入文件中没有工作表');
+      const rows = rowsToObjects(firstSheetRows);
       const parsedRows = rows
         .map((row) => ({
           name: getImportCell(row, ['姓名', '教师姓名', 'name']),
@@ -918,6 +917,7 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
     <Shell
       title="教师管理"
       subtitle="从校级视角管理班主任、任课教师和任教范围"
+      loading={loading || pageLoading}
       user={user}
       status={
         <>
@@ -964,7 +964,7 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
               <input
                 ref={importFileInputRef}
                 type="file"
-                accept=".xlsx,.xls"
+                accept=".xlsx"
                 hidden
                 onChange={handleImportFileChange}
               />
@@ -1325,7 +1325,7 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
             {editingTeacher ? (
               <label className="checkbox-item">
                 <input type="checkbox" checked={form.resetPassword} onChange={(event) => setForm((prev) => ({ ...prev, resetPassword: event.target.checked }))} />
-                同时重置密码为 123456
+                同时重置为随机临时密码
               </label>
             ) : null}
             {editorError ? <div className="status-card error">{editorError}</div> : null}
@@ -1357,7 +1357,7 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
                 <div className="detail-grid">
                   <div><span>文件</span><strong>{importFileName || '未选择'}</strong></div>
                   <div><span>识别人数</span><strong>{importRows.length} 人</strong></div>
-                  <div><span>默认密码</span><strong>123456</strong></div>
+                  <div><span>默认密码</span><strong>系统随机生成</strong></div>
                 </div>
                 <p className="page-desc">
                   同一手机号或同名账号会更新原账号。角色列会写入职务标签并用以推断系统角色；其中“班主任（xx班）”会单独解析班主任负责班级，“教务 / 德育 / 考试管理员”等标签仍按管理岗位识别。任课班级列继续用于解析授课班级与学科。新账号用户名按姓名拼音生成。

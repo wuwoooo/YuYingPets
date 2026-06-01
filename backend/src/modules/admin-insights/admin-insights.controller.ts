@@ -9,8 +9,44 @@ import { PetUpsertDto } from './dto/pet-upsert.dto';
 export class AdminInsightsController {
   constructor(private readonly adminInsightsService: AdminInsightsService) {}
 
-  @Get('analytics')
-  analytics(
+  @Get('analytics/summary')
+  analyticsSummary(
+    @Headers('authorization') authorization: string | undefined,
+    @Query('gradeName') gradeName?: string,
+    @Query('classId') classId?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Query('subjectCode') subjectCode?: string,
+  ) {
+    return this.adminInsightsService.analyticsSummary(authorization, {
+      gradeName,
+      classId: classId ? Number(classId) : undefined,
+      startDate,
+      endDate,
+      subjectCode,
+    });
+  }
+
+  @Get('analytics/heatmap')
+  analyticsHeatmap(
+    @Headers('authorization') authorization: string | undefined,
+    @Query('gradeName') gradeName?: string,
+    @Query('classId') classId?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Query('subjectCode') subjectCode?: string,
+  ) {
+    return this.adminInsightsService.analyticsHeatmap(authorization, {
+      gradeName,
+      classId: classId ? Number(classId) : undefined,
+      startDate,
+      endDate,
+      subjectCode,
+    });
+  }
+
+  @Get('analytics/ai')
+  analyticsAi(
     @Headers('authorization') authorization: string | undefined,
     @Query('gradeName') gradeName?: string,
     @Query('classId') classId?: string,
@@ -19,7 +55,7 @@ export class AdminInsightsController {
     @Query('endDate') endDate?: string,
     @Query('subjectCode') subjectCode?: string,
   ) {
-    return this.adminInsightsService.analytics(authorization, {
+    return this.adminInsightsService.analyticsAi(authorization, {
       gradeName,
       classId: classId ? Number(classId) : undefined,
       regenerateAi: regenerateAi === 'true',
@@ -64,7 +100,7 @@ export class AdminInsightsController {
   }
 
   @Post('pets/upload')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 } }))
   uploadPetAsset(
     @Headers('authorization') authorization: string | undefined,
     @UploadedFile() file: { originalname: string; mimetype: string; size: number; buffer: Buffer } | undefined,

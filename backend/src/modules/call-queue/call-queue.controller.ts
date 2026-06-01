@@ -21,24 +21,46 @@ export class CallQueueController {
     return this.callQueueService.createCall(user, dto);
   }
 
+  @Get('classes')
+  async getCallableClasses(@Headers('authorization') authorization: string | undefined) {
+    const user = await this.authService.getAuthUserFromAuthorization(authorization);
+    return this.callQueueService.getCallableClasses(user);
+  }
+
+  @Get('class-students')
+  async getCallableClassStudents(
+    @Headers('authorization') authorization: string | undefined,
+    @Query('classId') classId: string,
+  ) {
+    const user = await this.authService.getAuthUserFromAuthorization(authorization);
+    return this.callQueueService.getCallableClassStudents(user, Number(classId));
+  }
+
   @Get('list')
   async getQueueList(
     @Headers('authorization') authorization: string | undefined,
     @Query('classId') classId: string,
   ) {
     const user = await this.authService.getAuthUserFromAuthorization(authorization);
-    this.authService.ensureCanAccessClass(user, Number(classId));
-    return this.callQueueService.getQueueList(Number(classId));
+    return this.callQueueService.getQueueList(user, Number(classId));
   }
 
   @Get('active/:classId')
-  async getActiveCall(@Param('classId') classId: string) {
-    return this.callQueueService.getActiveCall(Number(classId));
+  async getActiveCall(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('classId') classId: string,
+  ) {
+    const user = await this.authService.getAuthUserFromAuthorization(authorization);
+    return this.callQueueService.getActiveCall(user, Number(classId));
   }
 
   @Post(':id/confirm')
-  async confirmCall(@Param('id') id: string) {
-    return this.callQueueService.confirmCall(Number(id));
+  async confirmCall(
+    @Headers('authorization') authorization: string | undefined,
+    @Param('id') id: string,
+  ) {
+    const user = await this.authService.getAuthUserFromAuthorization(authorization);
+    return this.callQueueService.confirmCall(user, Number(id));
   }
 
   @Post(':id/cancel')

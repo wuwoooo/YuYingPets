@@ -4,10 +4,23 @@ import { PrismaService } from '@/prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { toNumber } from '@/common/utils/bigint.util';
 import { OperationLogService } from '../operation-log/operation-log.service';
+import { RealtimeService } from '../realtime/realtime.service';
 import { HonorUpsertDto } from './dto/honor-upsert.dto';
 import { HonorRecordCreateDto } from './dto/honor-record-create.dto';
+import { assertHonorImageDimensions } from '@/common/utils/image-dimension.util';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
+
+/** 校级荣誉管理：创建/维护勋章、为班级颁发集体荣誉 */
+const SCHOOL_HONOR_ADMIN_ROLES = [
+  'super_admin',
+  'school_admin',
+  'moral_admin',
+  'academic_admin',
+] as const;
+
+/** 可为学生颁发个人/阶段/长期荣誉的任课与班主任 */
+const STUDENT_HONOR_GRANT_TEACHER_ROLES = ['homeroom_teacher', 'subject_teacher'] as const;
 
 @Injectable()
 export class HonorsService {
@@ -15,6 +28,7 @@ export class HonorsService {
     private readonly prisma: PrismaService,
     private readonly authService: AuthService,
     private readonly operationLogService: OperationLogService,
+    private readonly realtimeService: RealtimeService,
   ) {}
 
   async list(authorization: string | undefined, query: Record<string, string>) {
@@ -179,6 +193,13 @@ export class HonorsService {
     if (file.size > 5 * 1024 * 1024) {
       throw new BadRequestException('图片大小不能超过 5MB');
     }
+    try {
+      assertHonorImageDimensions(file.buffer, file.mimetype);
+    } catch (error) {
+      throw new BadRequestException(
+        error instanceof Error ? error.message : '勋章图片尺寸不符合要求',
+      );
+    }
 
     const uploadsDir = resolve(process.cwd(), 'public/uploads/honors');
     await mkdir(uploadsDir, { recursive: true });
@@ -272,6 +293,7 @@ export class HonorsService {
         id: toNumber(row.id),
         honorId: toNumber(row.honorId),
         honorName: row.honor.name,
+        honorIconUrl: row.honor.iconUrl,
         targetType: row.targetType,
         targetId: toNumber(row.targetId),
         schoolId: toNumber(row.schoolId),
@@ -290,7 +312,13 @@ export class HonorsService {
 
   async createRecord(authorization: string | undefined, body: HonorRecordCreateDto) {
     const user = await this.authService.getAuthUserFromAuthorization(authorization);
-    this.ensureCanGrantHonors(user.roleCode);
+    if (body.targetType === 'class') {
+      this.ensureCanGrantClassHonor(user.roleCode);
+    } else if (body.targetType === 'student') {
+      this.ensureCanGrantStudentHonor(user.roleCode);
+    } else {
+      throw new BadRequestException('不支持的荣誉颁发对象类型');
+    }
     this.authService.ensureCanAccessClass(user, body.classId);
 
     const result = await this.prisma.$transaction(async (tx) => {
@@ -305,6 +333,14 @@ export class HonorsService {
         throw new NotFoundException('荣誉不存在或已停用');
       }
 
+      if (body.targetType === 'class') {
+        if (honor.category !== 'collective') {
+          throw new BadRequestException('班级荣誉仅可颁发集体类勋章');
+        }
+      } else if (honor.category === 'collective') {
+        throw new BadRequestException('集体类勋章仅可颁发给班级');
+      }
+
       const classroom = await tx.classroom.findFirst({
         where: {
           id: BigInt(body.classId),
@@ -317,6 +353,7 @@ export class HonorsService {
       }
 
       let studentId: bigint | null = null;
+      let studentName: string | null = null;
       if (body.targetType === 'student') {
         const student = await tx.student.findFirst({
           where: {
@@ -331,6 +368,7 @@ export class HonorsService {
           throw new NotFoundException('学生不存在');
         }
         studentId = student.id;
+        studentName = student.name;
       } else {
         if (body.targetId !== body.classId) {
           throw new BadRequestException('班级荣誉的 targetId 必须等于 classId');
@@ -368,10 +406,18 @@ export class HonorsService {
       return {
         recordId: toNumber(record.id),
         honorId: toNumber(honor.id),
+        honorName: honor.name,
+        honorIconUrl: honor.iconUrl,
         targetType: body.targetType,
         targetId: body.targetId,
         classId: body.classId,
+        className: classroom.name,
+        gradeName: classroom.gradeName,
         studentId: studentId ? toNumber(studentId) : null,
+        studentName,
+        grantedAt: record.grantedAt.toISOString(),
+        remark: body.remark ?? null,
+        operatorName: user.name,
       };
     });
 
@@ -392,18 +438,46 @@ export class HonorsService {
       },
     });
 
+    this.realtimeService.emitHonorGranted(body.classId, {
+      classId: body.classId,
+      recordId: result.recordId,
+      honorId: result.honorId,
+      honorName: result.honorName,
+      honorIconUrl: result.honorIconUrl,
+      targetType: result.targetType,
+      targetId: result.targetId,
+      studentId: result.studentId,
+      studentName: result.studentName,
+      className: result.className,
+      gradeName: result.gradeName,
+      grantedAt: result.grantedAt,
+      remark: result.remark,
+      operatorName: result.operatorName,
+    });
+
     return { code: 0, message: 'ok', data: result };
   }
 
   private ensureCanManageHonors(roleCode: string) {
-    if (!['super_admin', 'school_admin', 'moral_admin'].includes(roleCode)) {
-      throw new ForbiddenException('当前角色无权维护荣誉');
+    if (!SCHOOL_HONOR_ADMIN_ROLES.includes(roleCode as (typeof SCHOOL_HONOR_ADMIN_ROLES)[number])) {
+      throw new ForbiddenException('仅学校管理员、德育管理员或教务管理员可维护荣誉勋章');
     }
   }
 
-  private ensureCanGrantHonors(roleCode: string) {
-    if (!['homeroom_teacher', 'subject_teacher', 'school_admin', 'grade_admin', 'moral_admin', 'super_admin'].includes(roleCode)) {
-      throw new ForbiddenException('当前角色无权发放荣誉');
+  private ensureCanGrantStudentHonor(roleCode: string) {
+    if (
+      SCHOOL_HONOR_ADMIN_ROLES.includes(roleCode as (typeof SCHOOL_HONOR_ADMIN_ROLES)[number]) ||
+      STUDENT_HONOR_GRANT_TEACHER_ROLES.includes(roleCode as (typeof STUDENT_HONOR_GRANT_TEACHER_ROLES)[number])
+    ) {
+      return;
     }
+    throw new ForbiddenException('当前角色无权为学生颁发荣誉');
+  }
+
+  private ensureCanGrantClassHonor(roleCode: string) {
+    if (SCHOOL_HONOR_ADMIN_ROLES.includes(roleCode as (typeof SCHOOL_HONOR_ADMIN_ROLES)[number])) {
+      return;
+    }
+    throw new ForbiddenException('仅校级管理员可为班级颁发集体荣誉');
   }
 }

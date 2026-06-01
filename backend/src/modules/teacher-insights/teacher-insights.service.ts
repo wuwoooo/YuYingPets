@@ -561,7 +561,7 @@ export class TeacherInsightsService {
         gradeName: true,
         students: {
           where: { deletedAt: null, status: 'enabled' },
-          select: { id: true },
+          select: { id: true, name: true },
         },
       },
     });
@@ -589,7 +589,17 @@ export class TeacherInsightsService {
         sentiment: true,
         dimension: true,
         sceneCode: true,
+        tag: true,
+        remark: true,
+        subjectCode: true,
+        operatorId: true,
+        operatorName: true,
         createdAt: true,
+        rule: {
+          select: {
+            name: true,
+          },
+        },
       },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     });
@@ -632,6 +642,81 @@ export class TeacherInsightsService {
         ? `当前区间内持续异常对象以 ${analyticsResp.data.riskStudents[0].studentName} 为代表。`
         : '当前区间内未发现明显持续异常对象。',
     ]).slice(0, 3);
+    const ownScoreDetailSummary = Array.from(
+      scopedRecords.reduce((map, record) => {
+        if ((toNumber(record.operatorId) ?? 0) !== (toNumber(user.id) ?? 0)) return map;
+        const studentId = toNumber(record.studentId) ?? 0;
+        if (!studentId) return map;
+        const current = map.get(studentId) ?? {
+          studentId,
+          studentName: classroom.students.find((item) => (toNumber(item.id) ?? 0) === studentId)?.name ?? `学生#${studentId}`,
+          classId,
+          className: classroom.name,
+          totalScoreDelta: 0,
+          positiveCount: 0,
+          negativeCount: 0,
+          recordCount: 0,
+          records: [] as Array<{
+            id: number;
+            scoreDelta: number;
+            ruleName: string | null;
+            dimension: string | null;
+            tag: string | null;
+            remark: string | null;
+            subjectCode: string | null;
+            operatorName: string | null;
+            createdAt: Date;
+          }>,
+        };
+        current.totalScoreDelta += record.scoreDelta;
+        current.recordCount += 1;
+        if (record.scoreDelta > 0) current.positiveCount += 1;
+        if (record.scoreDelta < 0) current.negativeCount += 1;
+        current.records.push({
+          id: toNumber(record.id) ?? 0,
+          scoreDelta: record.scoreDelta,
+          ruleName: record.rule?.name ?? null,
+          dimension: record.dimension,
+          tag: record.tag,
+          remark: record.remark,
+          subjectCode: record.subjectCode,
+          operatorName: record.operatorName,
+          createdAt: record.createdAt,
+        });
+        map.set(studentId, current);
+        return map;
+      }, new Map<number, {
+        studentId: number;
+        studentName: string;
+        classId: number;
+        className: string;
+        totalScoreDelta: number;
+        positiveCount: number;
+        negativeCount: number;
+        recordCount: number;
+        records: Array<{
+          id: number;
+          scoreDelta: number;
+          ruleName: string | null;
+          dimension: string | null;
+          tag: string | null;
+          remark: string | null;
+          subjectCode: string | null;
+          operatorName: string | null;
+          createdAt: Date;
+        }>;
+      }>()),
+    )
+      .map(([, item]) => ({
+        ...item,
+        records: item.records.sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime() || right.id - left.id),
+      }))
+      .sort(
+        (left, right) =>
+          right.totalScoreDelta - left.totalScoreDelta ||
+          right.recordCount - left.recordCount ||
+          left.studentId - right.studentId,
+      );
 
     return {
       code: 0,
@@ -679,6 +764,7 @@ export class TeacherInsightsService {
                 '先补足更具体的课堂过程性评价，再观察下一阶段波动是否持续。',
                 '把风险学生放进下次课堂的点名、提问或作业反馈名单中。',
               ],
+        scoreDetailSummary: ownScoreDetailSummary,
       },
     };
   }

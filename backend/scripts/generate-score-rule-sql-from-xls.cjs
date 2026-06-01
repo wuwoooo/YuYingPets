@@ -289,7 +289,7 @@ function buildRowsFromMoralWorkbook(workbookPath) {
       scoreTarget: 'student',
       scoreValue,
       sourceDesc: `来源工作簿：${path.basename(workbookPath)} / ${firstSheet.sheetName}`,
-      allowedRoleCodes: ['school_admin', 'moral_admin'],
+      allowedRoleCodes: [],
     }));
     sourceNo += 1;
   }

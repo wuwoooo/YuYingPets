@@ -1,0 +1,332 @@
+/* 学生成长档案 · 统一字号与卡片层级 */
+.student-growth-archive {
+  --sga-title: 14px;
+  --sga-body: 13px;
+  --sga-caption: 12px;
+  --sga-metric: 18px;
+  color: #334155;
+  font-size: var(--sga-body);
+}
+
+.student-growth-archive .detail-card {
+  padding: 16px 18px;
+  border: 1px solid rgba(15, 61, 99, 0.07);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow:
+    0 1px 2px rgba(15, 61, 99, 0.04),
+    0 8px 22px rgba(15, 61, 99, 0.04);
+}
+
+.student-growth-archive .detail-card h4 {
+  margin: 0 0 12px;
+  color: #1e293b;
+  font-size: var(--sga-title);
+  font-weight: 700;
+}
+
+.student-growth-archive .detail-list span {
+  color: #94a3b8;
+  font-size: var(--sga-caption);
+}
+
+.student-growth-archive .detail-list strong {
+  color: #334155;
+  font-size: var(--sga-body);
+  font-weight: 600;
+}
+
+.student-growth-archive .student-score-summary-header {
+  margin-bottom: 12px;
+}
+
+.student-growth-archive .student-score-records-button {
+  font-size: var(--sga-caption);
+}
+
+/* AI 学情分析 */
+.student-growth-archive .student-ai-header {
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.student-growth-archive .student-ai-header h4 {
+  margin: 0;
+}
+
+.student-growth-archive .student-ai-header p {
+  margin: 4px 0 0;
+  color: #94a3b8;
+  font-size: var(--sga-caption);
+  line-height: 1.55;
+}
+
+.student-growth-archive .student-ai-actions {
+  gap: 8px;
+}
+
+.student-growth-archive .student-ai-actions select {
+  min-width: 88px;
+  height: 32px;
+  padding: 0 10px;
+  font-size: var(--sga-body);
+}
+
+.student-growth-archive .student-ai-actions .btn {
+  min-height: 32px;
+  padding: 0 12px;
+  font-size: var(--sga-body);
+}
+
+.student-growth-archive .student-ai-panel {
+  gap: 12px;
+}
+
+.student-growth-archive .student-ai-summary {
+  padding: 14px 16px;
+  border: 1px solid rgba(15, 61, 99, 0.06);
+  border-radius: 14px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  box-shadow: none;
+}
+
+.student-growth-archive .student-ai-summary.soft {
+  background: linear-gradient(180deg, #fffdf8 0%, #fff8eb 100%);
+  border-color: rgba(240, 180, 41, 0.18);
+}
+
+.student-growth-archive .student-ai-summary strong {
+  margin-bottom: 6px;
+  color: #475569;
+  font-size: var(--sga-body);
+  font-weight: 700;
+}
+
+.student-growth-archive .student-ai-summary p {
+  color: #475569;
+  font-size: var(--sga-body);
+  line-height: 1.75;
+}
+
+.student-growth-archive .student-ai-trend {
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(15, 61, 99, 0.08);
+  background: #f8fafc;
+  color: #64748b;
+  font-size: var(--sga-caption);
+  font-weight: 600;
+  line-height: 1.55;
+}
+
+.student-growth-archive .student-ai-quick-grid {
+  gap: 10px;
+}
+
+.student-growth-archive .student-ai-quick-card {
+  padding: 11px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(15, 61, 99, 0.06);
+  background: #fff;
+}
+
+.student-growth-archive .student-ai-quick-card strong {
+  margin-bottom: 6px;
+  color: #64748b;
+  font-size: var(--sga-caption);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.student-growth-archive .student-ai-quick-card p {
+  color: #64748b;
+  font-size: var(--sga-caption);
+  line-height: 1.55;
+}
+
+.student-growth-archive .student-ai-quick-list span {
+  color: #475569;
+  font-size: var(--sga-caption);
+  line-height: 1.55;
+}
+
+.student-growth-archive .student-ai-metrics {
+  gap: 10px;
+}
+
+.student-growth-archive .student-ai-metrics div {
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(15, 61, 99, 0.06);
+  background: #f8fafc;
+}
+
+.student-growth-archive .student-ai-metrics span {
+  color: #94a3b8;
+  font-size: var(--sga-caption);
+}
+
+.student-growth-archive .student-ai-metrics strong {
+  margin-top: 4px;
+  color: #1e293b;
+  font-size: var(--sga-metric);
+  font-weight: 800;
+  line-height: 1.15;
+}
+
+.student-growth-archive .student-ai-grid {
+  gap: 12px;
+}
+
+.student-growth-archive .student-ai-grid .detail-card {
+  padding: 14px 16px;
+  box-shadow: none;
+  background: #f8fafc;
+}
+
+.student-growth-archive .student-ai-grid .detail-card h4 {
+  margin-bottom: 10px;
+  font-size: var(--sga-body);
+}
+
+.student-growth-archive .mini-list {
+  gap: 8px;
+}
+
+.student-growth-archive .mini-list-item {
+  padding: 10px 12px;
+  border-radius: 11px;
+}
+
+.student-growth-archive .mini-list-item strong {
+  font-size: var(--sga-body);
+}
+
+.student-growth-archive .mini-list-item span {
+  font-size: var(--sga-caption);
+  line-height: 1.55;
+}
+
+.student-growth-archive .mini-list-item b {
+  font-size: var(--sga-caption);
+  max-width: 58%;
+}
+
+.student-growth-archive .student-ai-placeholder {
+  padding: 12px 14px;
+  font-size: var(--sga-body);
+  line-height: 1.65;
+}
+
+.student-growth-archive .student-ai-collapsed {
+  padding: 14px 16px;
+  border-radius: 14px;
+}
+
+.student-growth-archive .student-ai-collapsed strong {
+  font-size: var(--sga-body);
+}
+
+.student-growth-archive .student-ai-collapsed p {
+  font-size: var(--sga-caption);
+  line-height: 1.6;
+}
+
+/* 教师观察 */
+.student-growth-archive .observation-form {
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+
+.student-growth-archive .observation-form-head select {
+  height: 32px;
+  font-size: var(--sga-body);
+}
+
+.student-growth-archive .observation-form-actions .btn {
+  min-height: 32px;
+  padding: 0 12px;
+  font-size: var(--sga-body);
+}
+
+.student-growth-archive .observation-form textarea {
+  min-height: 88px;
+  padding: 10px 12px;
+  font-size: var(--sga-body);
+  line-height: 1.65;
+}
+
+.student-growth-archive .status-card {
+  font-size: var(--sga-body);
+}
+
+@media (max-width: 720px) {
+  .student-growth-archive .student-ai-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.student-growth-archive .student-growth-honor-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.student-growth-archive .student-growth-honor-card {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 12px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(240, 180, 41, 0.1), rgba(255, 255, 255, 0.9));
+  border: 1px solid rgba(240, 180, 41, 0.24);
+}
+
+.student-growth-archive .student-growth-honor-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(240, 180, 41, 0.18);
+}
+
+.student-growth-archive .student-growth-honor-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.student-growth-archive .student-growth-honor-icon span {
+  font-size: 20px;
+  font-weight: 800;
+  color: #b8860b;
+}
+
+.student-growth-archive .student-growth-honor-main {
+  min-width: 0;
+}
+
+.student-growth-archive .student-growth-honor-main strong {
+  display: block;
+  font-size: 14px;
+  color: #2c3e50;
+}
+
+.student-growth-archive .student-growth-honor-main span {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: #6b7f92;
+}
+
+.student-growth-archive .student-growth-honor-main p {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: #4a6278;
+  line-height: 1.45;
+}

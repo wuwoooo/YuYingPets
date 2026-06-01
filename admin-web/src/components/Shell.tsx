@@ -7,6 +7,7 @@ import { getAdminLoginCredentials, getAdminToken, setAdminLoginCredentials } fro
 import type { NavKey } from '../constants/admin';
 import { getAccessibleNavItems } from '../utils/adminPermissions';
 import { useCurrentSemesterName } from '../hooks/useCurrentSemesterName';
+import { PageLoadingBar } from './PageLoadingBar';
 import { PresentationGlyph, type PresentationGlyphName } from './PresentationGlyph';
 
 type ShellProps = {
@@ -14,11 +15,26 @@ type ShellProps = {
   subtitle: string;
   user: SessionUser | null;
   onLogout?: () => void;
+  loading?: boolean;
   status?: ReactNode;
   children: ReactNode;
 };
 
-export function Shell({ title, subtitle: _subtitle, user, onLogout, status, children }: ShellProps) {
+const COMMON_WEAK_PASSWORDS = new Set([
+  '123456',
+  '12345678',
+  '123456789',
+  '111111',
+  '000000',
+  '666666',
+  '888888',
+  'password',
+  'qwerty',
+  'abc123',
+  'admin',
+]);
+
+export function Shell({ title, subtitle: _subtitle, user, onLogout, loading = false, status, children }: ShellProps) {
   const { originalUser, availableViews, activeView, setActiveViewKey, isActingSubjectView } = useAdminView();
   const location = useLocation();
   const navIconMap: Record<NavKey, PresentationGlyphName> = {
@@ -114,7 +130,7 @@ export function Shell({ title, subtitle: _subtitle, user, onLogout, status, chil
   const roleLabel = roleNameMap[user?.roleCode ?? ''] ?? '未分配角色';
   const originalRoleLabel = roleNameMap[originalUser?.roleCode ?? ''] ?? roleLabel;
   const dutyTags = (user?.dutyTags ?? []).filter((tag) => tag.trim());
-  const currentSemesterName = useCurrentSemesterName(getAdminToken());
+  const currentSemesterName = useCurrentSemesterName(getAdminToken(), user?.roleCode);
 
   function handleLogout() {
     if (onLogout) {
@@ -134,6 +150,10 @@ export function Shell({ title, subtitle: _subtitle, user, onLogout, status, chil
     }
     if (passwordForm.newPassword !== passwordForm.confirmPassword) {
       setPasswordMessage({ type: 'error', text: '两次输入的新密码不一致' });
+      return;
+    }
+    if (COMMON_WEAK_PASSWORDS.has(passwordForm.newPassword.trim().toLowerCase())) {
+      setPasswordMessage({ type: 'error', text: '新密码过于简单，请避免使用 123456 等常见弱口令' });
       return;
     }
 
@@ -367,6 +387,7 @@ export function Shell({ title, subtitle: _subtitle, user, onLogout, status, chil
           </div>
         </header>
         <div className="content">
+          {loading ? <PageLoadingBar /> : null}
           {status}
           {children}
         </div>

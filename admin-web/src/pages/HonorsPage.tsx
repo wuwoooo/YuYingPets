@@ -3,11 +3,13 @@ import { Modal } from '../components/Modal';
 import { Shell } from '../components/Shell';
 import type { 
   Honor,
+  HonorRecord,
   HonorUpsertPayload,
   SessionUser
 } from '../lib/api';
 import { adminApi } from '../lib/api';
 import { resolveAssetUrl } from '../lib/assets';
+import { validateHonorImageFile } from '../utils/honorImage';
 import type {
   HonorFormState
 } from '../types/admin';
@@ -47,7 +49,40 @@ export function HonorsPage({
   const [uploadingImage, setUploadingImage] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
+  const [honorRecords, setHonorRecords] = useState<HonorRecord[]>([]);
+  const [recordsLoading, setRecordsLoading] = useState(false);
   const allowManage = canManageHonors(user?.roleCode);
+
+  useEffect(() => {
+    let active = true;
+    setRecordsLoading(true);
+    adminApi
+      .honorRecords(token)
+      .then((response) => {
+        if (!active) return;
+        setHonorRecords(response.data);
+      })
+      .catch(() => {
+        if (!active) return;
+        setHonorRecords([]);
+      })
+      .finally(() => {
+        if (!active) return;
+        setRecordsLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [token, submitSuccess]);
+
+  function reloadHonorRecords() {
+    setRecordsLoading(true);
+    adminApi
+      .honorRecords(token)
+      .then((response) => setHonorRecords(response.data))
+      .catch(() => setHonorRecords([]))
+      .finally(() => setRecordsLoading(false));
+  }
 
   useEffect(() => {
     if (!allowManage) {
@@ -153,6 +188,7 @@ export function HonorsPage({
     setUploadingImage(true);
     setSubmitError(null);
     try {
+      await validateHonorImageFile(file);
       const response = await adminApi.uploadHonorAsset(token, file);
       setForm((prev) => ({ ...prev, iconUrl: response.data.url }));
     } catch (err) {
@@ -188,8 +224,8 @@ export function HonorsPage({
 
     try {
       const name = form.name.trim();
-      if (!form.code.trim() || !name) {
-        throw new Error('请填写完整的荣誉名称');
+      if (!name) {
+        throw new Error('请填写荣誉名称');
       }
       const iconUrl = form.iconUrl.trim();
       if (!iconUrl) {
@@ -225,6 +261,7 @@ export function HonorsPage({
     <Shell
       title="荣誉勋章"
       subtitle="按个人、集体、阶段与长期成长荣誉统一维护学校荣誉体系"
+      loading={loading}
       user={user}
       status={
         <>
@@ -349,6 +386,50 @@ export function HonorsPage({
         ))}
         {visibleCards.length === 0 ? <div className="settings-note">当前筛选条件下暂无荣誉勋章。</div> : null}
       </div>
+
+      <section className="honor-records-panel">
+        <div className="honor-records-panel-head">
+          <h3>最近授予记录</h3>
+          <button type="button" className="ghost-button" onClick={reloadHonorRecords} disabled={recordsLoading}>
+            刷新
+          </button>
+        </div>
+        {recordsLoading ? <div className="settings-note">授予记录加载中...</div> : null}
+        {!recordsLoading && honorRecords.length === 0 ? (
+          <div className="settings-note">暂无授予记录。教师可在「学生评价」或「班级管理」中为学生 / 班级颁发荣誉。</div>
+        ) : null}
+        {!recordsLoading && honorRecords.length > 0 ? (
+          <div className="honor-records-table-wrap">
+            <table className="honor-records-table">
+              <thead>
+                <tr>
+                  <th>授予时间</th>
+                  <th>荣誉</th>
+                  <th>对象</th>
+                  <th>班级</th>
+                  <th>授予人</th>
+                  <th>备注</th>
+                </tr>
+              </thead>
+              <tbody>
+                {honorRecords.slice(0, 20).map((item) => (
+                  <tr key={item.id}>
+                    <td>{new Date(item.grantedAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</td>
+                    <td>{item.honorName}</td>
+                    <td className="honor-records-target">
+                      <strong>{item.targetType === 'student' ? item.studentName ?? '—' : item.className}</strong>
+                      <span>{item.targetType === 'student' ? '学生' : '集体'}</span>
+                    </td>
+                    <td>{item.className}</td>
+                    <td>{item.grantedByName ?? '系统'}</td>
+                    <td>{item.remark ?? '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+      </section>
       </div>
 
       {showCreateHonor || editingHonor ? (
@@ -376,9 +457,15 @@ export function HonorsPage({
               <input type="text" value={form.conditionType} onChange={(event) => setForm((prev) => ({ ...prev, conditionType: event.target.value }))} placeholder="选填，例如：达到月度积分目标" />
             </label>
             <label className="span-2">
-              <span>勋章图片（必传）</span>
+              <span>勋章图片（必传，300×300 像素）</span>
               <input type="file" accept="image/*" onChange={handleHonorImageUpload} disabled={uploadingImage || submitting} />
-              {form.iconUrl ? <div className="settings-note">当前图片：{form.iconUrl}</div> : null}
+              <div className="settings-note">请上传 300×300 像素的 PNG、JPG、WebP 或 SVG，避免大图拖慢大屏加载。</div>
+              {form.iconUrl ? (
+                <div className="honor-upload-preview">
+                  <img src={resolveAssetUrl(form.iconUrl)} alt="勋章预览" />
+                  <span>{form.iconUrl}</span>
+                </div>
+              ) : null}
             </label>
             <label className="span-2">
               <span>勋章说明</span>

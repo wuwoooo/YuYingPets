@@ -48,4 +48,9 @@ export class StudentsController {
   resetPet(@Headers('authorization') authorization: string | undefined, @Param('id') id: string) {
     return this.studentsService.resetPet(authorization, Number(id));
   }
+
+  @Post(':id/reset-pet-nickname')
+  resetPetNickname(@Headers('authorization') authorization: string | undefined, @Param('id') id: string) {
+    return this.studentsService.resetPetNickname(authorization, Number(id));
+  }
 }

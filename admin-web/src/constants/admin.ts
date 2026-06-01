@@ -21,13 +21,13 @@ export const metricThemes = ['mc-blue', 'mc-green', 'mc-purple', 'mc-red', 'mc-g
 export const roleAccessMap: Record<string, NavKey[]> = {
   super_admin: navItems.map(([key]) => key),
   school_admin: navItems.map(([key]) => key),
-  academic_admin: ['dashboard', 'analytics', 'students', 'teachers', 'classes', 'evaluation', 'class-evaluation', 'organization'],
+  academic_admin: ['dashboard', 'analytics', 'students', 'teachers', 'classes', 'evaluation', 'class-evaluation', 'honors'],
   moral_admin: ['dashboard', 'analytics', 'students', 'evaluation', 'class-evaluation', 'rules', 'honors', 'rewards', 'pets'],
   grade_admin: navItems.map(([key]) => key),
   // 侧边栏顺序由 adminPermissions.getAccessibleNavItems 中 TEACHER_NAV_ORDER_* 编排
   homeroom_teacher: ['dashboard', 'evaluation', 'students', 'classes', 'rules', 'rewards', 'pets', 'analytics'],
   // 任课教师可通过工作台链到 /rules 查阅规则，侧边栏不显式列出（见 canAccessNav 例外）
-  subject_teacher: ['dashboard', 'evaluation', 'students', 'classes', 'analytics'],
+  subject_teacher: ['dashboard', 'evaluation', 'students', 'classes', 'rewards', 'analytics'],
 };
 
 export const roleNavLabelMap: Record<string, Partial<Record<NavKey, string>>> = {
@@ -46,6 +46,7 @@ export const roleNavLabelMap: Record<string, Partial<Record<NavKey, string>>> = 
     classes: '我的授课班级',
     students: '学生查看',
     evaluation: '学科评价',
+    rewards: '班级奖励',
     analytics: '教学复盘',
   },
 };
@@ -68,22 +69,12 @@ export const ruleModuleOptions = [
 ] as const;
 
 export const ruleSceneOptions = [
-  { value: 'attendance', label: '出勤' },
-  { value: 'behavior', label: '行为规范' },
-  { value: 'classroom', label: '课堂' },
-  { value: 'competition', label: '竞赛' },
-  { value: 'dictation', label: '听写默写' },
-  { value: 'discipline', label: '纪律' },
-  { value: 'equipment', label: '器材设备' },
-  { value: 'exam', label: '测评' },
-  { value: 'group', label: '小组合作' },
+  { value: 'classroom', label: '课堂表现' },
   { value: 'homework', label: '作业' },
-  { value: 'presentation', label: '展讲' },
-  { value: 'qa', label: '答疑互动' },
-  { value: 'reading', label: '早读' },
-  { value: 'recitation', label: '背诵' },
-  { value: 'self_study', label: '自习' },
-  { value: 'activity', label: '活动' },
+  { value: 'exam', label: '周清和阶段评价' },
+  { value: 'competition', label: '竞赛' },
+  { value: 'dictation', label: '背诵及听默写' },
+  { value: 'moral', label: '学生管理' },
 ] as const;
 
 export const ruleSubjectOptions = [

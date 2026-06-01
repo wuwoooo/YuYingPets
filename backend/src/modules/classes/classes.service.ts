@@ -81,16 +81,19 @@ export class ClassesService {
     const user = await this.authService.getAuthUserFromAuthorization(authorization);
     this.ensureCanManageClass(user.roleCode);
     const countdownData = this.normalizeCountdownData(body, true);
+    const semesterId = BigInt(Number(body.semesterId));
+    const className = String(body.name ?? '').trim();
+    await this.ensureClassAliasAvailable(user.schoolId, semesterId, className);
 
     const created = await this.prisma.$transaction(async (tx) => {
       const classroom = await tx.classroom.create({
         data: {
           schoolId: user.schoolId,
-          semesterId: BigInt(Number(body.semesterId)),
+          semesterId,
           code: String(body.code),
           gradeCode: String(body.gradeCode),
           gradeName: String(body.gradeName),
-          name: String(body.name),
+          name: className,
           homeroomTeacherId: body.homeroomTeacherId
             ? BigInt(Number(body.homeroomTeacherId))
             : null,
@@ -209,6 +212,8 @@ export class ClassesService {
       where: { id: BigInt(id), schoolId: user.schoolId, deletedAt: null },
       select: {
         id: true,
+        semesterId: true,
+        name: true,
         homeroomTeacherId: true,
         slogan: true,
         targetScore: true,
@@ -218,6 +223,11 @@ export class ClassesService {
     });
     if (!exists) {
       throw new NotFoundException('班级不存在');
+    }
+    if (user.roleCode !== 'homeroom_teacher' && (body.name !== undefined || body.semesterId !== undefined)) {
+      const nextSemesterId = body.semesterId ? BigInt(Number(body.semesterId)) : exists.semesterId;
+      const nextName = body.name ? String(body.name).trim() : exists.name;
+      await this.ensureClassAliasAvailable(user.schoolId, nextSemesterId, nextName, BigInt(id));
     }
 
     const updated = await this.prisma.$transaction(async (tx) => {
@@ -235,7 +245,7 @@ export class ClassesService {
             user.roleCode === 'homeroom_teacher' ? undefined : body.gradeCode ? String(body.gradeCode) : undefined,
           gradeName:
             user.roleCode === 'homeroom_teacher' ? undefined : body.gradeName ? String(body.gradeName) : undefined,
-          name: user.roleCode === 'homeroom_teacher' ? undefined : body.name ? String(body.name) : undefined,
+          name: user.roleCode === 'homeroom_teacher' ? undefined : body.name ? String(body.name).trim() : undefined,
           homeroomTeacherId:
             user.roleCode === 'homeroom_teacher'
               ? undefined
@@ -437,6 +447,43 @@ export class ClassesService {
     };
   }
 
+  private async ensureClassAliasAvailable(
+    schoolId: bigint,
+    semesterId: bigint,
+    className: string,
+    excludeClassId?: bigint,
+  ) {
+    const normalizedClassName = this.normalizeClassAlias(className);
+    if (!normalizedClassName) {
+      throw new BadRequestException('班级名称不能为空');
+    }
+
+    const sameSemesterClasses = await this.prisma.classroom.findMany({
+      where: {
+        schoolId,
+        semesterId,
+        deletedAt: null,
+        status: 'enabled',
+        ...(excludeClassId ? { id: { not: excludeClassId } } : {}),
+      },
+      select: { id: true, gradeName: true, name: true },
+    });
+    const duplicated = sameSemesterClasses.find((item) => this.normalizeClassAlias(item.name) === normalizedClassName);
+    if (duplicated) {
+      throw new BadRequestException(
+        `班级名称重复：${className} 与已有班级 ${duplicated.gradeName}${duplicated.name} 指向同一班级，请使用已有班级`,
+      );
+    }
+  }
+
+  private normalizeClassAlias(value: string) {
+    return value
+      .trim()
+      .toLowerCase()
+      .replace(/[\s()（）_-]+/g, '')
+      .replace(/^(一年级|二年级|三年级|四年级|五年级|六年级|七年级|八年级|九年级|高一|高二|高三)/, '');
+  }
+
   async groups(authorization: string | undefined, id: number) {
     const user = await this.authService.getAuthUserFromAuthorization(authorization);
     this.authService.ensureCanAccessClass(user, id);
@@ -466,6 +513,9 @@ export class ClassesService {
         groupNo: group.groupNo,
         name: group.name,
         studentCount: group.studentGroupRels.length,
+        groupScore: group.groupCurrentScore,
+        groupTotalScore: group.groupTotalScore,
+        groupLastScoreAt: group.groupLastScoreAt,
         currentScoreTotal: group.studentGroupRels.reduce(
           (sum, item) => sum + (item.student.profile?.currentScore ?? 0),
           0,

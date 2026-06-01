@@ -2,6 +2,7 @@ import { Suspense, lazy, useEffect, useRef } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { AdminViewProvider, useAdminView } from './context/AdminViewContext';
+import { ConfirmDialogProvider } from './context/ConfirmDialogContext';
 import { useAdminData } from './hooks/useAdminData';
 
 const LoginPage = lazy(() => import('./pages/LoginPage').then((module) => ({ default: module.LoginPage })));
@@ -11,6 +12,12 @@ const EvaluationPage = lazy(() => import('./pages/EvaluationPage').then((module)
 const TeachersPage = lazy(() => import('./pages/TeachersPage').then((module) => ({ default: module.TeachersPage })));
 const PresentationModePage = lazy(() =>
   import('./pages/PresentationModePage').then((module) => ({ default: module.PresentationModePage })),
+);
+const ProjectionModePage = lazy(() =>
+  import('./pages/ProjectionModePage').then((module) => ({ default: module.ProjectionModePage })),
+);
+const ProjectionAccessPage = lazy(() =>
+  import('./pages/ProjectionAccessPage').then((module) => ({ default: module.ProjectionAccessPage })),
 );
 const RealtimeMonitorPage = lazy(() =>
   import('./pages/RealtimeMonitorPage').then((module) => ({ default: module.RealtimeMonitorPage })),
@@ -29,14 +36,16 @@ const OrganizationPage = lazy(() =>
 export function App() {
   const adminData = useAdminData();
   return (
-    <AdminViewProvider
-      user={adminData.user}
-      scopes={adminData.scopes}
-      classes={adminData.classes}
-      students={adminData.students}
-    >
-      <AppRoutes adminData={adminData} />
-    </AdminViewProvider>
+    <ConfirmDialogProvider>
+      <AdminViewProvider
+        user={adminData.user}
+        scopes={adminData.scopes}
+        classes={adminData.classes}
+        students={adminData.students}
+      >
+        <AppRoutes adminData={adminData} />
+      </AdminViewProvider>
+    </ConfirmDialogProvider>
   );
 }
 
@@ -62,7 +71,7 @@ function AppRoutes({ adminData }: { adminData: ReturnType<typeof useAdminData> }
   }, [location.pathname, token]);
 
   useEffect(() => {
-    if (location.pathname === '/presentation') return;
+    if (location.pathname === '/presentation' || location.pathname === '/projection') return;
     if (!document.fullscreenElement) return;
     void document.exitFullscreen?.().catch?.(() => {});
   }, [location.pathname]);
@@ -126,6 +135,16 @@ function AppRoutes({ adminData }: { adminData: ReturnType<typeof useAdminData> }
             </ProtectedRoute>
           }
         />
+        <Route
+          path="/projection"
+          element={
+            adminData.token ? (
+              <ProjectionModePage token={adminData.token} user={effectiveUser} />
+            ) : (
+              <ProjectionAccessPage onAuthorized={adminData.setToken} />
+            )
+          }
+        />
         <Route path="/live-insight" element={<Navigate to="/realtime-monitor" replace />} />
         <Route
           path="/classes"
@@ -135,6 +154,7 @@ function AppRoutes({ adminData }: { adminData: ReturnType<typeof useAdminData> }
                 token={adminData.token ?? ''}
                 user={effectiveUser}
                 classes={effectiveClasses}
+                honors={adminData.honors}
                 loading={adminData.loading}
                 error={adminData.error}
                 onSaved={handleRefresh}
@@ -169,6 +189,7 @@ function AppRoutes({ adminData }: { adminData: ReturnType<typeof useAdminData> }
                 classes={effectiveClasses}
                 students={effectiveStudents}
                 rules={adminData.rules}
+                honors={adminData.honors}
                 loading={adminData.loading}
                 error={adminData.error}
                 onSaved={handleRefresh}
@@ -187,6 +208,7 @@ function AppRoutes({ adminData }: { adminData: ReturnType<typeof useAdminData> }
                 classes={effectiveClasses}
                 students={effectiveStudents}
                 rules={adminData.rules}
+                honors={adminData.honors}
                 loading={adminData.loading}
                 error={adminData.error}
                 onSaved={handleRefresh}

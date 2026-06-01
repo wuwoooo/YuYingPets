@@ -733,6 +733,25 @@
   backdrop-filter: blur(24px) saturate(1.08);
 }
 
+.login-card-password-change {
+  border-color: rgba(233, 150, 62, 0.34);
+  background:
+    linear-gradient(180deg, rgba(255, 249, 239, 0.92), rgba(255, 244, 225, 0.86)),
+    rgba(255, 250, 244, 0.88);
+  box-shadow:
+    0 26px 60px rgba(125, 74, 14, 0.14),
+    0 0 0 1px rgba(255, 248, 234, 0.7) inset,
+    0 0 34px rgba(233, 170, 74, 0.1);
+}
+
+.login-card-password-change::before {
+  border-color: rgba(226, 154, 68, 0.2);
+}
+
+.login-card-password-change::after {
+  background: linear-gradient(135deg, rgba(255, 193, 97, 0.18), transparent 64%);
+}
+
 .login-card::before,
 .login-card::after {
   content: "";
@@ -811,6 +830,14 @@
   font-weight: 800;
 }
 
+.login-card-password-change .login-card-kicker {
+  color: #986322;
+}
+
+.login-card-password-change .login-card-status {
+  color: #bb6b13;
+}
+
 .login-card h2 {
   position: relative;
   z-index: 1;
@@ -818,6 +845,10 @@
   font-size: 32px;
   color: #215f88;
   letter-spacing: 1px;
+}
+
+.login-card-password-change h2 {
+  color: #8d5312;
 }
 
 .login-card .sub {
@@ -829,11 +860,56 @@
   letter-spacing: 0.4px;
 }
 
+.login-card-password-change .sub {
+  color: #9a7148;
+}
+
 .login-card form {
   position: relative;
   z-index: 1;
   display: grid;
   gap: 22px;
+}
+
+.login-password-alert {
+  padding: 16px 16px 14px;
+  border: 1px solid rgba(224, 154, 61, 0.26);
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, rgba(255, 248, 233, 0.94), rgba(255, 239, 208, 0.88)),
+    rgba(255, 246, 226, 0.94);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.74),
+    0 10px 24px rgba(184, 118, 35, 0.08);
+  color: #8b5b22;
+}
+
+.login-password-alert strong {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 15px;
+  color: #7b4810;
+}
+
+.login-password-alert p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #94683c;
+}
+
+.login-password-alert-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  margin-bottom: 10px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(183, 103, 12, 0.1);
+  color: #a45b0d;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1.2px;
 }
 
 .login-field {
@@ -914,6 +990,53 @@
   background: linear-gradient(118deg, transparent 24%, rgba(255, 255, 255, 0.34) 50%, transparent 74%);
   transform: translateX(-120%);
   animation: buttonSweep 3.8s ease-in-out infinite;
+}
+
+.login-alt-btn {
+  height: 48px;
+  border-radius: 16px;
+  border: 1px solid rgba(166, 124, 67, 0.24);
+  background: rgba(255, 255, 255, 0.64);
+  color: #825a2a;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.login-card-password-change .login-field-label {
+  color: #9b7140;
+}
+
+.login-card-password-change .login-field .icon {
+  color: #c08844;
+  text-shadow: 0 0 12px rgba(192, 136, 68, 0.25);
+}
+
+.login-card-password-change .login-field input {
+  border-color: rgba(207, 149, 81, 0.24);
+  background:
+    linear-gradient(180deg, rgba(255, 253, 248, 0.9), rgba(255, 247, 233, 0.86)),
+    rgba(255, 248, 239, 0.82);
+  color: #74491d;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.86),
+    0 6px 18px rgba(129, 82, 26, 0.05);
+}
+
+.login-card-password-change .login-field input:focus {
+  border-color: rgba(212, 141, 54, 0.54);
+  background: rgba(255, 252, 245, 0.98);
+  box-shadow:
+    0 0 0 4px rgba(228, 170, 84, 0.12),
+    0 10px 20px rgba(175, 120, 44, 0.1);
+}
+
+.login-card-password-change .login-btn {
+  background: linear-gradient(135deg, #c36d18, #e1932c 52%, #ffc86a 100%);
+  box-shadow:
+    0 12px 24px rgba(182, 107, 24, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
 }
 
 .login-footer {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { resolveSubjectLabel } from "../constants/admin";
 import type { AcademicDeskOverviewPayload } from "../lib/api";
+import { EllipsisTip } from "./EllipsisTip";
 import type { AcademicStudentSignal } from "../utils/academicGrowth";
 import type {
   TeacherDeskAcademicBrief,
@@ -10,6 +11,8 @@ import type {
 export type TeacherAcademicDeskInsightsProps = {
   /** 卡片标题（不传则按视角使用默认文案） */
   panelTitle?: string;
+  /** 标题下方说明 */
+  introNote?: string;
   /** homeroom：全科与班主任话术；subject：任课教师仅展示本科学分项 */
   deskPerspective?: "homeroom" | "subject";
   brief: TeacherDeskAcademicBrief;
@@ -81,6 +84,7 @@ function renderRiskMini(
 export function TeacherAcademicDeskInsights(props: TeacherAcademicDeskInsightsProps) {
   const {
     panelTitle,
+    introNote,
     deskPerspective = "homeroom",
     brief,
     hasExam,
@@ -225,8 +229,10 @@ export function TeacherAcademicDeskInsights(props: TeacherAcademicDeskInsightsPr
   );
 
   return (
-    <div className="panel">
+    <div className="panel teacher-academic-panel">
       <div className="panel-title">{resolvedPanelTitle}</div>
+      {introNote ? <p className="teacher-panel-desc">{introNote}</p> : null}
+      <div className="teacher-academic-desk-body">
       {loading ? (
         <div className="mini-list-item">
           <div>
@@ -255,22 +261,19 @@ export function TeacherAcademicDeskInsights(props: TeacherAcademicDeskInsightsPr
                 <p className="analytics-report-copy">{brief.subline}</p>
               </div>
               {brief.suggestions.length ? (
-                <div className="ck-ai-section">
+                <div className="ck-ai-section teacher-academic-suggestions">
                   <div className="ck-ai-section-label">建议动作</div>
-                  <ol
-                    className="analytics-report-points"
-                    style={{ paddingLeft: 22 }}
-                  >
+                  <ol className="analytics-report-points">
                     {brief.suggestions.map((line) => (
                       <li key={line}>{line}</li>
                     ))}
                   </ol>
                 </div>
               ) : null}
-              <p className="metric-sub" style={{ marginTop: 8, marginBottom: 0 }}>
+              <p className="metric-sub teacher-academic-section-note">
                 最近一次考试的四象限分布；点击卡片可查看本班该象限学生名单并可跳转成绩单。
               </p>
-              <div style={{ marginTop: 10 }} className="insight-grid">
+              <div className="teacher-academic-quadrant-grid insight-grid">
                 {brief.quadrantsClass.map((q) => (
                   <button
                     type="button"
@@ -287,7 +290,7 @@ export function TeacherAcademicDeskInsights(props: TeacherAcademicDeskInsightsPr
                 ))}
               </div>
               {expandedQuadrant ? (
-                <div style={{ marginTop: 14 }}>
+                <div className="teacher-academic-expanded-block">
                   <div className="panel-title compact">
                     {brief.quadrantsClass.find((x) => x.key === expandedQuadrant)
                       ?.label ?? expandedQuadrant}{" "}
@@ -346,12 +349,15 @@ export function TeacherAcademicDeskInsights(props: TeacherAcademicDeskInsightsPr
                 </div>
               ) : null}
               {brief.classTrend.length > 1 ? (
-                <div style={{ marginTop: 14 }}>
+                <div className="teacher-academic-trend-block">
                   <div className="panel-title compact">本班历次考试总分均分</div>
                   <div className="academic-trend-bars">
                     {brief.classTrend.map((item) => (
                       <div className="academic-trend-item" key={item.examId}>
-                        <span>{item.examName}</span>
+                        <EllipsisTip
+                          text={item.examName}
+                          className="ellipsis-tip--align-left"
+                        />
                         <div className="academic-trend-track">
                           <i
                             style={{
@@ -407,11 +413,12 @@ export function TeacherAcademicDeskInsights(props: TeacherAcademicDeskInsightsPr
           {!isSubjectPerspective
             ? renderRiskMini(brief.riskForClass, onOpenScores, cid)
             : null}
-          <p className="metric-sub" style={{ marginTop: 12 }}>
+          <p className="metric-sub teacher-academic-footer-note">
             {resolvedFooterNote}
           </p>
         </>
       ) : null}
+      </div>
     </div>
   );
 }

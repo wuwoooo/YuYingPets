@@ -11,6 +11,22 @@ import { rootLogger } from './logging/root-logger';
 
 const processLogger = rootLogger.child({ context: 'process' });
 
+function parseCsvEnv(value?: string) {
+  return (value ?? '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function isLocalDevelopmentOrigin(origin: string) {
+  try {
+    const url = new URL(origin);
+    return ['localhost', '127.0.0.1', '::1'].includes(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
 function installProcessHandlers() {
   process.on('unhandledRejection', (reason) => {
     processLogger.fatal({
@@ -52,12 +68,28 @@ async function bootstrap() {
 
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   app.useLogger(new NestPinoLogger());
+  app.getHttpAdapter().getInstance().disable('x-powered-by');
   validateRuntimeEnv();
 
   const publicDir = resolve(__dirname, '../public');
 
+  const allowedOrigins = new Set(parseCsvEnv(process.env.CORS_ORIGINS));
   app.enableCors({
-    origin: true,
+    origin(origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) {
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+      if (allowedOrigins.has(origin)) {
+        callback(null, true);
+        return;
+      }
+      if (process.env.NODE_ENV !== 'production' && isLocalDevelopmentOrigin(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(null, false);
+    },
     credentials: true,
   });
 
@@ -70,11 +102,33 @@ async function bootstrap() {
     next();
   });
 
+  app.use((_req: Request, res: Response, next: NextFunction) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    next();
+  });
+
   app.use(json({ limit: '10mb' }));
   app.use(urlencoded({ extended: true, limit: '10mb' }));
 
-  app.use('/assets', serveStatic(resolve(publicDir, 'assets')));
-  app.use('/uploads', serveStatic(resolve(publicDir, 'uploads')));
+  app.use(
+    '/assets',
+    serveStatic(resolve(publicDir, 'assets'), {
+      etag: true,
+      lastModified: true,
+      maxAge: '7d',
+    }),
+  );
+  app.use(
+    '/uploads',
+    serveStatic(resolve(publicDir, 'uploads'), {
+      etag: true,
+      lastModified: true,
+      maxAge: '1d',
+    }),
+  );
 
   app.setGlobalPrefix('api/v1');
   app.useGlobalPipes(
@@ -85,15 +139,17 @@ async function bootstrap() {
     }),
   );
 
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle('育英星宠 API')
-    .setDescription('YuYingPets backend API')
-    .setVersion('0.1.0')
-    .addBearerAuth()
-    .build();
+  if (process.env.NODE_ENV !== 'production' || process.env.ENABLE_SWAGGER === 'true') {
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle('育英星宠 API')
+      .setDescription('YuYingPets backend API')
+      .setVersion('0.1.0')
+      .addBearerAuth()
+      .build();
 
-  const swaggerDocument = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup('api/docs', app, swaggerDocument);
+    const swaggerDocument = SwaggerModule.createDocument(app, swaggerConfig);
+    SwaggerModule.setup('api/docs', app, swaggerDocument);
+  }
 
   const port = process.env.PORT ? Number(process.env.PORT) : 3000;
   const host = process.env.HOST?.trim() || '127.0.0.1';

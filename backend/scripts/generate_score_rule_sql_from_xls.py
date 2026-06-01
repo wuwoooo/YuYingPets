@@ -386,7 +386,7 @@ def build_rows_from_moral_xlsx(workbook_path: Path):
                     score_target="student",
                     score_value=score_value,
                     source_desc=f"来源工作簿：{workbook_path.name} / {sheet_name}",
-                    allowed_role_codes=["school_admin", "moral_admin"],
+                    allowed_role_codes=[],
                 )
             )
             source_no += 1

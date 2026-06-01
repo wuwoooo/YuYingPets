@@ -195,4 +195,34 @@ export const displayApi = {
       body,
     });
   },
+  adjustGroupScore(
+    token: string,
+    classId: number,
+    body: {
+      classGroupId: number;
+      scoreDelta: number;
+      remark: string;
+      sourceTerminal: 'display';
+    },
+  ) {
+    return request(`/classes/${classId}/group-scores/adjust`, {
+      method: 'POST',
+      token,
+      body,
+    });
+  },
+  resetGroupScores(token: string, classId: number, body: { sourceTerminal: 'display' }) {
+    return request(`/classes/${classId}/group-scores/reset`, {
+      method: 'POST',
+      token,
+      body,
+    });
+  },
+  groupScoreRanking(token: string, classId: number) {
+    return request(`/classes/${classId}/group-scores/ranking`, { token });
+  },
+  groupScoreRecords(token: string, classId: number, classGroupId?: number) {
+    const query = classGroupId ? `?classGroupId=${classGroupId}` : '';
+    return request(`/classes/${classId}/group-scores/records${query}`, { token });
+  },
 };

@@ -1,5 +1,8 @@
 import type { AcademicExamListItem, AcademicScoreListRow, AdminClass, AdminStudent } from '../lib/api';
 
+/** 学业进步榜默认展示条数（投屏等场景可再切片） */
+export const ACADEMIC_PROGRESS_LEADER_LIMIT = 20;
+
 export type AcademicGrowthSummary = {
   latestExam: AcademicExamListItem | null;
   previousExam: AcademicExamListItem | null;
@@ -176,7 +179,7 @@ export function buildAcademicGrowthSummary(
   const progressLeaders = [...signals]
     .filter((item) => item.rankDelta > 0 || item.scoreDelta > 0)
     .sort((left, right) => right.rankDelta - left.rankDelta || right.scoreDelta - left.scoreDelta || right.totalScore - left.totalScore)
-    .slice(0, 8);
+    .slice(0, ACADEMIC_PROGRESS_LEADER_LIMIT);
   const riskStudents = [...signals]
     .filter((item) => item.rankDelta < 0 || item.scoreDelta < 0)
     .sort((left, right) => left.rankDelta - right.rankDelta || left.scoreDelta - right.scoreDelta || left.totalScore - right.totalScore)

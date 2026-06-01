@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain } = require('electron');
 const fs = require('fs');
 const path = require('path');
 
@@ -175,7 +175,8 @@ async function createWindow(config) {
     height: 900,
     minWidth: 1280,
     minHeight: 720,
-    fullscreen,
+    // 不在构造阶段进入全屏，避免 macOS 原生全屏空间下 minimize() 失效
+    fullscreen: false,
     autoHideMenuBar: true,
     backgroundColor: DEFAULT_BACKGROUND,
     show: false,
@@ -183,6 +184,7 @@ async function createWindow(config) {
       contextIsolation: true,
       sandbox: true,
       backgroundThrottling: false,
+      preload: path.join(__dirname, 'preload.js'),
     },
   });
 
@@ -203,7 +205,44 @@ async function createWindow(config) {
   });
 }
 
+function minimizeDisplayWindow(window) {
+  if (!window || window.isDestroyed()) {
+    return;
+  }
+
+  let minimized = false;
+  const doMinimize = () => {
+    if (minimized || window.isDestroyed()) {
+      return;
+    }
+    minimized = true;
+    window.minimize();
+  };
+
+  if (!window.isFullScreen()) {
+    doMinimize();
+    return;
+  }
+
+  // macOS 原生全屏需等动画结束后再最小化，过早调用会被系统忽略
+  window.once('leave-full-screen', doMinimize);
+  window.setFullScreen(false);
+  setTimeout(doMinimize, process.platform === 'darwin' ? 2500 : 1200);
+}
+
+function registerDesktopIpcHandlers() {
+  ipcMain.handle('display-app:minimize', (event) => {
+    const window = BrowserWindow.fromWebContents(event.sender);
+    minimizeDisplayWindow(window);
+  });
+
+  ipcMain.handle('display-app:quit', () => {
+    app.quit();
+  });
+}
+
 app.whenReady().then(() => {
+  registerDesktopIpcHandlers();
   const config = loadAppConfig();
   createWindow(config);
 

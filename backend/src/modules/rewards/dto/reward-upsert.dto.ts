@@ -1,14 +1,25 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsBoolean, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsOptional, IsString, Min } from 'class-validator';
 
 export class RewardUpsertDto {
-  @ApiProperty()
+  @ApiProperty({ required: false })
+  @IsOptional()
   @IsString()
-  code!: string;
+  code?: string;
 
   @ApiProperty()
   @IsString()
   name!: string;
+
+  @ApiProperty({ required: false, enum: ['global', 'class'], default: 'global' })
+  @IsOptional()
+  @IsIn(['global', 'class'])
+  scopeType?: 'global' | 'class';
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsInt()
+  classId?: number;
 
   @ApiProperty({ required: false })
   @IsOptional()

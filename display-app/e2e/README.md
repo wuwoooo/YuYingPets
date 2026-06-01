@@ -28,7 +28,14 @@ npm --workspace e2e run test:roles
 npm --workspace e2e run test:terminal
 npm --workspace e2e run test:prototype
 npm --workspace e2e run test:realtime
+npm --workspace e2e run test:touch-guard
 npm --workspace e2e run test:all
+```
+
+若 `test:touch-guard` 报「账号或密码错误」，请先在 `backend` 目录执行：
+
+```bash
+npm run seed:mock
 ```
 
 ## 输出

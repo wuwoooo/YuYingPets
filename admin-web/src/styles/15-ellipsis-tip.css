@@ -1,0 +1,98 @@
+.ellipsis-tip-root {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: bottom;
+  overflow: visible;
+}
+
+.ellipsis-tip {
+  display: block;
+  max-width: 100%;
+}
+
+.ellipsis-tip:not(.ellipsis-tip--multiline) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ellipsis-tip--multiline {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  white-space: normal;
+}
+
+.ellipsis-tip-root[data-tip] {
+  cursor: help;
+}
+
+.ellipsis-tip-root[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  z-index: 120;
+  right: 0;
+  bottom: calc(100% + 8px);
+  width: max-content;
+  max-width: min(360px, calc(100vw - 32px));
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.94);
+  color: #f8fafc;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.55;
+  white-space: normal;
+  text-align: left;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.24);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(4px);
+  transition:
+    opacity 0.14s ease,
+    transform 0.14s ease,
+    visibility 0.14s ease;
+  pointer-events: none;
+}
+
+.ellipsis-tip-root[data-tip]:hover::after,
+.ellipsis-tip-root[data-tip]:focus-within::after {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.ellipsis-tip-root.ellipsis-tip--align-left[data-tip]::after {
+  right: auto;
+  left: 0;
+}
+
+.ck-activity-body .ellipsis-tip-root {
+  display: block;
+}
+
+.academic-trend-item .ellipsis-tip-root {
+  display: block;
+  min-width: 0;
+}
+
+.academic-trend-card-head span .ellipsis-tip-root,
+.academic-trend-card-foot.ellipsis-tip-root {
+  display: block;
+}
+
+.bar-label.ellipsis-tip-root,
+.ck-top10-bar-label.ellipsis-tip-root {
+  display: block;
+}
+
+.std-metric-card__value.ellipsis-tip-root .ellipsis-tip {
+  display: -webkit-box;
+}
+
+.bar-label.ellipsis-tip,
+.ck-top10-bar-label.ellipsis-tip {
+  display: block;
+}

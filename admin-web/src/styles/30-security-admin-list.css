@@ -378,6 +378,11 @@
   max-height: 280px;
 }
 
+.audit-stack-pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .ops-hero {
   display: flex;
   align-items: stretch;
@@ -796,6 +801,32 @@
   font-weight: 700;
 }
 
+.op-btn--danger {
+  color: #c0392b;
+  background: rgba(231, 76, 60, 0.08);
+}
+
+.op-btn--danger:hover {
+  color: #fff;
+  background: #c0392b;
+  border-color: #c0392b;
+  box-shadow: 0 8px 18px rgba(192, 57, 43, 0.18);
+}
+
+.op-btn--danger:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.op-btn--danger-text {
+  color: #c0392b;
+}
+
+.op-btn--danger-text:hover:not(:disabled) {
+  color: #a93226;
+  background: rgba(231, 76, 60, 0.08);
+}
+
 .academic-empty-panel {
   display: flex;
   flex-direction: column;
@@ -921,6 +952,7 @@
   color: #223447;
   font-size: 14px;
   font-weight: 800;
+  word-break: break-word;
 }
 
 .academic-upload-field {
@@ -947,6 +979,32 @@
   gap: 10px;
   margin-top: 4px;
   flex-wrap: wrap;
+}
+
+.reset-password-result {
+  display: grid;
+  gap: 12px;
+}
+
+.reset-password-value {
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px dashed rgba(41, 128, 185, 0.28);
+  background: linear-gradient(180deg, #f8fbff 0%, #eef6fd 100%);
+  color: #163a58;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-align: center;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  user-select: all;
+}
+
+.reset-password-copy-feedback {
+  margin: 0;
+  font-size: 13px;
+  color: #2980b9;
+  text-align: center;
 }
 
 @media (max-width: 900px) {

@@ -19,7 +19,9 @@ export interface AuthUser {
   name: string;
   roleCode: string;
   roleName: string;
+  terminalType?: string;
   dutyTags: string[];
+  passwordChangeRequired: boolean;
   scopes: AuthUserScope[];
   classAssignments: AuthUserClassAssignment[];
 }

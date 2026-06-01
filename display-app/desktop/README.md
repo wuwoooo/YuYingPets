@@ -14,7 +14,7 @@
 命令说明：
 
 - `npm run dev`
-  使用默认开发地址 `http://localhost:5173`
+  使用默认开发地址 `http://localhost:5174`
 - `npm run dev:kiosk`
   使用开发地址并直接全屏
 - `npm run start`

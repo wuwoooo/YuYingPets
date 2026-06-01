@@ -1,0 +1,123 @@
+.projection-three-core {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 200px;
+  contain: layout paint;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.projection-three-core canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* AI 浮空字 */
+.projection-three-core__label {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 1;
+  transform: translate(-50%, -50%);
+  color: #07345f;
+  font-family: "Arial Black", Impact, "Microsoft YaHei", sans-serif;
+  font-size: clamp(32px, 5vw, 52px);
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  opacity: 0.16;
+  pointer-events: none;
+  text-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.95),
+    0 0 16px rgba(87, 192, 255, 0.42),
+    0 0 36px rgba(18, 104, 184, 0.28);
+  white-space: nowrap;
+  transition: color 0.8s ease, text-shadow 0.8s ease, opacity 0.8s ease;
+}
+
+/* 主题适配样式覆盖：当处于户外亮色模式时 */
+.projection-theme-outdoor .projection-three-core__label {
+  color: #0a3d6b;
+  opacity: 0.12;
+  text-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.95),
+    0 0 20px rgba(18, 104, 184, 0.3);
+}
+
+/* 侧边装饰 HUD 标签 */
+.projection-three-core__status {
+  position: absolute;
+  top: 50%;
+  z-index: 3;
+  transform: translateY(-50%);
+  padding: 5px 8px;
+  border: 1px solid rgba(18, 104, 184, 0.2);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.72);
+  color: rgba(15, 31, 46, 0.58);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  pointer-events: none;
+  writing-mode: vertical-rl;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  transition: all 0.8s ease;
+}
+
+.projection-three-core__status.is-left {
+  left: 12px;
+}
+
+.projection-three-core__status.is-right {
+  right: 12px;
+  border-color: rgba(212, 133, 0, 0.24);
+  color: rgba(192, 120, 0, 0.82);
+}
+
+/* 主题适配样式覆盖：暗色极客模式（非户外模式） */
+:not(.projection-theme-outdoor) .projection-three-core__status {
+  background: rgba(4, 15, 30, 0.65);
+  border-color: rgba(0, 243, 255, 0.35);
+  color: #00f3ff;
+  box-shadow: 0 0 10px rgba(0, 243, 255, 0.15);
+}
+
+:not(.projection-theme-outdoor) .projection-three-core__status.is-right {
+  border-color: rgba(255, 140, 0, 0.35);
+  color: #ff8c00;
+  box-shadow: 0 0 10px rgba(255, 140, 0, 0.15);
+}
+
+.projection-three-core.is-fallback {
+  display: grid;
+  place-items: center;
+}
+
+/* 2D Canvas 数字雨瀑布画布定位 */
+.projection-rain-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1; /* 作为最底层的卡片背景，处于 3D 核心下方 */
+  pointer-events: none;
+  opacity: 0.28; /* 淡淡的数字雨背景，不喧宾夺主 */
+  transition: opacity 0.8s ease;
+  /* 顶部和底部的渐变平滑消融，呈现淡入淡出的逼真拖尾 */
+  mask-image: linear-gradient(to bottom, transparent, black 15%, black 85%, transparent);
+  -webkit-mask-image: linear-gradient(to bottom, transparent, black 15%, black 85%, transparent);
+}
+
+/* 户外亮色底模式下适当降低透明度，以保持背景的轻盈高档感 */
+.projection-theme-outdoor .projection-rain-canvas {
+  opacity: 0.15;
+}

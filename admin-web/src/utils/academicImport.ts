@@ -1,4 +1,5 @@
 import type { AcademicScoreImportPayload } from '../lib/api';
+import { readXlsxWorkbookRows } from './workbookRows';
 
 type CellValue = string | number | null;
 type BiffCellMap = Map<number, Map<number, CellValue>>;
@@ -33,6 +34,328 @@ function cleanExamName(value: string) {
   const match = normalized.match(/^(.*?(?:成绩汇总|考生成绩汇总))\s*[-—–:：]+\s*(.+)$/);
   const cleaned = (match?.[2]?.trim() || normalized).replace(/^（[^）]*年级）\s*/, '').trim();
   return cleaned;
+}
+
+const GRADE_NAMES = [
+  '一年级',
+  '二年级',
+  '三年级',
+  '四年级',
+  '五年级',
+  '六年级',
+  '七年级',
+  '八年级',
+  '九年级',
+  '高一',
+  '高二',
+  '高三',
+];
+
+function pad2(value: number) {
+  return String(value).padStart(2, '0');
+}
+
+function formatDateInput(year: number, month: number, day: number) {
+  return `${year}-${pad2(month)}-${pad2(day)}`;
+}
+
+function lastDayOfMonth(year: number, month: number) {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+function isValidDateParts(year: number, month: number, day: number) {
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return false;
+  if (month < 1 || month > 12 || day < 1 || day > 31) return false;
+  const probe = new Date(Date.UTC(year, month - 1, day));
+  return probe.getUTCFullYear() === year && probe.getUTCMonth() + 1 === month && probe.getUTCDate() === day;
+}
+
+type ParsedPeriod = {
+  startYear: number;
+  endYear: number;
+  term: 'first' | 'second';
+};
+
+function detectTermByText(text: string) {
+  if (/上学期|第一学期|秋季学期|秋学期|秋期/.test(text)) return 'first' as const;
+  if (/下学期|第二学期|春季学期|春学期|春期/.test(text)) return 'second' as const;
+  return null;
+}
+
+function normalizeTermLabel(termText: string) {
+  return termText === '上学期' || termText === '第一学期' ? '上学期' : '下学期';
+}
+
+/** 将「第一/第二学期」等写法统一规范为「上/下学期」 */
+export function normalizeAcademicPeriodLabel(label: string) {
+  const trimmed = label.trim();
+  if (!trimmed) return '';
+
+  const text = trimmed.replace(/\s+/g, '');
+  const matched = matchSchoolYearWithExplicitTerm(text);
+  if (matched) return matched.label;
+
+  return text.replace(/第一学期/g, '上学期').replace(/第二学期/g, '下学期');
+}
+
+function matchSchoolYearWithExplicitTerm(text: string) {
+  const matched = text.match(/(20\d{2})\s*[-—–~至]\s*(20\d{2})(?:学年)?.*?(上学期|下学期|第一学期|第二学期)/);
+  if (!matched) return null;
+  const termLabel = normalizeTermLabel(matched[3]);
+  return {
+    startYear: Number(matched[1]),
+    endYear: Number(matched[2]),
+    term: termLabel === '上学期' ? ('first' as const) : ('second' as const),
+    label: `${matched[1]}-${matched[2]}学年${termLabel}`,
+  };
+}
+
+export function parseAcademicPeriodLabel(label: string): ParsedPeriod | null {
+  const text = label.replace(/\s+/g, '');
+  const matched = matchSchoolYearWithExplicitTerm(text);
+  if (!matched) return null;
+  return {
+    startYear: matched.startYear,
+    endYear: matched.endYear,
+    term: matched.term,
+  };
+}
+
+export function inferAcademicPeriodLabel(sourceText: string, examDate?: string, fallback?: string | null) {
+  const text = sourceText.replace(/\s+/g, '');
+  let result = '';
+
+  const explicitSchoolYear = matchSchoolYearWithExplicitTerm(text);
+  if (explicitSchoolYear) {
+    result = explicitSchoolYear.label;
+  } else {
+    const schoolYear = text.match(/(20\d{2})\s*[-—–~至]\s*(20\d{2})(?:学年)?/);
+    const termByText = detectTermByText(text);
+    if (schoolYear && termByText) {
+      result = `${schoolYear[1]}-${schoolYear[2]}学年${termByText === 'first' ? '上学期' : '下学期'}`;
+    } else if (termByText) {
+      const yearInText = text.match(/(20\d{2})年/);
+      if (yearInText) {
+        const year = Number(yearInText[1]);
+        result = termByText === 'first'
+          ? `${year}-${year + 1}学年上学期`
+          : `${year - 1}-${year}学年下学期`;
+      }
+    }
+
+    if (!result && examDate) {
+      const date = new Date(`${examDate}T00:00:00.000Z`);
+      if (!Number.isNaN(date.getTime())) {
+        const year = date.getUTCFullYear();
+        const month = date.getUTCMonth() + 1;
+        if (month >= 9 && month <= 12) result = `${year}-${year + 1}学年上学期`;
+        else if (month === 1) result = `${year - 1}-${year}学年上学期`;
+        else if (month >= 2 && month <= 7) result = `${year - 1}-${year}学年下学期`;
+      }
+    }
+
+    if (!result) {
+      result = fallback ?? '';
+    }
+  }
+
+  return normalizeAcademicPeriodLabel(result);
+}
+
+export function inferAcademicGradeName(sourceText: string, fallback?: string) {
+  const text = sourceText.replace(/\s+/g, '');
+  for (const grade of GRADE_NAMES) {
+    if (text.includes(grade)) return grade;
+  }
+  return fallback?.match(/^(.*?年级)/)?.[1] ?? fallback ?? '';
+}
+
+function hasAcademicPeriodInfo(text: string) {
+  const normalized = text.replace(/\s+/g, '');
+  if (matchSchoolYearWithExplicitTerm(normalized)) return true;
+  const hasYear = /(20\d{2})\s*[-—–~至]\s*(20\d{2})(?:学年)?/.test(normalized);
+  const hasTerm = /上学期|下学期|第一学期|第二学期/.test(normalized);
+  return hasYear && hasTerm;
+}
+
+/** 标题缺少学年/学期信息时，默认补上识别到的学期标签 */
+export function enrichExamNameWithPeriod(examName: string, periodLabel: string) {
+  const name = examName.trim();
+  const period = periodLabel.trim();
+  if (!name || !period) return name;
+  if (hasAcademicPeriodInfo(name)) return name;
+  if (name.startsWith(period)) return name;
+  return `${period} · ${name}`;
+}
+
+function inferDefaultDay(text: string, year: number, month: number) {
+  if (/期末/.test(text)) return lastDayOfMonth(year, month);
+  if (/开学|期初/.test(text)) return 5;
+  if (/阶段|测评|月考/.test(text)) return 20;
+  return 15;
+}
+
+function resolveYearForMonth(month: number, period: ParsedPeriod | null) {
+  if (!period) return null;
+  if (period.term === 'first') {
+    if (month >= 9) return period.startYear;
+    if (month <= 1) return period.endYear;
+    return period.startYear;
+  }
+  if (month >= 2 && month <= 8) return period.endYear;
+  if (month === 1) return period.endYear;
+  if (month >= 9) return period.startYear;
+  return period.endYear;
+}
+
+function inferDateFromMonthLabel(sourceText: string, period: ParsedPeriod | null) {
+  const text = sourceText.replace(/\s+/g, '');
+  const monthPatterns = [
+    /(?:^|[^\d年])((?:1[0-2])|[1-9])月(?:份)?(?:阶段|测评|考试|模考|质检|联考|月考|统考|测试|测验|考核)/,
+    /(?:^|[^\d年])((?:1[0-2])|[1-9])月(?:份)?(?=(?:上|中|下)?(?:旬|周)|$)/,
+    /(?:^|[^\d年])((?:1[0-2])|[1-9])月考/,
+  ];
+
+  for (const pattern of monthPatterns) {
+    const matched = text.match(pattern);
+    if (!matched) continue;
+    const month = Number(matched[1]);
+    if (month < 1 || month > 12) continue;
+    const year = resolveYearForMonth(month, period);
+    if (!year) continue;
+    return formatDateInput(year, month, inferDefaultDay(text, year, month));
+  }
+
+  return null;
+}
+
+function inferDateFromExamType(sourceText: string, period: ParsedPeriod | null) {
+  if (!period) return null;
+  const text = sourceText.replace(/\s+/g, '');
+  const isMidterm = /期中/.test(text);
+  const isFinal = /期末/.test(text);
+  const isMock = /模拟|模考|质检|联考|学业水平/.test(text);
+
+  if (period.term === 'first') {
+    if (isFinal) return formatDateInput(period.endYear, 1, 15);
+    if (isMidterm) return formatDateInput(period.startYear, 11, 15);
+    if (isMock) return formatDateInput(period.startYear, 11, 1);
+    if (/阶段|测评|月考/.test(text)) return null;
+    return formatDateInput(period.startYear, 10, 15);
+  }
+
+  if (isFinal) return formatDateInput(period.endYear, 6, 25);
+  if (isMidterm) return formatDateInput(period.endYear, 4, 15);
+  if (isMock) return formatDateInput(period.endYear, 4, 1);
+  if (/阶段|测评|月考/.test(text)) return null;
+  return formatDateInput(period.endYear, 3, 15);
+}
+
+function inferDateFromSemesterRange(
+  sourceText: string,
+  semesterStartDate?: string,
+  semesterEndDate?: string,
+) {
+  if (!semesterStartDate || !semesterEndDate) return null;
+  const start = new Date(`${semesterStartDate}T00:00:00.000Z`);
+  const end = new Date(`${semesterEndDate}T00:00:00.000Z`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+
+  const text = sourceText.replace(/\s+/g, '');
+  const ratio = /期末/.test(text) ? 0.92 : /期中/.test(text) ? 0.45 : /模拟|模考|质检|联考|学业水平/.test(text) ? 0.55 : 0.5;
+  const spanMs = end.getTime() - start.getTime();
+  const inferred = new Date(start.getTime() + spanMs * ratio);
+  return formatDateInput(
+    inferred.getUTCFullYear(),
+    inferred.getUTCMonth() + 1,
+    inferred.getUTCDate(),
+  );
+}
+
+export function inferAcademicExamDate(
+  sourceText: string,
+  options?: {
+    periodLabel?: string;
+    semesterStartDate?: string;
+    semesterEndDate?: string;
+    fallback?: string;
+  },
+) {
+  const text = sourceText.replace(/\s+/g, '');
+
+  const fullDate = text.match(/(20\d{2})年(\d{1,2})月(\d{1,2})日?/);
+  if (fullDate) {
+    const year = Number(fullDate[1]);
+    const month = Number(fullDate[2]);
+    const day = Number(fullDate[3]);
+    if (isValidDateParts(year, month, day)) {
+      return formatDateInput(year, month, day);
+    }
+  }
+
+  const isoDate = text.match(/(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})/);
+  if (isoDate) {
+    const year = Number(isoDate[1]);
+    const month = Number(isoDate[2]);
+    const day = Number(isoDate[3]);
+    if (isValidDateParts(year, month, day)) {
+      return formatDateInput(year, month, day);
+    }
+  }
+
+  const yearMonth = text.match(/(20\d{2})年(\d{1,2})月(?!(\d{1,2})日)/);
+  if (yearMonth) {
+    const year = Number(yearMonth[1]);
+    const month = Number(yearMonth[2]);
+    if (month >= 1 && month <= 12) {
+      return formatDateInput(year, month, inferDefaultDay(text, year, month));
+    }
+  }
+
+  const periodLabel = options?.periodLabel ?? inferAcademicPeriodLabel(sourceText, undefined, null);
+  const parsedPeriod = parseAcademicPeriodLabel(periodLabel);
+  const monthLabelDate = inferDateFromMonthLabel(text, parsedPeriod);
+  if (monthLabelDate) return monthLabelDate;
+
+  const typedDate = inferDateFromExamType(text, parsedPeriod);
+  if (typedDate) return typedDate;
+
+  const rangedDate = inferDateFromSemesterRange(text, options?.semesterStartDate, options?.semesterEndDate);
+  if (rangedDate) return rangedDate;
+
+  if (options?.fallback) return options.fallback;
+  return new Date().toISOString().slice(0, 10);
+}
+
+export function resolveAcademicImportDraft(
+  parsed: AcademicScoreImportPayload,
+  fileName: string,
+  options?: {
+    currentSemesterName?: string | null;
+    currentSemesterStartDate?: string | null;
+    currentSemesterEndDate?: string | null;
+    fallbackExamDate?: string;
+  },
+) {
+  const sourceText = `${parsed.examName} ${parsed.sourceFile ?? fileName}`;
+  const periodLabelFromText = inferAcademicPeriodLabel(sourceText, undefined, options?.currentSemesterName);
+  const examDate = inferAcademicExamDate(sourceText, {
+    periodLabel: periodLabelFromText,
+    semesterStartDate: options?.currentSemesterStartDate ?? undefined,
+    semesterEndDate: options?.currentSemesterEndDate ?? undefined,
+    fallback: options?.fallbackExamDate,
+  });
+  const periodLabel = inferAcademicPeriodLabel(sourceText, examDate, options?.currentSemesterName);
+  const gradeName = inferAcademicGradeName(sourceText, parsed.gradeName);
+  const examName = enrichExamNameWithPeriod(parsed.examName, periodLabel);
+
+  return {
+    examName,
+    gradeName,
+    examDate,
+    periodLabel,
+    sourceText,
+  };
 }
 
 function rowToArray(cells: BiffCellMap, rowIndex: number) {
@@ -114,7 +437,7 @@ export function parseAcademicScoreRows(rows: CellValue[][], sourceFile?: string)
     return subjects.length ? [{ studentNo, className, name, subjects }] : [];
   });
 
-  const gradeName = students[0]?.className.match(/^(.*?年级)/)?.[1] ?? undefined;
+  const gradeName = inferAcademicGradeName(`${title} ${sourceFile ?? ''}`, students[0]?.className.match(/^(.*?年级)/)?.[1]) || undefined;
 
   return {
     examName: cleanExamName(title || sourceFile || '成绩汇总'),
@@ -125,41 +448,21 @@ export function parseAcademicScoreRows(rows: CellValue[][], sourceFile?: string)
 }
 
 export async function parseAcademicScoreWorkbook(file: File): Promise<AcademicScoreImportPayload> {
-  const buffer = await file.arrayBuffer();
   const lowerName = file.name.toLowerCase();
-  if (lowerName.endsWith('.xls') && !lowerName.endsWith('.xlsx')) {
-    return parseAcademicScoreRows(await parseLegacyXlsRows(buffer), file.name);
+  if (!lowerName.endsWith('.xlsx')) {
+    throw new Error('历史成绩导入仅支持 .xlsx 文件，请先将旧版 .xls 转换为 .xlsx');
   }
 
-  const { read, utils } = await import('xlsx');
-  const workbook = read(buffer, { type: 'array' });
-  const sheetName = workbook.SheetNames[0];
-  if (!sheetName) {
+  const [rows] = await readXlsxWorkbookRows(file);
+  if (!rows) {
     throw new Error('Excel 文件中没有可读取的工作表');
   }
-  const rows = utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, raw: false, defval: '' }) as CellValue[][];
   return parseAcademicScoreRows(rows, file.name);
 }
 
 async function parseLegacyXlsRows(buffer: ArrayBuffer) {
-  const cfbModule = await import('cfb');
-  const cfbReader = cfbModule.read ?? cfbModule.default.read;
-  const cfb = cfbReader(new Uint8Array(buffer), { type: 'array' });
-  const workbookEntry = cfb.FileIndex.find((entry: { name: string }) => entry.name === 'Workbook' || entry.name === 'Book');
-  const workbookContent = workbookEntry?.content as Uint8Array | number[] | undefined;
-  if (!workbookContent) {
-    throw new Error('未找到 Excel 工作簿数据');
-  }
-  const workbook = workbookContent instanceof Uint8Array ? workbookContent : new Uint8Array(workbookContent);
-
-  const { sheetOffset, sharedStrings } = parseWorkbookGlobals(workbook);
-  if (sheetOffset === null) {
-    throw new Error('成绩表缺少工作表信息');
-  }
-
-  const cells = parseSheetCells(workbook, sheetOffset, sharedStrings);
-  const maxRow = Math.max(...cells.keys());
-  return Array.from({ length: maxRow + 1 }, (_, index) => rowToArray(cells, index));
+  void buffer;
+  throw new Error('旧版 .xls 解析已停用，请先转换为 .xlsx 后再导入');
 }
 
 function parseWorkbookGlobals(workbook: Uint8Array) {

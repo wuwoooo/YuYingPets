@@ -123,6 +123,8 @@ export function createRewardForm(row?: Reward): RewardFormState {
   return {
     code: row?.code ?? '',
     name: row?.name ?? '',
+    scopeType: row?.scopeType ?? 'global',
+    classId: row?.classId ? String(row.classId) : '',
     category: row?.category ?? '',
     imageUrl: row?.imageUrl ?? '',
     scoreCost: row?.scoreCost === undefined ? '20' : String(row.scoreCost),
@@ -160,6 +162,7 @@ export function createPetGrowthForm(school?: SystemSettings['school'] | null): P
   return {
     thresholds: thresholds.map(String),
     classScoreStudentLinkMultiplier: String(school?.classScoreStudentLinkMultiplier ?? 0),
+    petDecoChangeCost: String(school?.petDecoChangeCost ?? 10),
   };
 }
 

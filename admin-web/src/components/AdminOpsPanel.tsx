@@ -57,6 +57,65 @@ function opsLevelChip(level: AdminOpsLogItem['level']) {
   }
 }
 
+function normalizeMultilineText(value: string) {
+  if (value.includes('\n')) return value;
+  if (value.includes('\\n')) return value.replace(/\\n/g, '\n');
+  return value;
+}
+
+function extractStackTrace(detail: Record<string, unknown> | null) {
+  if (!detail) return null;
+
+  const error = detail.error;
+  if (error && typeof error === 'object') {
+    const stack = (error as Record<string, unknown>).stack;
+    if (typeof stack === 'string' && stack.trim()) {
+      return normalizeMultilineText(stack);
+    }
+  }
+
+  const stack = detail.stack;
+  if (typeof stack === 'string' && stack.trim()) {
+    return normalizeMultilineText(stack);
+  }
+
+  return null;
+}
+
+function omitStackFromDetail(detail: Record<string, unknown>) {
+  const result = { ...detail };
+
+  if (result.error && typeof result.error === 'object') {
+    const error = { ...(result.error as Record<string, unknown>) };
+    delete error.stack;
+    if (Object.keys(error).length === 0) {
+      delete result.error;
+    } else {
+      result.error = error;
+    }
+  }
+
+  if ('stack' in result) {
+    delete result.stack;
+  }
+
+  return result;
+}
+
+function formatOpsLogDetail(detail: Record<string, unknown> | null, raw: string) {
+  if (!detail) {
+    return { json: raw, stack: null };
+  }
+
+  const stack = extractStackTrace(detail);
+  const jsonDetail = stack ? omitStackFromDetail(detail) : detail;
+
+  return {
+    json: JSON.stringify(jsonDetail, null, 2),
+    stack,
+  };
+}
+
 function opsStatusMeta(overview: AdminOpsOverview | null) {
   if (!overview) {
     return {
@@ -287,9 +346,20 @@ export function AdminOpsPanel({ token, loading, error }: AdminOpsPanelProps) {
                             </>
                           ) : null}
                         </div>
-                        <pre className="audit-json-pre">
-                          {row.detail ? JSON.stringify(row.detail, null, 2) : row.raw}
-                        </pre>
+                        {(() => {
+                          const { json, stack } = formatOpsLogDetail(row.detail, row.raw);
+                          return (
+                            <>
+                              <pre className="audit-json-pre">{json}</pre>
+                              {stack ? (
+                                <>
+                                  <div className="audit-tech-line">堆栈</div>
+                                  <pre className="audit-json-pre audit-stack-pre">{stack}</pre>
+                                </>
+                              ) : null}
+                            </>
+                          );
+                        })()}
                       </td>
                     </tr>
                   ) : null}

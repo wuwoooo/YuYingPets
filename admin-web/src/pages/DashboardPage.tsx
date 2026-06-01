@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAdminView } from "../context/AdminViewContext";
+import { useConfirmDialog } from "../context/ConfirmDialogContext";
 import { PresentationGlyph } from "../components/PresentationGlyph";
+import { EllipsisTip } from "../components/EllipsisTip";
 import { Shell } from "../components/Shell";
 import { TeacherAcademicDeskInsights } from "../components/TeacherAcademicDeskInsights";
 import { ruleSubjectLabelMap, resolveSubjectLabel } from "../constants/admin";
@@ -66,6 +68,9 @@ function compareGradeName(a: string, b: string) {
   return a.localeCompare(b, "zh-CN");
 }
 
+/** 校级驾驶舱「风险学生」面板默认展示条数 */
+const COCKPIT_RISK_PREVIEW_LIMIT = 6;
+
 function isClassCountdownPending(classInfo: AdminClass | null | undefined) {
   if (!classInfo?.countdownTitle?.trim() || !classInfo.countdownDeadlineAt) {
     return true;
@@ -119,6 +124,7 @@ export function DashboardPage({
   const navigate = useNavigate();
   const location = useLocation();
   const { subjectViews, activeSubjectView, setActiveViewKey } = useAdminView();
+  const { alert } = useConfirmDialog();
   const isHomeroomTeacher = user?.roleCode === "homeroom_teacher";
   const isSubjectTeacher = user?.roleCode === "subject_teacher";
   const isTeacherDashboard = isHomeroomTeacher || isSubjectTeacher;
@@ -140,6 +146,9 @@ export function DashboardPage({
   const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(
     null,
   );
+  /** 校级驾驶舱分析接口（含风险学生）独立于 useAdminData，加载完成前勿把 0 当作真实值 */
+  const [cockpitAnalyticsLoading, setCockpitAnalyticsLoading] =
+    useState(true);
   const [recentScoreRecords, setRecentScoreRecords] = useState<ScoreRecord[]>(
     [],
   );
@@ -168,23 +177,56 @@ export function DashboardPage({
     : "";
 
   const [callQueueModalOpen, setCallQueueModalOpen] = useState(false);
+  const [cockpitRiskModalOpen, setCockpitRiskModalOpen] = useState(false);
   const [selectedCallGrade, setSelectedCallGrade] = useState<string>('');
   const [selectedCallClassId, setSelectedCallClassId] = useState<number | ''>('');
   const [selectedCallStudentIds, setSelectedCallStudentIds] = useState<number[]>([]);
   const [callLocation, setCallLocation] = useState('');
+  const [callQueueClasses, setCallQueueClasses] = useState<AdminClass[]>([]);
+  const [callQueueStudents, setCallQueueStudents] = useState<AdminStudent[]>([]);
   const [classCallQueue, setClassCallQueue] = useState<any[]>([]);
   const [callSubmitting, setCallSubmitting] = useState(false);
   const [callMessage, setCallMessage] = useState<string | null>(null);
 
   const callGradeOptions = useMemo(() => {
-    const grades = classes.map(c => c.gradeName).filter(Boolean);
+    const grades = callQueueClasses.map(c => c.gradeName).filter(Boolean);
     return Array.from(new Set(grades));
-  }, [classes]);
+  }, [callQueueClasses]);
 
   const filteredCallClasses = useMemo(() => {
-    if (!selectedCallGrade) return classes;
-    return classes.filter(c => c.gradeName === selectedCallGrade);
-  }, [classes, selectedCallGrade]);
+    if (!selectedCallGrade) return callQueueClasses;
+    return callQueueClasses.filter(c => c.gradeName === selectedCallGrade);
+  }, [callQueueClasses, selectedCallGrade]);
+  const selectedCallClass = useMemo(
+    () => callQueueClasses.find((item) => item.id === Number(selectedCallClassId)) || null,
+    [callQueueClasses, selectedCallClassId],
+  );
+  const selectedCallClassOffline = selectedCallClass?.onlineStatus === 'offline';
+
+  const loadCallableClasses = async () => {
+    try {
+      const resp = await adminApi.callQueueClasses(token);
+      if (resp.code === 0) {
+        return resp.data || [];
+      }
+    } catch (err) {
+      console.error("加载可叫号班级失败", err);
+    }
+    return [];
+  };
+
+  const loadCallableStudents = async (classId: number) => {
+    try {
+      const resp = await adminApi.callQueueStudents(token, classId);
+      if (resp.code === 0) {
+        setCallQueueStudents(resp.data || []);
+        return;
+      }
+    } catch (err) {
+      console.error("加载叫号学生列表失败", err);
+    }
+    setCallQueueStudents([]);
+  };
 
   const loadClassQueue = async (classId: number) => {
     try {
@@ -199,24 +241,35 @@ export function DashboardPage({
 
   useEffect(() => {
     if (callQueueModalOpen && selectedCallClassId) {
+      loadCallableStudents(Number(selectedCallClassId));
       loadClassQueue(Number(selectedCallClassId));
     }
   }, [callQueueModalOpen, selectedCallClassId]);
 
-  const openCallQueueModal = () => {
+  const openCallQueueModal = async () => {
     setCallQueueModalOpen(true);
     setCallMessage(null);
     setCallLocation('');
     setSelectedCallStudentIds([]);
-    if (primaryHomeroomClass) {
-      setSelectedCallGrade(primaryHomeroomClass.gradeName || '');
-      setSelectedCallClassId(primaryHomeroomClass.id);
-    } else if (classes.length > 0) {
-      setSelectedCallGrade(classes[0].gradeName || '');
-      setSelectedCallClassId(classes[0].id);
+
+    const nextClasses = await loadCallableClasses();
+    setCallQueueClasses(nextClasses);
+
+    const onlineClasses = nextClasses.filter((item) => item.onlineStatus !== 'offline');
+    const preferredClass =
+      (primaryHomeroomClass &&
+      onlineClasses.find((item) => item.id === primaryHomeroomClass.id)) ||
+      onlineClasses[0];
+
+    if (preferredClass) {
+      setSelectedCallGrade(preferredClass.gradeName || '');
+      setSelectedCallClassId(preferredClass.id);
     } else {
       setSelectedCallGrade('');
       setSelectedCallClassId('');
+      setCallQueueStudents([]);
+      setClassCallQueue([]);
+      setCallMessage(nextClasses.length > 0 ? "当前可见班级的大屏均离线，无法发起叫号" : "暂无已绑定大屏班级，无法发起叫号");
     }
   };
 
@@ -264,17 +317,25 @@ export function DashboardPage({
           loadClassQueue(Number(selectedCallClassId));
         }
       } else {
-        alert(res.message || "取消失败");
+        await alert({
+          title: "取消失败",
+          message: res.message || "取消失败",
+          tone: "danger",
+        });
       }
     } catch (err: any) {
-      alert(err?.message || "操作异常");
+      await alert({
+        title: "操作异常",
+        message: err?.message || "操作异常",
+        tone: "danger",
+      });
     }
   };
 
   const classStudents = useMemo(() => {
     if (!selectedCallClassId) return [];
-    return students.filter(s => s.classId === Number(selectedCallClassId));
-  }, [students, selectedCallClassId]);
+    return callQueueStudents.filter(s => s.classId === Number(selectedCallClassId));
+  }, [callQueueStudents, selectedCallClassId]);
 
   const renderCallQueueModal = () => {
     if (!callQueueModalOpen) return null;
@@ -333,7 +394,9 @@ export function DashboardPage({
                   >
                     <option value="">-- 请选择班级 --</option>
                     {filteredCallClasses.map((c) => (
-                      <option key={c.id} value={c.id}>{c.gradeName} {c.name}</option>
+                      <option key={c.id} value={c.id} disabled={c.onlineStatus === 'offline'}>
+                        {c.gradeName} {c.name}{c.onlineStatus === 'offline' ? '（离线）' : ''}
+                      </option>
                     ))}
                   </select>
                 </div>
@@ -378,7 +441,9 @@ export function DashboardPage({
                   )}
                 </div>
                 <div className="cq-student-grid">
-                  {classStudents.length === 0 ? (
+                  {selectedCallClassOffline ? (
+                    <div className="cq-student-empty">当前班级大屏离线，无法发起叫号</div>
+                  ) : classStudents.length === 0 ? (
                     <div className="cq-student-empty">请先选择班级</div>
                   ) : (
                     classStudents.map((s) => {
@@ -413,7 +478,7 @@ export function DashboardPage({
               <button
                 type="button"
                 className="cq-submit-btn"
-                disabled={callSubmitting || !selectedCallClassId}
+                disabled={callSubmitting || !selectedCallClassId || selectedCallClassOffline}
                 onClick={handleCreateCall}
               >
                 {callSubmitting ? "正在发起呼叫..." : "发起大屏叫号"}
@@ -526,22 +591,28 @@ export function DashboardPage({
   /** 校级驾驶舱独占：教师学业数据改为下方独立 effect，避免在此处清空成绩单 */
   useEffect(() => {
     if (isTeacherDashboard) {
+      setCockpitAnalyticsLoading(false);
       setAnalyticsData(null);
       setRecentScoreRecords([]);
       setDisplayTerminals([]);
       return;
     }
     let active = true;
+    setCockpitAnalyticsLoading(true);
     const canManageDisp = canManageDisplays(user?.roleCode);
     Promise.all([
-      adminApi.analytics(token),
+      adminApi.analyticsSummary(token),
+      adminApi.analyticsHeatmap(token),
       adminApi.scoreRecords(token),
       canManageDisp ? adminApi.displayTerminals(token) : Promise.resolve({ data: [] }),
-      adminApi.academicExams(token),
+      adminApi.academicExams(token, { currentSemesterOnly: true }),
     ])
-      .then(([analyticsResp, recordsResp, terminalsResp, examsResp]) => {
+      .then(([analyticsResp, heatmapResp, recordsResp, terminalsResp, examsResp]) => {
         if (!active) return;
-        setAnalyticsData(analyticsResp.data);
+        setAnalyticsData({
+          ...analyticsResp.data,
+          heatMap: heatmapResp.data.heatMap,
+        });
         setRecentScoreRecords(
           recordsResp.data
             .sort(
@@ -556,6 +627,11 @@ export function DashboardPage({
       })
       .catch(() => {
         if (!active) return;
+        setAnalyticsData(null);
+      })
+      .finally(() => {
+        if (!active) return;
+        setCockpitAnalyticsLoading(false);
       });
     return () => {
       active = false;
@@ -623,6 +699,7 @@ export function DashboardPage({
     adminApi
       .academicSchoolGrowth(token, {
         examId: selectedAcademicExamId ?? undefined,
+        currentSemesterOnly: true,
       })
       .then((response) => {
         if (!active) return;
@@ -638,7 +715,7 @@ export function DashboardPage({
   }, [isTeacherDashboard, selectedAcademicExamId, token]);
 
   const metrics = useMemo(() => {
-    const totalScore = classes.reduce((sum, item) => sum + item.classScore, 0);
+    const totalScore = students.reduce((sum, item) => sum + item.currentScore, 0);
     const displayReadyClasses = classes.filter(
       (item) => item.displayStatus === "enabled",
     ).length;
@@ -939,7 +1016,7 @@ export function DashboardPage({
   const cockpitKpi = useMemo(() => {
     const totalScore =
       analyticsData?.totalScore ??
-      classes.reduce((s, c) => s + c.classScore, 0);
+      students.reduce((s, st) => s + st.currentScore, 0);
     const displayReadyClasses = classes.filter(
       (c) => c.displayStatus === "enabled",
     ).length;
@@ -949,7 +1026,7 @@ export function DashboardPage({
     const positiveEvents = analyticsData?.positiveRuleCount ?? 0;
     const negativeEvents = analyticsData?.negativeRuleCount ?? 0;
     const honorsGranted = honors.reduce((s, h) => s + h.grantedCount, 0);
-    const riskCount = analyticsData?.riskStudents?.length ?? 0;
+    const riskCount = analyticsData?.riskStudentStats?.total ?? analyticsData?.riskStudents?.length ?? 0;
     const avgScore =
       analyticsData?.averageScore ??
       (students.length
@@ -991,16 +1068,20 @@ export function DashboardPage({
 
   const cockpitTopClasses = useMemo(
     () =>
-      analyticsData?.topClasses ??
       [...classes]
-        .sort((a, b) => b.classScore - a.classScore)
+        .sort(
+          (a, b) =>
+            b.classScore - a.classScore ||
+            b.currentScoreTotal - a.currentScoreTotal ||
+            a.name.localeCompare(b.name, "zh-CN"),
+        )
         .slice(0, 8)
         .map((c) => ({
           id: c.id,
           name: `${c.gradeName} ${c.name}`,
           currentScoreTotal: c.classScore,
         })),
-    [analyticsData, classes],
+    [classes],
   );
 
   const cockpitTopStudents = useMemo(
@@ -1023,6 +1104,75 @@ export function DashboardPage({
     () => analyticsData?.riskStudents ?? [],
     [analyticsData],
   );
+
+  const renderCockpitRiskRow = (item: AnalyticsData["riskStudents"][number]) => (
+    <button
+      key={item.studentId}
+      type="button"
+      className="ck-risk-row"
+      onClick={() => {
+        setCockpitRiskModalOpen(false);
+        navigateWithQuery("/students", {
+          studentId: item.studentId,
+          statsView: "student",
+        });
+      }}
+    >
+      <span className={`ck-risk-badge ${item.riskLevel}`}>
+        {item.riskLevel === "high"
+          ? "高"
+          : item.riskLevel === "medium"
+            ? "中"
+            : "低"}
+      </span>
+      <div className="ck-risk-body">
+        <strong>{item.studentName}</strong>
+        <span>
+          {item.className} · 负向 {item.negativeCount} 次 · 净变化{" "}
+          {item.scoreDelta}
+        </span>
+      </div>
+      <EllipsisTip text={item.reason} className="ck-risk-reason" />
+    </button>
+  );
+
+  const renderCockpitRiskModal = () => {
+    if (!cockpitRiskModalOpen) return null;
+    return (
+      <div
+        className="modal-backdrop"
+        onClick={() => setCockpitRiskModalOpen(false)}
+        style={{ zIndex: 9999 }}
+      >
+        <div
+          className="modal-card ck-risk-modal"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="ck-risk-modal-head">
+            <div>
+              <h3 className="ck-risk-modal-title">全部风险学生</h3>
+              <p className="ck-risk-modal-sub">
+                共{" "}
+                {analyticsData?.riskStudentStats?.total ??
+                  cockpitRiskStudents.length}{" "}
+                人，点击条目可查看学生详情
+              </p>
+            </div>
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={() => setCockpitRiskModalOpen(false)}
+            >
+              关闭
+            </button>
+          </div>
+          <div className="ck-risk-table ck-risk-table--modal">
+            {cockpitRiskStudents.map((item) => renderCockpitRiskRow(item))}
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   const cockpitAiInsight = useMemo(
     () => analyticsData?.aiInsight ?? null,
@@ -1446,6 +1596,10 @@ export function DashboardPage({
     navigate("/realtime-monitor");
   }
 
+  function handleEnterProjectionMode() {
+    navigate("/projection?returnTo=/dashboard&theme=scifi");
+  }
+
   function navigateWithQuery(
     path: string,
     query: Record<string, string | number | null | undefined>,
@@ -1678,6 +1832,7 @@ export function DashboardPage({
 
   function renderTeacherAcademicSnapshotPanel(options?: {
     panelTitle?: string;
+    introNote?: string;
     footerNote?: string;
   }) {
     if (!isTeacherDashboard || !teacherDeskAcademic) return null;
@@ -1686,6 +1841,7 @@ export function DashboardPage({
       <section id="teacher-academic-snapshot">
         <TeacherAcademicDeskInsights
           panelTitle={options?.panelTitle}
+          introNote={options?.introNote}
           deskPerspective={isSubjectTeacher ? "subject" : "homeroom"}
           brief={teacherDeskBrief}
           hasExam={Boolean(growth.latestExam)}
@@ -2469,6 +2625,7 @@ export function DashboardPage({
       <Shell
         title="工作台"
         subtitle={loading ? "正在同步个人信息与任教范围…" : "即将就绪"}
+        loading
         user={null}
         status={
           <>
@@ -2490,6 +2647,11 @@ export function DashboardPage({
           isHomeroomTeacher
             ? "今日待办：先处理任务、重点学生和沟通动作；需要看阶段趋势与原因时再去「班级概览」。"
             : "日常授课办事首页：教务学业快照常驻此处；若要按日期区间复盘积分与 AI，请前往「教学概览」。"
+        }
+        loading={
+          loading ||
+          teacherAcademicLoading ||
+          (isSubjectTeacher && (teacherSubjectDeskLoading || subjectTeacherWorkbenchLoading))
         }
         user={user}
         status={
@@ -2523,7 +2685,7 @@ export function DashboardPage({
         </div>
 
         {isHomeroomTeacher ? (
-          <div className="homeroom-desk">
+          <div className="homeroom-desk teacher-desk">
             {homeroomClassOpsGaps.needsBanner && primaryHomeroomClass ? (
               <div
                 className="status-card warn homeroom-ops-banner"
@@ -3043,7 +3205,7 @@ export function DashboardPage({
             </div>
           </div>
         ) : (
-          <div className="subject-teacher-desk">
+          <div className="subject-teacher-desk teacher-desk">
             <div className="teacher-hero-card subject-teacher-hero">
               <div className="teacher-hero-main">
                 <span className="teacher-hero-kicker">当前查看</span>
@@ -3121,7 +3283,7 @@ export function DashboardPage({
                       subjectTeacherWeeklyPulse.weekCount}
                   </strong>
                 </div>
-                <div className="teacher-hero-stat">
+                <div className="teacher-hero-stat teacher-hero-stat--compact">
                   <span>成绩导入时间</span>
                   <strong>
                     {subjectTeacherWorkbench?.contextHeader
@@ -3221,16 +3383,14 @@ export function DashboardPage({
                     </span>
                   ) : null}
                 </div>
-                <div
-                  className="std-metric-card__value std-metric-card__value--text"
-                  title={
-                    subjectTeacherWorkbench?.contextHeader
-                      .latestAcademicExamName ?? undefined
+                <EllipsisTip
+                  text={
+                    subjectTeacherWorkbench?.contextHeader.latestAcademicExamName ??
+                    "暂无"
                   }
-                >
-                  {subjectTeacherWorkbench?.contextHeader
-                    .latestAcademicExamName ?? "暂无"}
-                </div>
+                  className="std-metric-card__value std-metric-card__value--text"
+                  multiline
+                />
                 <div className="std-metric-card__hint">
                   用最近一次考试，判断这班现在的学情
                 </div>
@@ -3404,39 +3564,13 @@ export function DashboardPage({
               </div>
             </div>
 
-            <div className="panel">
-              <div className="panel-title">最近一次考试参考</div>
-              <p className="metric-sub" style={{ marginTop: -6 }}>
-                这里看的是最近一次考试成绩，用来帮你判断这个班现在的学情，不会跟着上面日期变化。
-              </p>
-              <section id="teacher-academic-snapshot">
-                <TeacherAcademicDeskInsights
-                  deskPerspective="subject"
-                  brief={teacherDeskBrief}
-                  hasExam={Boolean(
-                    subjectTeacherWorkbench?.academicBaseline.examTrends.length,
-                  )}
-                  loading={subjectTeacherWorkbenchLoading}
-                  deskClassId={activeTeacherClassId}
-                  linkClassId={activeTeacherClassId}
-                  subjectFocus={
-                    subjectTeacherWorkbench?.academicBaseline.subjectFocus ??
-                    null
-                  }
-                  subjectFocusLoading={subjectTeacherWorkbenchLoading}
-                  subjectLabel={activeSubjectDisplayLabel}
-                  onOpenScores={(q) =>
-                    navigateWithQuery("/students", {
-                      tab: q.tab ?? "scores",
-                      examId: q.examId,
-                      classId: q.classId,
-                      studentId: q.studentId,
-                    })
-                  }
-                  footerNote="这里看的是这个班这门课最近一次考试情况；如果你想看一段时间内的变化，请去「教学复盘」。"
-                />
-              </section>
-            </div>
+            {renderTeacherAcademicSnapshotPanel({
+              panelTitle: "最近一次考试参考",
+              introNote:
+                "这里看的是最近一次考试成绩，用来帮你判断这个班现在的学情，不会跟着上面日期变化。",
+              footerNote:
+                "这里看的是这个班这门课最近一次考试情况；如果你想看一段时间内的变化，请去「教学复盘」。",
+            })}
 
             <div className="row-2 c50">
               <div className="panel">
@@ -3536,6 +3670,7 @@ export function DashboardPage({
     <Shell
       title="校级驾驶舱"
       subtitle="用于校级成果展示、活跃度追踪与领导视察汇报"
+      loading={loading}
       user={user}
       status={
         <>
@@ -3575,6 +3710,14 @@ export function DashboardPage({
           >
             <PresentationGlyph name="chart" className="present-trigger-icon" />
             实时运行监控
+          </button>
+          <button
+            className="ck-action-btn ck-action-secondary"
+            type="button"
+            onClick={handleEnterProjectionMode}
+          >
+            <PresentationGlyph name="display" className="present-trigger-icon" />
+            投屏模式
           </button>
           <button
             className="ck-action-btn ck-action-primary"
@@ -3663,16 +3806,32 @@ export function DashboardPage({
             <div className="ck-kpi-sub">累计授予</div>
           </div>
         </div>
-        <div className="ck-kpi mc-red">
+        <button
+          type="button"
+          className="ck-kpi mc-red ck-kpi--action"
+          onClick={() =>
+            document
+              .getElementById("cockpit-risk-section")
+              ?.scrollIntoView({ behavior: "smooth", block: "start" })
+          }
+        >
           <div className="ck-kpi-icon">
             <PresentationGlyph name="paw" />
           </div>
           <div className="ck-kpi-body">
             <div className="ck-kpi-label">风险学生</div>
-            <div className="ck-kpi-value">{cockpitKpi.riskCount}</div>
-            <div className="ck-kpi-sub">需关注</div>
+            <div
+              className={`ck-kpi-value${cockpitAnalyticsLoading ? " ck-kpi-value--pending" : ""}`}
+            >
+              {cockpitAnalyticsLoading ? "—" : cockpitKpi.riskCount}
+            </div>
+            <div className="ck-kpi-sub">
+              {cockpitAnalyticsLoading
+                ? "行为统计同步中…"
+                : "需关注 · 点击查看详情"}
+            </div>
           </div>
-        </div>
+        </button>
       </div>
 
       <div className="ck-section-label">
@@ -3923,7 +4082,11 @@ export function DashboardPage({
                     </div>
                     <b>总分 {item.totalScore}</b>
                   </div>
-                  <div className="academic-trend-card-foot">{item.reason}</div>
+                  <EllipsisTip
+                    text={item.reason}
+                    className="academic-trend-card-foot"
+                    multiline
+                  />
                 </button>
               );
             })}
@@ -4062,7 +4225,7 @@ export function DashboardPage({
                         {item.studentName} · {item.className}
                       </strong>
                       <span>
-                        {row.tag} · {item.reason}
+                        <EllipsisTip text={`${row.tag} · ${item.reason}`} />
                       </span>
                     </div>
                     <b>总分 {item.totalScore}</b>
@@ -4129,7 +4292,7 @@ export function DashboardPage({
                     style={{ height: `${item.heightPercent}%` }}
                   />
                 </div>
-                <span className="ck-top10-bar-label">{item.label}</span>
+                <EllipsisTip text={item.label} className="ck-top10-bar-label ellipsis-tip--align-left" />
               </button>
             ))}
             {cockpitTop10Bars.length === 0 ? (
@@ -4195,7 +4358,7 @@ export function DashboardPage({
                   navigateWithQuery("/classes", { classId: item.id })
                 }
               >
-                <span className="bar-label">{item.name}</span>
+                <EllipsisTip text={item.name} className="bar-label ellipsis-tip--align-left" />
                 <div className="bar-track">
                   <div
                     className={`bar-fill ${item.colorIndex % 3 === 0 ? "bar-blue" : item.colorIndex % 3 === 1 ? "bar-green" : "bar-red"}`}
@@ -4238,7 +4401,7 @@ export function DashboardPage({
                 );
                 return (
                   <div className="bar-row" key={item.name}>
-                    <span className="bar-label">{item.name}</span>
+                    <EllipsisTip text={item.name} className="bar-label ellipsis-tip--align-left" />
                     <div className="bar-track">
                       <div
                         className={`bar-fill ${index % 3 === 0 ? "bar-blue" : index % 3 === 1 ? "bar-green" : "bar-red"}`}
@@ -4265,9 +4428,10 @@ export function DashboardPage({
               );
               return (
                 <div className="bar-row" key={item.name}>
-                  <span className="bar-label">
-                    {ruleSubjectLabelMap[item.name] ?? item.name}
-                  </span>
+                  <EllipsisTip
+                    text={ruleSubjectLabelMap[item.name] ?? item.name}
+                    className="bar-label ellipsis-tip--align-left"
+                  />
                   <div className="bar-track">
                     <div
                       className={`bar-fill ${index % 3 === 0 ? "bar-blue" : index % 3 === 1 ? "bar-green" : "bar-red"}`}
@@ -4480,8 +4644,9 @@ export function DashboardPage({
                 </span>
                 <div className="ck-activity-body">
                   <strong>
-                    {item.operatorName ?? item.sourceRole} →{" "}
-                    {item.ruleName || item.tag || item.dimension || "评价"}
+                    <EllipsisTip
+                      text={`${item.operatorName ?? item.sourceRole} → ${item.ruleName || item.tag || item.dimension || "评价"}`}
+                    />
                   </strong>
                   <span>
                     {new Date(item.createdAt).toLocaleString("zh-CN", {
@@ -4503,43 +4668,37 @@ export function DashboardPage({
       </div>
 
       {/* 第七层：风险预警 */}
-      <div className="ck-section-label">
+      <div className="ck-section-label" id="cockpit-risk-section">
         <span>风险预警</span>
       </div>
       <div className="row-2 c50">
         <div className="panel">
-          <div className="panel-title">风险学生</div>
-          <div className="ck-risk-table">
-            {cockpitRiskStudents.slice(0, 6).map((item) => (
+          <div className="panel-title">
+            <span>风险学生</span>
+            {(analyticsData?.riskStudentStats?.total ??
+              cockpitRiskStudents.length) > COCKPIT_RISK_PREVIEW_LIMIT ? (
               <button
-                key={item.studentId}
                 type="button"
-                className="ck-risk-row"
-                onClick={() =>
-                  navigateWithQuery("/students", {
-                    studentId: item.studentId,
-                    statsView: "student",
-                  })
-                }
+                className="ghost-button"
+                onClick={() => setCockpitRiskModalOpen(true)}
               >
-                <span className={`ck-risk-badge ${item.riskLevel}`}>
-                  {item.riskLevel === "high"
-                    ? "高"
-                    : item.riskLevel === "medium"
-                      ? "中"
-                      : "低"}
-                </span>
-                <div className="ck-risk-body">
-                  <strong>{item.studentName}</strong>
-                  <span>
-                    {item.className} · 负向 {item.negativeCount} 次 · 净变化{" "}
-                    {item.scoreDelta}
-                  </span>
-                </div>
-                <span className="ck-risk-reason">{item.reason}</span>
+                更多（
+                {analyticsData?.riskStudentStats?.total ??
+                  cockpitRiskStudents.length}
+                ）
               </button>
-            ))}
-            {cockpitRiskStudents.length === 0 ? (
+            ) : null}
+          </div>
+          <div className="ck-risk-table">
+            {cockpitAnalyticsLoading ? (
+              <div className="ck-empty">行为统计同步中，请稍候…</div>
+            ) : null}
+            {!cockpitAnalyticsLoading
+              ? cockpitRiskStudents
+                  .slice(0, COCKPIT_RISK_PREVIEW_LIMIT)
+                  .map((item) => renderCockpitRiskRow(item))
+              : null}
+            {!cockpitAnalyticsLoading && cockpitRiskStudents.length === 0 ? (
               <div className="ck-empty">暂无明显风险学生</div>
             ) : null}
           </div>
@@ -4725,6 +4884,7 @@ export function DashboardPage({
       ) : null}
 
       {renderCallQueueModal()}
+      {renderCockpitRiskModal()}
     </Shell>
   );
 }

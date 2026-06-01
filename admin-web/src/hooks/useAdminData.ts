@@ -2,7 +2,11 @@ import { useEffect, useState } from 'react';
 import { adminApi } from '../lib/api';
 import { clearAdminToken, getAdminToken, setAdminToken } from '../lib/session';
 import type { AdminState, UseAdminDataResult } from '../types/admin';
-import { canManageRewards } from '../utils/adminPermissions';
+import { canManageClassRewards, canManageRewards } from '../utils/adminPermissions';
+
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
 
 export function useAdminData(): UseAdminDataResult {
   const [reloadKey, setReloadKey] = useState(0);
@@ -29,17 +33,62 @@ export function useAdminData(): UseAdminDataResult {
     adminApi
       .me(state.token)
       .then(async (me) => {
+        if (active) {
+          setState((prev) => ({
+            ...prev,
+            user: {
+              ...me.data.user,
+              classAssignments: me.data.classAssignments,
+            },
+            scopes: me.data.scopes,
+          }));
+        }
+
         const canLoadAllRewards = canManageRewards(me.data.user.roleCode);
-        const [classes, students, rules, honors, rewards] = await Promise.all([
+        const canLoadClassRewards = canManageClassRewards(me.data.user.roleCode);
+        const results = await Promise.allSettled([
           adminApi.classes(state.token!),
           adminApi.students(state.token!),
           adminApi.scoreRules(state.token!),
           adminApi.honors(state.token!),
-          adminApi.rewards(state.token!, canLoadAllRewards ? { includeDisabled: true } : undefined),
-        ]);
-        return { me, classes, students, rules, honors, rewards };
+          canLoadAllRewards || canLoadClassRewards
+            ? adminApi.rewards(
+                state.token!,
+                canLoadAllRewards || canLoadClassRewards ? { includeDisabled: true } : undefined,
+              )
+            : Promise.resolve({ data: [] }),
+        ] as const);
+
+        const [classesResult, studentsResult, rulesResult, honorsResult, rewardsResult] = results;
+        const warnings: string[] = [];
+
+        if (classesResult.status === 'rejected') {
+          warnings.push(`班级数据加载失败：${getErrorMessage(classesResult.reason, '未知错误')}`);
+        }
+        if (studentsResult.status === 'rejected') {
+          warnings.push(`学生数据加载失败：${getErrorMessage(studentsResult.reason, '未知错误')}`);
+        }
+        if (rulesResult.status === 'rejected') {
+          warnings.push(`积分规则加载失败：${getErrorMessage(rulesResult.reason, '未知错误')}`);
+        }
+        if (honorsResult.status === 'rejected') {
+          warnings.push(`荣誉数据加载失败：${getErrorMessage(honorsResult.reason, '未知错误')}`);
+        }
+        if (rewardsResult.status === 'rejected') {
+          warnings.push(`奖励数据加载失败：${getErrorMessage(rewardsResult.reason, '未知错误')}`);
+        }
+
+        return {
+          me,
+          classes: classesResult.status === 'fulfilled' ? classesResult.value : { data: [] },
+          students: studentsResult.status === 'fulfilled' ? studentsResult.value : { data: [] },
+          rules: rulesResult.status === 'fulfilled' ? rulesResult.value : { data: [] },
+          honors: honorsResult.status === 'fulfilled' ? honorsResult.value : { data: [] },
+          rewards: rewardsResult.status === 'fulfilled' ? rewardsResult.value : { data: [] },
+          warningMessage: warnings.length > 0 ? `部分数据未加载成功：${warnings.join('；')}` : null,
+        };
       })
-      .then(({ me, classes, students, rules, honors, rewards }) => {
+      .then(({ me, classes, students, rules, honors, rewards, warningMessage }) => {
         if (!active) return;
         setState((prev) => ({
           ...prev,
@@ -54,6 +103,7 @@ export function useAdminData(): UseAdminDataResult {
           honors: honors.data,
           rewards: rewards.data,
           loading: false,
+          error: warningMessage,
         }));
       })
       .catch((error: Error) => {

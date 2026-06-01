@@ -1,4 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { randomBytes } from 'node:crypto';
 import { hashSync } from 'bcryptjs';
 import { Prisma, Status } from '@prisma/client';
 import { pinyin } from 'pinyin-pro';
@@ -41,6 +42,10 @@ const rolePermissionTemplate: Record<string, { summary: string; permissions: str
     permissions: ['积分评价与记录', '数据分析查看', '班级查看'],
   },
 };
+
+function createTemporaryPassword() {
+  return randomBytes(9).toString('base64url');
+}
 
 const SUBJECT_LABELS: Record<string, string> = {
   chinese: '语文',
@@ -168,6 +173,7 @@ export class AdminConfigService {
           phone: school.phone,
           address: school.address,
           classScoreStudentLinkMultiplier: school.classScoreStudentLinkMultiplier ?? 0,
+          petDecoChangeCost: school.petDecoChangeCost ?? 10,
           petGrowth: {
             thresholds: normalizePetGrowthThresholds(school.petGrowthThresholds),
           },
@@ -250,11 +256,17 @@ export class AdminConfigService {
       }
     }
 
+    const petDecoChangeCost = Math.trunc(Number(body.petDecoChangeCost));
+    if (!Number.isFinite(petDecoChangeCost) || petDecoChangeCost < 0 || petDecoChangeCost > 999) {
+      throw new BadRequestException('装扮更换积分消耗必须是 0-999 之间的整数');
+    }
+
     const updated = await this.prisma.school.update({
       where: { id: user.schoolId },
       data: {
         petGrowthThresholds: thresholds,
         classScoreStudentLinkMultiplier: Math.trunc(Number(body.classScoreStudentLinkMultiplier)),
+        petDecoChangeCost,
       },
     });
 
@@ -294,10 +306,16 @@ export class AdminConfigService {
     const user = await this.authService.getAuthUserFromAuthorization(authorization);
     this.ensureCanViewSchoolPresentation(user.roleCode);
 
-    const displayConfig = await this.prisma.displayConfig.findFirst({
-      where: { schoolId: user.schoolId, classId: null },
-      orderBy: { updatedAt: 'desc' },
-    });
+    const [displayConfig, currentSemester] = await Promise.all([
+      this.prisma.displayConfig.findFirst({
+        where: { schoolId: user.schoolId, classId: null },
+        orderBy: { updatedAt: 'desc' },
+      }),
+      this.prisma.semester.findFirst({
+        where: { schoolId: user.schoolId, isCurrent: true },
+        orderBy: { id: 'desc' },
+      }),
+    ]);
 
     return {
       code: 0,
@@ -313,6 +331,12 @@ export class AdminConfigService {
         animationSpeed: displayConfig?.animationSpeed ?? 'normal',
         allowSkipAnimation: displayConfig?.allowSkipAnimation ?? true,
         defaultMode: displayConfig?.defaultMode ?? 'daily',
+        currentSemester: currentSemester
+          ? {
+              id: toNumber(currentSemester.id),
+              name: currentSemester.name,
+            }
+          : null,
       },
     };
   }
@@ -570,6 +594,7 @@ export class AdminConfigService {
 
     const role = await this.findRole(user.schoolId, body.roleCode);
     await this.ensureUsernameAvailable(body.username);
+    const temporaryPassword = createTemporaryPassword();
 
     const created = await this.prisma.$transaction(async (tx) => {
       const createdUser = await tx.user.create({
@@ -577,7 +602,8 @@ export class AdminConfigService {
           schoolId: user.schoolId,
           roleId: role.id,
           username: body.username,
-          passwordHash: hashSync('123456', 10),
+          passwordHash: hashSync(temporaryPassword, 10),
+          passwordChangeRequired: true,
           name: body.name,
           phone: body.phone ?? null,
           dutyTags: body.dutyTags === undefined ? [] : this.normalizeDutyTags(body.dutyTags),
@@ -591,7 +617,7 @@ export class AdminConfigService {
     });
 
     await this.logAction(user, 'permission_user', 'create', created.id, body);
-    return { code: 0, message: 'ok', data: { id: toNumber(created.id), defaultPassword: '123456' } };
+    return { code: 0, message: 'ok', data: { id: toNumber(created.id), defaultPassword: temporaryPassword } };
   }
 
   async updatePermissionUser(authorization: string | undefined, id: number, body: PermissionUserUpsertDto) {
@@ -614,6 +640,7 @@ export class AdminConfigService {
 
     const role = await this.findRole(user.schoolId, body.roleCode);
     await this.ensureUsernameAvailable(body.username, BigInt(id));
+    const temporaryPassword = body.resetPassword ? createTemporaryPassword() : null;
 
     await this.prisma.$transaction(async (tx) => {
       await tx.user.update({
@@ -624,7 +651,9 @@ export class AdminConfigService {
           name: body.name,
           phone: body.phone ?? null,
           ...(body.dutyTags === undefined ? {} : { dutyTags: this.normalizeDutyTags(body.dutyTags) }),
-          ...(body.resetPassword ? { passwordHash: hashSync('123456', 10) } : {}),
+          ...(temporaryPassword
+            ? { passwordHash: hashSync(temporaryPassword, 10), passwordChangeRequired: true }
+            : {}),
         },
       });
 
@@ -634,7 +663,7 @@ export class AdminConfigService {
     });
 
     await this.logAction(user, 'permission_user', 'update', BigInt(id), body);
-    return { code: 0, message: 'ok', data: { id } };
+    return { code: 0, message: 'ok', data: { id, defaultPassword: temporaryPassword } };
   }
 
   async importPermissionUsers(authorization: string | undefined, body: PermissionUserImportDto) {
@@ -688,6 +717,7 @@ export class AdminConfigService {
     let createdCount = 0;
     let updatedCount = 0;
     let skippedCount = 0;
+    const importDefaultPassword = createTemporaryPassword();
 
     for (const row of rows) {
       const seenPhoneRow = row.phone ? seenImportPhones.get(row.phone) : undefined;
@@ -806,7 +836,8 @@ export class AdminConfigService {
             schoolId: user.schoolId,
             roleId: role.id,
             username,
-            passwordHash: hashSync('123456', 10),
+            passwordHash: hashSync(importDefaultPassword, 10),
+            passwordChangeRequired: true,
             name: row.name,
             phone: row.phone || null,
             dutyTags: upsertBody.dutyTags ?? [],
@@ -850,7 +881,7 @@ export class AdminConfigService {
         createdCount,
         updatedCount,
         skippedCount,
-        defaultPassword: '123456',
+        defaultPassword: createdCount > 0 ? importDefaultPassword : null,
         results,
         warnings,
         scheduleRelinkResult,
@@ -870,16 +901,17 @@ export class AdminConfigService {
       throw new NotFoundException('账号不存在');
     }
     this.ensureCanManagePermissionUserRole(user.roleCode, targetUser.role.code);
+    const temporaryPassword = createTemporaryPassword();
 
     const updated = await this.prisma.user.update({
       where: { id: BigInt(id) },
-      data: { passwordHash: hashSync('123456', 10) },
+      data: { passwordHash: hashSync(temporaryPassword, 10), passwordChangeRequired: true },
     });
 
     await this.logAction(user, 'permission_user', 'reset_password', updated.id, {
       temporaryPasswordIssued: true,
     });
-    return { code: 0, message: 'ok', data: { id, defaultPassword: '123456' } };
+    return { code: 0, message: 'ok', data: { id, defaultPassword: temporaryPassword } };
   }
 
   async updatePermissionUserStatus(authorization: string | undefined, id: number, status: 'enabled' | 'disabled') {

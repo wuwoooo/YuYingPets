@@ -14,19 +14,20 @@
     </script>
     <script src="./vendor/socket.io/socket.io.min.js"></script>
     <script src="./vendor/morphdom/morphdom-umd.min.js"></script>
-    <link rel="stylesheet" href="./styles/display.css" />
+    <link rel="stylesheet" href="./styles/display.css?v=202605312315" />
     <style>
-      .pet-profile-actions {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 16px;
-        margin: 24px 0;
+      /* ===== 萌宠档案 · 进化图鉴底部按钮 ===== */
+      .pet-profile-bottom-action {
+        margin-top: 22px;
+        padding-top: 18px;
+        border-top: 1px solid rgba(15, 61, 99, 0.06);
       }
       .profile-action-btn {
-        height: 54px;
+        width: 100%;
+        height: 50px;
         border-radius: 14px;
         border: none;
-        font-size: 16px;
+        font-size: 15px;
         font-weight: 700;
         cursor: pointer;
         display: flex;
@@ -34,25 +35,24 @@
         justify-content: center;
         gap: 10px;
         transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+        letter-spacing: 0.5px;
       }
-      .profile-action-btn:hover {
-        transform: translateY(-3px);
-        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+      @media (hover: hover) and (pointer: fine) {
+        .profile-action-btn:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 8px 22px rgba(0, 0, 0, 0.14);
+        }
       }
       .profile-action-btn:active {
-        transform: translateY(-1px);
-      }
-      .profile-action-btn.score {
-        background: linear-gradient(135deg, #2980b9, #3498db);
-        color: #fff;
+        transform: translateY(0);
       }
       .profile-action-btn.evo {
-        background: linear-gradient(135deg, #f39c12, #f1c40f);
+        background: linear-gradient(135deg, #e8a838, #f0c24a);
         color: #fff;
       }
       .profile-action-btn i {
-        font-size: 18px;
+        font-size: 17px;
       }
     </style>
   </head>
@@ -61,7 +61,6 @@
       id="displayFullscreenBtn"
       class="display-fullscreen-btn"
       type="button"
-      title="进入全屏"
       onclick="requestDisplayFullscreen()"
       hidden
     >
@@ -75,6 +74,16 @@
       aria-live="polite"
       hidden
     ></div>
+    <div
+      id="displayRealtimeStatus"
+      class="display-realtime-status"
+      role="status"
+      aria-live="polite"
+      hidden
+    >
+      <i id="displayRealtimeStatusIcon" class="fa-solid fa-wifi" aria-hidden="true"></i>
+      <span id="displayRealtimeStatusText">正在连接实时服务…</span>
+    </div>
 
     <!-- ==================== D01 进入页 ==================== -->
       <div id="page-entry" class="page">
@@ -95,13 +104,21 @@
           <button
             type="button"
             class="entry-admin-btn"
-            title="班主任或管理员重新绑定终端"
+           
             onclick="openTerminalRebind()"
           >
             <i class="fa-solid fa-shield-halved" aria-hidden="true"></i>
           </button>
         </div>
-        <div class="entry-corner-class" id="entryClassTitle">当前终端暂未绑定班级</div>
+        <div class="entry-class-head">
+          <div class="entry-corner-class" id="entryClassTitle">当前终端暂未绑定班级</div>
+          <div
+            class="class-honor-badges entry-class-honors"
+            id="entryClassHonors"
+            hidden
+            aria-label="班级集体荣誉"
+          ></div>
+        </div>
         <div class="entry-corner-sub" id="entryClassSummary">请先完成初始化配置</div>
         <div class="entry-corner-sub" id="entryTeacherName">班主任：待设置</div>
       </div>
@@ -112,7 +129,10 @@
         ></span>
       </button>
       <div class="display-beian">
+        <a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer">滇ICP备2020007229号-4</a>
+        <span class="display-beian-sep">|</span>
         <a href="https://beian.mps.gov.cn/#/query/webSearch?code=53290102000783" target="_blank" rel="noreferrer">
+          <img src="images/beian.png" alt="" class="display-beian-icon" width="13" height="14" />
           滇公网安备53290102000783号
         </a>
       </div>
@@ -316,6 +336,14 @@
           </div>
         </div>
       </div>
+      <div class="display-beian">
+        <a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer">滇ICP备2020007229号-4</a>
+        <span class="display-beian-sep">|</span>
+        <a href="https://beian.mps.gov.cn/#/query/webSearch?code=53290102000783" target="_blank" rel="noreferrer">
+          <img src="images/beian.png" alt="" class="display-beian-icon" width="13" height="14" />
+          滇公网安备53290102000783号
+        </a>
+      </div>
     </div>
 
     <!-- ==================== D02 登录页 ==================== -->
@@ -341,7 +369,15 @@
           <input type="text" tabindex="-1" autocomplete="username" />
           <input type="password" tabindex="-1" autocomplete="current-password" />
         </div>
-        <h2 class="login-title" id="loginPageTitle">教师登录</h2>
+        <div class="login-class-head">
+          <h2 class="login-title" id="loginPageTitle">教师登录</h2>
+          <div
+            class="class-honor-badges login-class-honors"
+            id="loginClassHonors"
+            hidden
+            aria-label="班级集体荣誉"
+          ></div>
+        </div>
         <div class="login-class-summary">
           <div class="login-class-subtitle" id="loginClassSummary">
             当前终端暂未绑定班级
@@ -350,65 +386,74 @@
             终端名称：未命名终端
           </div>
         </div>
-        <div class="login-field saved-account-field" id="loginSavedAccountField" hidden>
-          <label>已保存账号</label>
-          <div class="saved-account-row">
-            <select
-              id="loginSavedAccount"
-              class="login-account-select"
-              onchange="handleSavedAccountChange()"
-            ></select>
-            <button
-              type="button"
-              id="loginDeleteSavedAccount"
-              class="login-account-delete"
-              onclick="handleDeleteSavedAccount()"
-            >
-              删除
-            </button>
+        <form
+          id="loginForm"
+          class="login-form"
+          onsubmit="event.preventDefault(); handleLogin();"
+        >
+          <div class="login-field saved-account-field" id="loginSavedAccountField" hidden>
+            <label>已保存账号</label>
+            <div class="saved-account-row">
+              <select
+                id="loginSavedAccount"
+                class="login-account-select"
+                onchange="handleSavedAccountChange()"
+              ></select>
+              <button
+                type="button"
+                id="loginDeleteSavedAccount"
+                class="login-account-delete"
+                onclick="handleDeleteSavedAccount()"
+              >
+                删除
+              </button>
+            </div>
           </div>
-        </div>
-        <div class="login-field">
-          <label>账号或手机号</label>
-          <input
-            id="loginUsername"
-            type="text"
-            name="display_login_username_manual"
-            placeholder="请输入工号或手机号"
-            autocomplete="off"
-            autocapitalize="off"
-            autocorrect="off"
-            spellcheck="false"
-            data-lpignore="true"
-            data-1p-ignore="true"
-          />
-        </div>
-        <div class="login-field">
-          <label>密码</label>
-          <input
-            id="loginPassword"
-            type="password"
-            name="display_login_password_manual"
-            placeholder="请输入密码"
-            autocomplete="new-password"
-            autocapitalize="off"
-            autocorrect="off"
-            spellcheck="false"
-            data-lpignore="true"
-            data-1p-ignore="true"
-          />
-        </div>
-        <div
-          id="loginMessage"
-          style="min-height:20px;margin:8px 0 2px;color:#d64343;font-size:13px;text-align:center;"
-        ></div>
-        <button class="login-btn" onclick="handleLogin()">登 录</button>
+          <div class="login-field">
+            <label>账号或手机号</label>
+            <input
+              id="loginUsername"
+              type="text"
+              name="display_login_username_manual"
+              placeholder="请输入工号或手机号"
+              autocomplete="off"
+              autocapitalize="off"
+              autocorrect="off"
+              spellcheck="false"
+              data-lpignore="true"
+              data-1p-ignore="true"
+            />
+          </div>
+          <div class="login-field">
+            <label>密码</label>
+            <input
+              id="loginPassword"
+              type="password"
+              name="display_login_password_manual"
+              placeholder="请输入密码"
+              autocomplete="new-password"
+              autocapitalize="off"
+              autocorrect="off"
+              spellcheck="false"
+              data-lpignore="true"
+              data-1p-ignore="true"
+            />
+          </div>
+          <div
+            id="loginMessage"
+            style="min-height:20px;margin:8px 0 2px;color:#d64343;font-size:13px;text-align:center;"
+          ></div>
+          <button class="login-btn" type="submit">登 录</button>
+        </form>
         <button class="login-back" onclick="navigateTo('entry')" type="button">
           <i class="fa-solid fa-arrow-left" aria-hidden="true"></i> 返回首页
         </button>
       </div>
       <div class="display-beian">
+        <a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer">滇ICP备2020007229号-4</a>
+        <span class="display-beian-sep">|</span>
         <a href="https://beian.mps.gov.cn/#/query/webSearch?code=53290102000783" target="_blank" rel="noreferrer">
+          <img src="images/beian.png" alt="" class="display-beian-icon" width="13" height="14" />
           滇公网安备53290102000783号
         </a>
       </div>
@@ -420,6 +465,17 @@
       <div class="trans-overlay" id="transOverlay"></div>
       <div class="trans-warmglow" id="transGlow"></div>
       <canvas class="trans-particles" id="transParticles"></canvas>
+      <div class="trans-holiday-celebration" id="transHolidayCelebration" aria-hidden="true">
+        <span class="trans-holiday-ribbon trans-holiday-ribbon-a"></span>
+        <span class="trans-holiday-ribbon trans-holiday-ribbon-b"></span>
+        <span class="trans-holiday-pop trans-holiday-pop-a"></span>
+        <span class="trans-holiday-pop trans-holiday-pop-b"></span>
+        <div class="trans-holiday-card">
+          <span class="trans-holiday-kicker">儿童节彩蛋已开启</span>
+          <strong>六一儿童节快乐</strong>
+          <span>愿每一颗星宠都和同学们一起闪闪发光</span>
+        </div>
+      </div>
 
       <div class="trans-content">
         <!-- 阶段1：进入校园 -->
@@ -434,7 +490,15 @@
         </div>
         <!-- 阶段3：班级信息 -->
         <div class="trans-class" id="transClass">
-          <div class="trans-class-name" id="transClassName">九年级二班</div>
+          <div class="trans-class-name-row">
+            <div class="trans-class-name" id="transClassName">九年级二班</div>
+            <div
+              class="class-honor-badges trans-class-honors"
+              id="transClassHonors"
+              hidden
+              aria-label="班级集体荣誉"
+            ></div>
+          </div>
           <div class="trans-class-divider"></div>
           <div class="trans-class-teacher" id="transClassTeacher">
             班主任：钟老师
@@ -458,7 +522,7 @@
         <div
           class="pm-close"
           onclick="closePointModal()"
-          title="关闭"
+         
           role="button"
         >
           <i class="fa-solid fa-xmark" aria-hidden="true"></i>
@@ -520,7 +584,7 @@
             <div class="pm-section-title" id="pmMoreTitle" style="margin-bottom: 0">
               <i class="fa-solid fa-layer-group"></i> 全部加分规则
             </div>
-            <button type="button" class="pm-more-close" onclick="closeMoreRulePanel()">
+            <button type="button" class="pm-more-close" style="display: none" onclick="closeMoreRulePanel()">
               返回快捷操作
             </button>
           </div>
@@ -564,7 +628,7 @@
         <div
           class="pm-close"
           onclick="closeAllHistoryModal()"
-          title="关闭"
+         
           role="button"
         >
           <i class="fa-solid fa-xmark" aria-hidden="true"></i>
@@ -575,68 +639,70 @@
     </div>
 
     <div class="point-modal-overlay pet-profile-overlay" id="petProfileModal">
-      <div class="point-modal pet-profile-modal">
+      <div class="point-modal pet-profile-modal pet-profile-modal--v2">
         <div
           class="pm-close"
           onclick="closePetProfileModal()"
-          title="关闭"
           role="button"
         >
           <i class="fa-solid fa-xmark" aria-hidden="true"></i>
         </div>
-        <div class="pet-profile-hero">
-          <div class="pet-profile-hero-avatar">
-            <img class="pet-profile-avatar" id="petProfileAvatar" src="" alt="" />
-          </div>
-          <div class="pet-profile-hero-main">
-            <div class="pet-profile-kicker">萌宠档案</div>
-            <div class="pet-profile-title" id="petProfileTitle">学生姓名 · 萌宠名称</div>
-            <div class="pet-profile-subtitle" id="petProfileSubtitle">Lv.1 · 当前形态</div>
-          </div>
-        </div>
 
-        <div class="pet-profile-stats">
-          <div class="pet-profile-stat">
-            <span>当前积分</span>
-            <strong id="petProfileCurrentScore">0</strong>
-          </div>
-          <div class="pet-profile-stat">
-            <span>累计积分</span>
-            <strong id="petProfileTotalScore">0</strong>
-          </div>
-          <div class="pet-profile-stat">
-            <span>当前等级</span>
-            <strong id="petProfileLevel">Lv.1</strong>
-          </div>
-          <div class="pet-profile-stat">
-            <span>成长状态</span>
-            <strong id="petProfileStatus">已领养</strong>
-          </div>
-        </div>
-        
-        <div class="pet-profile-actions">
-          <button class="profile-action-btn score" onclick="profileToScore()" id="profileScoreBtn">
-            <i class="fa-solid fa-pen-to-square"></i> 快捷评分
-          </button>
-          <button class="profile-action-btn evo" onclick="profileToEvo()" id="profileEvoBtn">
-            <i class="fa-solid fa-book-open"></i> 进化图鉴
-          </button>
-        </div>
-
-        <div class="pet-profile-panels">
-          <div class="pet-profile-panel">
-            <div class="pet-profile-panel-title">
-              <i class="fa-solid fa-paw" aria-hidden="true"></i>
-              萌宠信息
+        <div class="pet-profile-hero pet-profile-hero--v2">
+          <div class="pet-profile-showcase">
+            <div class="pet-deco-container" id="petProfileDecoContainer">
+              <img class="pet-deco-bg" id="petProfileDecoBg" src="" alt="" />
+              <img class="pet-profile-avatar" id="petProfileAvatar" src="" alt="" />
+              <img class="pet-deco-frame" id="petProfileDecoFrame" src="" alt="" />
+              <img class="pet-deco-accessory" id="petProfileDecoAccessory" src="" alt="" />
             </div>
+            <button class="pet-profile-change-deco-btn pet-profile-change-deco-btn--overlay" id="petProfileChangeDecoBtn" onclick="openDecorationPanel()">
+              <i class="fa-solid fa-palette"></i> 更换装扮
+            </button>
+          </div>
+
+          <div class="pet-profile-sideinfo">
+            <div class="pet-profile-identity-block">
+              <div class="pet-profile-nickname-row">
+                <span class="pet-profile-nickname" id="petProfileNickname">萌宠昵称</span>
+                <button class="pet-profile-rename-btn" id="petProfileRenameBtn" onclick="openPetRenameInput()">
+                  <i class="fa-solid fa-pen"></i>
+                </button>
+              </div>
+              <div class="pet-profile-rename-row" id="petProfileRenameRow" style="display:none">
+                <input type="text" class="pet-profile-rename-input" id="petProfileRenameInput" maxlength="12" placeholder="输入新昵称" />
+                <div class="pet-profile-rename-actions">
+                  <button type="button" class="pet-profile-rename-confirm" onclick="submitPetRename()"><i class="fa-solid fa-check"></i></button>
+                  <button type="button" class="pet-profile-rename-cancel" onclick="cancelPetRename()"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+              </div>
+              <div class="pet-profile-rename-hint" id="petProfileRenameHint"></div>
+              <div class="pet-profile-caption-meta">
+                <span class="pet-profile-student-name" id="petProfileStudentName">学生姓名</span>
+                <span class="pet-profile-subtitle" id="petProfileSubtitle">Lv.1 · 当前形态</span>
+              </div>
+            </div>
+            <div class="pet-profile-sideinfo-title"><i class="fa-solid fa-paw" aria-hidden="true"></i>萌宠信息</div>
             <div class="pet-profile-info-list" id="petProfileInfoList"></div>
           </div>
-          <div class="pet-profile-panel">
+        </div>
+
+        <div class="pet-profile-tabs" id="petProfileTabs">
+          <button class="pet-profile-tab active" data-tab="honors" onclick="switchPetProfileTab('honors')">
+            <i class="fa-solid fa-award"></i> 荣誉勋章
+          </button>
+          <button class="pet-profile-tab" data-tab="history" onclick="switchPetProfileTab('history')">
+            <i class="fa-solid fa-clock-rotate-left"></i> 积分记录
+          </button>
+        </div>
+
+        <div class="pet-profile-tab-content" id="petProfileTabContent">
+          <div class="pet-profile-tab-pane active" data-tab-pane="honors">
+            <div class="pet-profile-honor-list" id="petProfileHonors"></div>
+          </div>
+          <div class="pet-profile-tab-pane" data-tab-pane="history">
             <div class="pet-profile-panel-title pet-profile-panel-title--with-action">
-              <span class="pet-profile-panel-title-main">
-                <i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i>
-                积分记录
-              </span>
+              <span></span>
               <button
                 type="button"
                 class="pm-more-trigger"
@@ -650,6 +716,47 @@
             <div class="pet-profile-history-list" id="petProfileHistory"></div>
           </div>
         </div>
+
+        <div class="pet-profile-bottom-action">
+          <button class="profile-action-btn evo" onclick="profileToEvo()" id="profileEvoBtn">
+            <i class="fa-solid fa-book-open"></i> 进化图鉴
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 装饰选择面板 -->
+    <div class="point-modal-overlay pet-deco-overlay" id="petDecoPanel">
+      <div class="point-modal pet-deco-panel">
+        <div class="pet-deco-panel-header">
+          <button class="pet-deco-back-btn" onclick="closeDecorationPanel()">
+            <i class="fa-solid fa-arrow-left"></i> 返回档案
+          </button>
+          <span class="pet-deco-panel-title">更换装扮</span>
+        </div>
+        <div class="pet-deco-filter" id="petDecoFilter">
+          <button class="pet-deco-filter-btn active" data-type="background" onclick="filterDecorations('background')">背景</button>
+          <button class="pet-deco-filter-btn" data-type="frame" onclick="filterDecorations('frame')">边框</button>
+          <button class="pet-deco-filter-btn" data-type="accessory" onclick="filterDecorations('accessory')">饰品</button>
+          <button class="pet-deco-filter-btn" data-type="theme" onclick="filterDecorations('theme')">主题</button>
+        </div>
+        <div class="pet-deco-policy-hint" id="petDecoPolicyHint"></div>
+        <div class="pet-deco-body">
+          <div class="pet-deco-grid" id="petDecoGrid"></div>
+          <div class="pet-deco-preview">
+            <div class="pet-deco-preview-label">预览效果</div>
+            <div class="pet-deco-container pet-deco-preview-container" id="petDecoPreviewContainer">
+              <img class="pet-deco-bg" id="petDecoPreviewBg" src="" alt="" />
+              <img class="pet-profile-avatar" id="petDecoPreviewAvatar" src="" alt="" />
+              <img class="pet-deco-frame" id="petDecoPreviewFrame" src="" alt="" />
+              <img class="pet-deco-accessory" id="petDecoPreviewAccessory" src="" alt="" />
+            </div>
+            <div class="pet-deco-preview-actions" id="petDecoPreviewActions" hidden>
+              <button type="button" class="pet-deco-preview-confirm" id="petDecoPreviewConfirmBtn" onclick="confirmPendingDecoChange()">确认更换</button>
+              <button type="button" class="pet-deco-preview-reset" onclick="revertDecoPreviewToEquipped()">还原</button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -658,7 +765,7 @@
         <div
           class="pm-close"
           onclick="closePetProfileAllHistoryModal()"
-          title="关闭"
+         
           role="button"
         >
           <i class="fa-solid fa-xmark" aria-hidden="true"></i>
@@ -728,6 +835,27 @@
         <div class="modal-panel-bd">
           <div class="group-manage-layout">
             <section class="group-manage-sidebar">
+              <div class="group-score-ranking-block">
+                <div class="group-manage-section-head">
+                  <span>小组排行</span>
+                  <button
+                    type="button"
+                    class="group-manage-add-btn"
+                    onclick="openGroupScoreRecordsModal()"
+                  >
+                    积分记录
+                  </button>
+                </div>
+                <div class="group-score-ranking-list" id="groupScoreRankingList"></div>
+                <button
+                  type="button"
+                  class="group-score-reset-btn"
+                  onclick="resetAllGroupScores()"
+                >
+                  一键清零
+                </button>
+              </div>
+              <div class="group-manage-divider"></div>
               <div class="group-manage-section-head">
                 <span>小组列表</span>
                 <button type="button" class="group-manage-add-btn" onclick="addGroupManageGroup()">
@@ -767,13 +895,155 @@
       </div>
     </div>
 
+    <!-- 小组积分记录弹窗 -->
+    <div class="modal-panel-overlay" id="groupScoreRecordsModal">
+      <div class="modal-panel group-score-records-modal-panel">
+        <div class="modal-panel-hd">
+          <span>小组积分记录</span>
+          <button
+            type="button"
+            class="modal-panel-close"
+            onclick="closeGroupScoreRecordsModal()"
+            aria-label="关闭"
+          >
+            &times;
+          </button>
+        </div>
+        <div class="modal-panel-bd">
+          <div class="group-score-records-filter">
+            <label class="group-score-adjust-field">
+              <span>筛选小组</span>
+              <select id="groupScoreRecordsFilterSelect" onchange="loadGroupScoreRecords()"></select>
+            </label>
+          </div>
+          <div class="group-score-records-list" id="groupScoreRecordsList"></div>
+          <div class="group-score-adjust-actions">
+            <button type="button" class="confirm-modal-btn secondary" onclick="closeGroupScoreRecordsModal()">
+              关闭
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 小组积分调整弹窗（点击排行中的小组） -->
+    <div class="modal-panel-overlay" id="groupScoreAdjustModal">
+      <div class="modal-panel group-score-adjust-modal-panel">
+        <div class="modal-panel-hd">
+          <span>调整小组积分</span>
+          <button
+            type="button"
+            class="modal-panel-close"
+            onclick="closeGroupScoreAdjustModal()"
+            aria-label="关闭"
+          >
+            &times;
+          </button>
+        </div>
+        <div class="modal-panel-bd">
+          <div class="group-score-adjust-form">
+            <label class="group-score-adjust-field">
+              <span>小组</span>
+              <select id="groupScoreAdjustGroupSelect"></select>
+            </label>
+            <label class="group-score-adjust-field">
+              <span>分值</span>
+              <input
+                id="groupScoreAdjustDeltaInput"
+                type="number"
+                step="1"
+                placeholder="可填正数或负数，不能为 0"
+              />
+            </label>
+            <label class="group-score-adjust-field">
+              <span>事由</span>
+              <textarea
+                id="groupScoreAdjustRemarkInput"
+                rows="3"
+                maxlength="255"
+                placeholder="请填写本次调整事由"
+              ></textarea>
+            </label>
+          </div>
+          <div class="group-score-adjust-error" id="groupScoreAdjustError" hidden></div>
+          <div class="group-score-adjust-actions">
+            <button type="button" class="confirm-modal-btn secondary" onclick="closeGroupScoreAdjustModal()">
+              取消
+            </button>
+            <button type="button" class="confirm-modal-btn primary" onclick="submitGroupScoreAdjust()">
+              确认调整
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- ==================== D04 班级主页 ==================== -->
     <div id="page-classroom" class="page">
       <div class="deco-dots" id="classroomDots"></div>
+      <div
+        class="classroom-holiday-layer"
+        id="classroomHolidayLayer"
+        aria-hidden="true"
+      >
+        <div class="holiday-wow-splash" id="holidayWowSplash">
+          <div class="holiday-wow-sky">
+            <span class="holiday-wow-cloud holiday-wow-cloud-a"></span>
+            <span class="holiday-wow-cloud holiday-wow-cloud-b"></span>
+            <span class="holiday-wow-cloud holiday-wow-cloud-c"></span>
+          </div>
+          <div class="holiday-wow-card">
+            <span class="holiday-wow-kicker">育英星宠 · 儿童节限定彩蛋</span>
+            <div class="holiday-wow-main">
+              <span class="holiday-wow-number">6.1</span>
+              <strong>儿童节快乐</strong>
+            </div>
+            <div class="holiday-wow-subtitle">星宠派对开始啦</div>
+            <div class="holiday-wow-copy">愿每位同学今天都闪闪发光</div>
+          </div>
+          <span class="holiday-wow-balloon holiday-wow-balloon-a"></span>
+          <span class="holiday-wow-balloon holiday-wow-balloon-b"></span>
+          <span class="holiday-wow-balloon holiday-wow-balloon-c"></span>
+          <span class="holiday-wow-confetti holiday-wow-confetti-a"></span>
+          <span class="holiday-wow-confetti holiday-wow-confetti-b"></span>
+          <span class="holiday-wow-confetti holiday-wow-confetti-c"></span>
+          <span class="holiday-wow-confetti holiday-wow-confetti-d"></span>
+          <span class="holiday-wow-star holiday-wow-star-a"></span>
+          <span class="holiday-wow-star holiday-wow-star-b"></span>
+          <span class="holiday-wow-star holiday-wow-star-c"></span>
+        </div>
+        <div class="holiday-badge">
+          <span class="holiday-badge-kicker">6.1 儿童节</span>
+          <strong>童心闪闪 快乐成长</strong>
+        </div>
+        <div class="holiday-classroom-title">
+          <span>6.1</span>
+          <strong>儿童节快乐</strong>
+          <em>今天的大屏有彩蛋</em>
+        </div>
+        <span class="holiday-balloon holiday-balloon-a"></span>
+        <span class="holiday-balloon holiday-balloon-b"></span>
+        <span class="holiday-balloon holiday-balloon-c"></span>
+        <span class="holiday-ribbon holiday-ribbon-a"></span>
+        <span class="holiday-ribbon holiday-ribbon-b"></span>
+        <span class="holiday-confetti holiday-confetti-a"></span>
+        <span class="holiday-confetti holiday-confetti-b"></span>
+        <span class="holiday-confetti holiday-confetti-c"></span>
+        <span class="holiday-star holiday-star-a"></span>
+        <span class="holiday-star holiday-star-b"></span>
+      </div>
       <div class="top-bar">
         <div class="top-bar-left">
           <img class="top-bar-logo" src="images/logo.svg" alt="校徽" />
-          <span class="top-bar-class" id="classroomClassName">九年级二班</span>
+          <div class="top-bar-class-wrap">
+            <span class="top-bar-class" id="classroomClassName">九年级二班</span>
+            <div
+              class="class-honor-badges top-bar-class-honors"
+              id="classroomClassHonors"
+              hidden
+              aria-label="班级集体荣誉"
+            ></div>
+          </div>
         </div>
         <div class="top-bar-center" id="classroomSlogan">
           待设置
@@ -781,7 +1051,7 @@
         <div class="top-bar-right">
           <div class="top-bar-status">
             <span id="display-live-datetime"></span>
-            <span class="weather-chip" id="displayWeatherChip" title="正在获取天气">
+            <span class="weather-chip" id="displayWeatherChip">
               <i class="fa-solid fa-cloud-sun" id="displayWeatherIcon" aria-hidden="true"></i>
               <span class="weather-chip-text" id="displayWeatherText">天气加载中</span>
             </span>
@@ -790,7 +1060,7 @@
             <button
               class="top-action-btn primary"
               id="displayTopActionBtn"
-              title="解锁展示端操作"
+             
               onclick="handleTopAction()"
               type="button"
             >
@@ -798,7 +1068,7 @@
             </button>
             <button
               class="top-action-btn"
-              title="刷新数据"
+             
               onclick="bootstrapDisplayData()"
               type="button"
             >
@@ -806,7 +1076,7 @@
             </button>
             <button
               class="top-action-btn danger"
-              title="退出当前账号"
+             
               onclick="handleExitAction()"
               type="button"
             >
@@ -871,6 +1141,32 @@
               >
                 分组管理
               </button>
+              <span class="toolbar-divider"></span>
+              <span class="toolbar-label">视图</span>
+              <button
+                type="button"
+                class="toolbar-seg"
+                data-grid-density-btn="standard"
+                onclick="setGridDensity('standard')"
+              >
+                标准
+              </button>
+              <button
+                type="button"
+                class="toolbar-seg active"
+                data-grid-density-btn="compact"
+                onclick="setGridDensity('compact')"
+              >
+                紧凑
+              </button>
+              <button
+                type="button"
+                class="toolbar-seg"
+                data-grid-density-btn="panorama"
+                onclick="setGridDensity('panorama')"
+              >
+                全景
+              </button>
             </div>
             <div class="toolbar-batch-bar hide" id="batchBar">
               <span id="batchCountText">已选 0 人</span>
@@ -880,15 +1176,50 @@
               <button
                 type="button"
                 class="secondary"
+                onclick="selectAllBatchStudents()"
+              >
+                选中所有
+              </button>
+              <button
+                type="button"
+                class="secondary"
                 onclick="clearBatchSelection()"
               >
                 清空选择
+              </button>
+              <button
+                type="button"
+                class="exit-batch"
+                onclick="toggleBatchMode()"
+              >
+                <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+                退出批量加减分
               </button>
             </div>
           </div>
           <div class="student-grid" id="studentGrid"></div>
         </div>
         <div class="right-sidebar">
+          <button
+            type="button"
+            class="sidebar-collapse-btn"
+            id="sidebarCollapseBtn"
+            onclick="toggleSidebarCollapsed()"
+            title="折叠侧栏"
+            aria-pressed="false"
+          >
+            <i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
+          </button>
+          <div class="sidebar-collapse-strip">
+            <button
+              type="button"
+              class="sidebar-expand-btn"
+              onclick="toggleSidebarCollapsed(false)"
+              title="展开侧栏"
+            >
+              <i class="fa-solid fa-chevron-left" aria-hidden="true"></i>
+            </button>
+          </div>
           <!-- 排行榜与兑换入口 -->
           <div
             class="sidebar-section"
@@ -1001,8 +1332,46 @@
           </div>
           <!-- 今日排行 -->
           <div class="sidebar-section" style="padding-top: 12px">
-            <div class="sidebar-title">今日排行</div>
+            <div class="sidebar-title sidebar-title-with-tabs">
+              <span>今日排行</span>
+              <div
+                class="today-rank-tabs"
+                id="todayRankTabs"
+                role="tablist"
+                aria-label="今日排行切换"
+                hidden
+              >
+                <button
+                  type="button"
+                  class="today-rank-tab"
+                  id="todayRankGroupTab"
+                  onclick="setTodayRankTab('group')"
+                  role="tab"
+                  aria-selected="false"
+                >
+                  小组排行
+                </button>
+                <button
+                  type="button"
+                  class="today-rank-tab"
+                  id="todayRankStudentTab"
+                  onclick="setTodayRankTab('student')"
+                  role="tab"
+                  aria-selected="false"
+                >
+                  学生排行
+                </button>
+              </div>
+            </div>
             <div id="todayRank"></div>
+          </div>
+          <!-- 荣誉动态 -->
+          <div class="sidebar-section" id="honorFeedSection">
+            <div class="sidebar-title">
+              <i class="fa-solid fa-medal" aria-hidden="true"></i>
+              荣誉动态
+            </div>
+            <div class="honor-feed-list" id="honorFeedList"></div>
           </div>
           <!-- 今日之星 -->
           <div class="sidebar-section">
@@ -1014,13 +1383,13 @@
               tabindex="0"
               onclick="openTodayStarProfile()"
               onkeydown="handleTodayStarKeydown(event)"
-              title="查看今日之星萌宠档案"
+             
             >
               <div class="star-frame">
                 <span class="star-crown"
                   ><i class="fa-solid fa-crown" aria-hidden="true"></i
                 ></span>
-                <img id="todayStarImage" src="images/pets/001_东北虎_5.png" alt="东北虎" />
+                <img id="todayStarImage" src="images/logo.svg" alt="课堂之星萌宠" />
               </div>
               <div class="star-name" id="todayStarName">王小明</div>
               <div class="star-label" id="todayStarLabel">
@@ -1127,6 +1496,45 @@
           <button class="bottom-tab" data-target="academic" onclick="navigateTo('academic')">
             学业成长
           </button>
+          <button
+            class="classroom-settings-btn classroom-minimize-btn"
+            id="classroomMinimizeBtn"
+            onclick="minimizeDisplayWindow()"
+            type="button"
+            hidden
+            title="最小化窗口"
+          >
+            <i class="fa-solid fa-window-minimize" aria-hidden="true"></i>
+          </button>
+          <button class="classroom-settings-btn" id="classroomSettingsBtn" onclick="toggleSettingsMenu(event)" type="button">
+            <i class="fa-solid fa-gear" aria-hidden="true"></i>
+          </button>
+        </div>
+        <!-- 终端设置悬浮菜单 -->
+        <div class="classroom-settings-menu" id="classroomSettingsMenu">
+          <div class="settings-menu-title">
+            <i class="fa-solid fa-sliders" aria-hidden="true"></i> 终端设置
+          </div>
+          <div class="settings-menu-item">
+            <span>流畅模式</span>
+            <label class="settings-switch">
+              <input type="checkbox" id="settingsLowSpecSwitch" onchange="toggleLowSpecMode(this.checked)">
+              <span class="settings-slider"></span>
+            </label>
+          </div>
+          <div class="settings-menu-desc">
+            降低特效与背景渲染以提升低配/4G内存终端在大屏下的运行流畅度。
+          </div>
+          <div class="settings-menu-item">
+            <span>默认折叠侧栏</span>
+            <label class="settings-switch">
+              <input type="checkbox" id="settingsSidebarCollapsedSwitch">
+              <span class="settings-slider"></span>
+            </label>
+          </div>
+          <div class="settings-menu-desc">
+            折叠右侧栏可为学生网格腾出更多横向空间。视图密度可在工具栏切换：标准 / 紧凑 / 全景。
+          </div>
         </div>
       </div>
     </div>
@@ -1169,7 +1577,7 @@
         <section class="academic-panel academic-overview">
           <div class="academic-panel-title">
             <span>核心态势</span>
-            <button type="button" onclick="bootstrapDisplayData({ silent: true })" title="刷新学业数据">
+            <button type="button" onclick="bootstrapDisplayData({ silent: true })">
               <i class="fa-solid fa-rotate-right" aria-hidden="true"></i>
             </button>
           </div>
@@ -1498,7 +1906,7 @@
 
       <div class="lb-tabs">
         <button class="lb-tab active" data-type="score">积分榜</button>
-        <button class="lb-tab" data-type="exp">经验榜</button>
+        <button class="lb-tab" data-type="honor">勋章榜</button>
         <button class="lb-tab" data-type="pet-level">萌宠榜</button>
       </div>
 
@@ -1508,7 +1916,7 @@
           <div class="podium-avatar-wrap">
             <img
               class="podium-avatar"
-              src="images/pets/005_柯基_5.jpg"
+              src="images/logo.svg"
               alt=""
             />
             <span class="podium-rank-ring">2</span>
@@ -1527,7 +1935,7 @@
             ></span>
             <img
               class="podium-avatar"
-              src="images/pets/001_东北虎_5.png"
+              src="images/logo.svg"
               alt=""
             />
             <span class="podium-rank-ring">1</span>
@@ -1543,7 +1951,7 @@
           <div class="podium-avatar-wrap">
             <img
               class="podium-avatar"
-              src="images/pets/007_萨摩耶_5.jpg"
+              src="images/logo.svg"
               alt=""
             />
             <span class="podium-rank-ring">3</span>
@@ -1927,12 +2335,15 @@
         opacity: 0;
         transition: opacity .3s;
       }
-      .co-confirm-btn:hover {
-        border-color: rgba(46,204,113,0.7);
-        transform: translateY(-2px);
-        box-shadow: 0 12px 40px rgba(46,204,113,0.25);
+      @media (hover: hover) and (pointer: fine) {
+        .co-confirm-btn:hover {
+          border-color: rgba(46,204,113,0.7);
+          transform: translateY(-2px);
+          box-shadow: 0 12px 40px rgba(46,204,113,0.25);
+        }
+        .co-confirm-btn:hover::before { opacity: 1; }
+        .co-confirm-btn:hover svg { stroke: #fff; }
       }
-      .co-confirm-btn:hover::before { opacity: 1; }
       .co-confirm-btn:active { transform: translateY(0) scale(.98); }
       .co-confirm-btn svg,
       .co-confirm-btn span {
@@ -1944,8 +2355,6 @@
         stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round;
         transition: stroke .3s;
       }
-      .co-confirm-btn:hover svg { stroke: #fff; }
-
       /* ===== 角落装饰 ===== */
       .co-corner {
         position: absolute; width: 60px; height: 60px;
@@ -1987,7 +2396,7 @@
             <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
           </svg>
         </div>
-        <div class="co-title">老师正在叫号</div>
+        <div class="co-title" id="callTitle">老师正在叫号</div>
         <div class="co-subtitle">STUDENT CALL NOTIFICATION</div>
 
         <div class="co-divider"></div>
@@ -2009,7 +2418,7 @@
       </div>
     </div>
 
-    <script src="./scripts/pet-colors.js"></script>
-    <script src="./scripts/display-app.js"></script>
+    <script src="./scripts/pet-colors.js?v=202605241713"></script>
+    <script src="./scripts/display-app.js?v=202606010006"></script>
   </body>
 </html>

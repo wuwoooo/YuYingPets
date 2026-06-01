@@ -11,6 +11,7 @@ import {
   resolveMatchedPetStage,
   resolveStageNeedScoreTotal,
 } from '@/common/utils/pet-growth.util';
+import { syncUnlockedDecorationsForLevel } from '@/common/utils/pet-decoration-unlock.util';
 
 type ImportClassRow = {
   id: bigint;
@@ -36,17 +37,34 @@ export class StudentsService {
     const page = Number(query.page);
     const pageSize = Number(query.pageSize);
     const shouldPaginate = Number.isInteger(page) && page > 0 && Number.isInteger(pageSize) && pageSize > 0;
+    const includeDisabled = query.includeDisabled === 'true';
+
+    if (includeDisabled) {
+      if (
+        !['homeroom_teacher', 'school_admin', 'academic_admin', 'grade_admin', 'moral_admin', 'super_admin'].includes(
+          user.roleCode,
+        )
+      ) {
+        throw new ForbiddenException('当前角色无权查看停用学生');
+      }
+    }
 
     if (query.classId) {
       this.authService.ensureCanAccessClass(user, Number(query.classId));
     }
+
+    const petsData = await this.prisma.pet.findMany({
+      where: { schoolId: user.schoolId },
+      include: { stages: { select: { stageNo: true, imageUrl: true } } },
+    });
+    const petMap = new Map(petsData.map(p => [p.id.toString(), p]));
 
     const rows = await this.prisma.student.findMany({
       where: {
         schoolId: user.schoolId,
         classId: query.classId ? BigInt(query.classId) : undefined,
         deletedAt: null,
-        status: 'enabled',
+        status: includeDisabled ? undefined : 'enabled',
       },
       include: {
         school: {
@@ -57,12 +75,23 @@ export class StudentsService {
         classroom: true,
         profile: true,
         studentPet: {
-          include: {
+          select: {
+            id: true,
+            nickname: true,
+            lastRenameAt: true,
+            currentStageNo: true,
+            currentLevel: true,
+            totalScore: true,
+            decorations: {
+              where: { isEquipped: true },
+              include: { decoration: true },
+            },
             pet: {
-              include: {
-                stages: {
-                  orderBy: { stageNo: 'asc' },
-                },
+              select: {
+                id: true,
+                name: true,
+                coverUrl: true,
+                stages: { select: { stageNo: true, name: true, imageUrl: true } },
               },
             },
           },
@@ -94,6 +123,7 @@ export class StudentsService {
         name: row.name,
         gender: row.gender,
         avatarUrl: row.avatarUrl,
+        status: row.status,
         className: row.classroom.name,
         currentScore: row.profile?.currentScore ?? 0,
         totalScore: row.profile?.totalScore ?? 0,
@@ -102,14 +132,30 @@ export class StudentsService {
         pet: row.studentPet
           ? {
               id: toNumber(row.studentPet.pet.id),
+              studentPetId: toNumber(row.studentPet.id),
+              petId: toNumber(row.studentPet.id),
               name: row.studentPet.pet.name,
+              nickname: row.studentPet.nickname ?? null,
+              lastRenameAt: row.studentPet.lastRenameAt ?? null,
               coverUrl: row.studentPet.pet.coverUrl,
               currentStageNo: row.studentPet.currentStageNo,
               currentImageUrl:
                 row.studentPet.pet.stages.find((stage) => stage.stageNo === row.studentPet!.currentStageNo)
-                  ?.imageUrl ?? row.studentPet.pet.coverUrl,
+                  ?.imageUrl ??
+                petMap.get(row.studentPet.pet.id.toString())?.stages.find((stage) => stage.stageNo === row.studentPet!.currentStageNo)
+                  ?.imageUrl ??
+                row.studentPet.pet.coverUrl,
               currentLevel: row.studentPet.currentLevel,
+              currentStageName:
+                row.studentPet.pet.stages.find((stage) => stage.stageNo === row.studentPet!.currentStageNo)?.name ??
+                null,
               totalScore: row.studentPet.totalScore,
+              equippedDecorations: row.studentPet.decorations.map((item) => ({
+                type: item.decoration.type,
+                imageUrl: item.decoration.imageUrl,
+                previewUrl: item.decoration.previewUrl,
+                name: item.decoration.name,
+              })),
             }
           : null,
       })),
@@ -131,41 +177,46 @@ export class StudentsService {
     }>();
     if (!studentIds.length) return summaries;
 
-    const records = await this.prisma.academicScoreRecord.findMany({
-      where: {
-        studentId: { in: studentIds },
-        subjectCode: 'total',
-      },
-      include: {
-        exam: {
-          select: {
-            id: true,
-            name: true,
-            examDate: true,
-            periodLabel: true,
-            importedAt: true,
+    const CHUNK_SIZE = 500;
+    for (let i = 0; i < studentIds.length; i += CHUNK_SIZE) {
+      const chunk = studentIds.slice(i, i + CHUNK_SIZE);
+      const chunkRecords = await this.prisma.academicScoreRecord.findMany({
+        where: {
+          studentId: { in: chunk },
+          subjectCode: 'total',
+        },
+        distinct: ['studentId'],
+        include: {
+          exam: {
+            select: {
+              id: true,
+              name: true,
+              examDate: true,
+              periodLabel: true,
+              importedAt: true,
+            },
           },
         },
-      },
-      orderBy: [{ exam: { examDate: 'desc' } }, { id: 'desc' }],
-    });
-
-    records.forEach((record) => {
-      const key = record.studentId.toString();
-      if (summaries.has(key)) return;
-      summaries.set(key, {
-        examId: Number(record.examId),
-        examName: this.cleanExamName(record.exam.name),
-        examDate: record.exam.examDate,
-        periodLabel: record.exam.periodLabel,
-        importedAt: record.exam.importedAt,
-        totalScore: record.score === null ? null : Number(record.score),
-        schoolRank: record.schoolRank,
-        schoolRankDelta: record.schoolRankDelta,
-        classRank: record.classRank,
-        classRankDelta: record.classRankDelta,
+        orderBy: [{ studentId: 'asc' }, { exam: { examDate: 'desc' } }, { id: 'desc' }],
       });
-    });
+      
+      chunkRecords.forEach((record) => {
+        const key = record.studentId.toString();
+        if (summaries.has(key)) return;
+        summaries.set(key, {
+          examId: Number(record.examId),
+          examName: this.cleanExamName(record.exam.name),
+          examDate: record.exam.examDate,
+          periodLabel: record.exam.periodLabel,
+          importedAt: record.exam.importedAt,
+          totalScore: record.score ? Number(record.score) : null,
+          schoolRank: record.schoolRank,
+          schoolRankDelta: record.schoolRankDelta,
+          classRank: record.classRank,
+          classRankDelta: record.classRankDelta,
+        });
+      });
+    }
 
     return summaries;
   }
@@ -236,6 +287,7 @@ export class StudentsService {
         name: row.name,
         gender: row.gender,
         avatarUrl: row.avatarUrl,
+        status: row.status,
         profile: row.profile
           ? {
               currentScore: row.profile.currentScore,
@@ -526,6 +578,8 @@ export class StudentsService {
     const name = String(body.name ?? '').trim();
     const gender = String(body.gender ?? '').trim();
     const avatarUrl = String(body.avatarUrl ?? '').trim();
+    const hasStatus = body.status !== undefined && body.status !== null;
+    const nextStatus = hasStatus ? String(body.status) : null;
 
     if (!Number.isInteger(id) || id <= 0) {
       throw new BadRequestException('学生 ID 无效');
@@ -535,6 +589,9 @@ export class StudentsService {
     }
     if (!studentNo || !name) {
       throw new BadRequestException('请填写完整的准考证号和姓名');
+    }
+    if (hasStatus && nextStatus !== 'enabled' && nextStatus !== 'disabled') {
+      throw new BadRequestException('学生状态无效');
     }
 
     const existing = await this.prisma.student.findFirst({
@@ -546,6 +603,7 @@ export class StudentsService {
       select: {
         id: true,
         classId: true,
+        status: true,
       },
     });
     if (!existing) {
@@ -589,6 +647,7 @@ export class StudentsService {
     const oldClassId = existing.classId;
     const nextClassId = BigInt(classId);
     const classChanged = oldClassId !== nextClassId;
+    const statusChanged = hasStatus && nextStatus !== existing.status;
 
     await this.prisma.$transaction(async (tx) => {
       await tx.student.update({
@@ -599,6 +658,7 @@ export class StudentsService {
           name,
           gender: gender || null,
           avatarUrl: avatarUrl || null,
+          ...(hasStatus ? { status: nextStatus as 'enabled' | 'disabled' } : {}),
         },
       });
 
@@ -620,7 +680,7 @@ export class StudentsService {
       roleCode: user.roleCode,
       terminalType: 'admin',
       module: 'student',
-      action: 'update',
+      action: statusChanged ? 'status_update' : 'update',
       targetType: 'student',
       targetId: BigInt(id),
       detail: {
@@ -628,12 +688,14 @@ export class StudentsService {
         oldClassId: toNumber(oldClassId),
         studentNo,
         name,
+        ...(statusChanged ? { status: nextStatus, previousStatus: existing.status } : {}),
       },
     });
 
     this.realtimeService.emitClassStudentChanged(classId, {
       studentId: id,
-      type: 'student_updated',
+      type: statusChanged ? 'student_status_changed' : 'student_updated',
+      ...(statusChanged ? { status: nextStatus } : {}),
     });
     if (classChanged) {
       this.realtimeService.emitClassStudentChanged(Number(oldClassId), {
@@ -839,6 +901,7 @@ export class StudentsService {
           unlockedAt: new Date(),
           adoptedBy: user.id,
           status: 'enabled',
+          decoFreeChangeUsed: false,
         },
         create: {
           studentId: BigInt(studentId),
@@ -849,8 +912,11 @@ export class StudentsService {
           unlockedAt: new Date(),
           adoptedBy: user.id,
           status: 'enabled',
+          decoFreeChangeUsed: false,
         },
       });
+
+      await syncUnlockedDecorationsForLevel(tx, studentPet.id, user.schoolId, currentLevel);
 
       await tx.studentProfile.upsert({
         where: { studentId: BigInt(studentId) },
@@ -997,6 +1063,98 @@ export class StudentsService {
       classId: result.classId,
       studentId,
       type: 'student_pet_reset',
+      operatorName: user.name,
+    });
+
+    return { code: 0, message: 'ok', data: result };
+  }
+
+  async resetPetNickname(authorization: string | undefined, studentId: number) {
+    const user = await this.authService.getAuthUserFromAuthorization(authorization);
+    if (
+      !['homeroom_teacher', 'school_admin', 'academic_admin', 'grade_admin', 'moral_admin', 'super_admin'].includes(
+        user.roleCode,
+      )
+    ) {
+      throw new ForbiddenException('当前角色无权重置学生萌宠昵称');
+    }
+
+    if (!Number.isInteger(studentId) || studentId <= 0) {
+      throw new BadRequestException('学生 ID 无效');
+    }
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const student = await tx.student.findFirst({
+        where: {
+          id: BigInt(studentId),
+          schoolId: user.schoolId,
+          deletedAt: null,
+          status: 'enabled',
+        },
+        include: {
+          studentPet: {
+            include: {
+              pet: true,
+            },
+          },
+        },
+      });
+
+      if (!student) {
+        throw new NotFoundException('学生不存在');
+      }
+
+      this.authService.ensureCanAccessClass(user, student.classId);
+      if (user.roleCode === 'homeroom_teacher') {
+        await this.authService.ensureIsHomeroomOfClass(user, student.classId);
+      }
+
+      if (!student.studentPet) {
+        throw new BadRequestException('该学生尚未领取萌宠');
+      }
+
+      const previousNickname = student.studentPet.nickname;
+      const defaultPetName = student.studentPet.pet.name;
+
+      const updatedPet = await tx.studentPet.update({
+        where: { id: student.studentPet.id },
+        data: {
+          nickname: null,
+          lastRenameAt: null,
+        },
+      });
+
+      return {
+        studentId,
+        studentName: student.name,
+        classId: Number(student.classId),
+        studentPetId: toNumber(updatedPet.id),
+        defaultPetName,
+        previousNickname,
+      };
+    });
+
+    await this.operationLogService.create({
+      schoolId: user.schoolId,
+      userId: user.id,
+      roleCode: user.roleCode,
+      terminalType: 'admin',
+      module: 'student_pet',
+      action: 'reset_nickname',
+      targetType: 'student',
+      targetId: BigInt(studentId),
+      detail: {
+        classId: result.classId,
+        studentPetId: result.studentPetId,
+        defaultPetName: result.defaultPetName,
+        previousNickname: result.previousNickname,
+      },
+    });
+
+    this.realtimeService.emitClassStudentChanged(result.classId, {
+      classId: result.classId,
+      studentId,
+      type: 'student_pet_nickname_reset',
       operatorName: user.name,
     });
 

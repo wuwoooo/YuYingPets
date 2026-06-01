@@ -87,7 +87,7 @@ export function SettingsPage({
   const [petGrowthForm, setPetGrowthForm] = useState<PetGrowthFormState>(() =>
     createPetGrowthForm(),
   );
-  const [pageLoading, setPageLoading] = useState(false);
+  const [pageLoading, setPageLoading] = useState(true);
   const [savingKey, setSavingKey] = useState<
     "semester" | "research" | "petGrowth" | "display" | null
   >(null);
@@ -237,6 +237,14 @@ export function SettingsPage({
         throw new Error("班级评价联动倍率必须是大于等于 0 的整数");
       }
 
+      const petDecoChangeCost = petGrowthForm.petDecoChangeCost.trim();
+      if (!/^\d+$/.test(petDecoChangeCost)) {
+        throw new Error("装扮更换积分消耗必须是大于等于 0 的整数");
+      }
+      if (Number(petDecoChangeCost) > 999) {
+        throw new Error("装扮更换积分消耗不能超过 999");
+      }
+
       const thresholds = petGrowthForm.thresholds.map((value, index) => {
         const trimmed = value.trim();
         if (!/^\d+$/.test(trimmed)) {
@@ -254,6 +262,7 @@ export function SettingsPage({
       const payload: PetGrowthSettingsUpdatePayload = {
         thresholds,
         classScoreStudentLinkMultiplier: Number(classScoreStudentLinkMultiplier),
+        petDecoChangeCost: Number(petDecoChangeCost),
       };
       await adminApi.updatePetGrowthSettings(token, payload);
       await loadSettings();
@@ -401,6 +410,7 @@ export function SettingsPage({
     <Shell
       title="系统设置"
       subtitle="统一维护学期、萌宠成长和展示大屏等系统参数"
+      loading={loading || pageLoading}
       user={user}
       status={
         <>
@@ -510,19 +520,19 @@ export function SettingsPage({
               <div className="page-header" style={{ alignItems: "center" }}>
                 <div>
                   <div className="panel-title">课程表导入</div>
-                  <p className="page-desc">上传 `.xls/.xlsx` 后，系统会预检缺失教师与缺失班级，再决定创建或继续导入。</p>
+                  <p className="page-desc">上传 `.xlsx` 后，系统会预检缺失教师与缺失班级，再决定创建或继续导入。</p>
                 </div>
                 <div className="page-actions">
                   <label className="teacher-upload-trigger">
                     <input
                       type="file"
-                      accept=".xls,.xlsx"
+                      accept=".xlsx"
                       onChange={(event) => setScheduleFile(event.target.files?.[0] ?? null)}
                     />
                     <span>{scheduleFile ? "重新选择文件" : "选择课表文件"}</span>
                   </label>
                   <div className="teacher-upload-file-name">
-                    {scheduleFile ? scheduleFile.name : "支持 .xls / .xlsx"}
+                    {scheduleFile ? scheduleFile.name : "支持 .xlsx"}
                   </div>
                   <button
                     type="button"
@@ -681,6 +691,9 @@ export function SettingsPage({
                   <span className="settings-hero-tag">
                     班级联动 x{petGrowthForm.classScoreStudentLinkMultiplier || "0"}
                   </span>
+                  <span className="settings-hero-tag">
+                    换装 {petGrowthForm.petDecoChangeCost || "10"} 分
+                  </span>
                 </div>
               </div>
               <div className="settings-display-preview">
@@ -695,9 +708,36 @@ export function SettingsPage({
               </div>
             </div>
             <div className="settings-note">
-              当前页同时维护萌宠成长阈值与班级评价联动倍率。联动倍率为 0 表示关闭；例如配置 6 时，班级积分 +1 会同步让本班每位学生 +6 分。
+              当前页维护萌宠成长阈值、班级评价联动倍率，以及非升级免费机会下的装扮更换积分消耗。联动倍率为 0 表示关闭；装扮消耗为 0 表示除升级赠送的免费机会外不再扣分。
             </div>
             <div className="settings-grade-list" style={{ marginBottom: 20 }}>
+              <div className="settings-grade-row">
+                <div className="settings-grade-row-head">
+                  <div>
+                    <span className="settings-insight-label">装扮更换</span>
+                    <h4>积分消耗</h4>
+                  </div>
+                  <span className="settings-grade-status enabled">
+                    每次 {petGrowthForm.petDecoChangeCost || "10"} 分
+                  </span>
+                </div>
+                <div className="s-field">
+                  <label>非升级免费机会下，每次更换背景/边框/饰品消耗</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="999"
+                    step="1"
+                    value={petGrowthForm.petDecoChangeCost}
+                    onChange={(event) =>
+                      setPetGrowthForm((prev) => ({
+                        ...prev,
+                        petDecoChangeCost: event.target.value,
+                      }))
+                    }
+                  />
+                </div>
+              </div>
               <div className="settings-grade-row">
                 <div className="settings-grade-row-head">
                   <div>
