@@ -7,6 +7,7 @@ import type {
   SessionUser
 } from '../lib/api';
 import { adminApi } from '../lib/api';
+import { useConfirmDialog } from '../context/ConfirmDialogContext';
 import { resolveAssetUrl, resolvePetAssetVariantUrl } from '../lib/assets';
 import type {
   PetFormState
@@ -64,13 +65,14 @@ export function PetsPage({
   loading,
   error,
 }: PetsPageProps) {
+  const { confirm } = useConfirmDialog();
   const [tab, setTab] = useState('all');
   const [pets, setPets] = useState<PetCatalogItem[]>([]);
   const [editingPet, setEditingPet] = useState<PetCatalogItem | null>(null);
   const [selectedPet, setSelectedPet] = useState<PetCatalogItem | null>(null);
   const [showCreatePet, setShowCreatePet] = useState(false);
   const [form, setForm] = useState<PetFormState>(() => createPetForm());
-  const [pageLoading, setPageLoading] = useState(false);
+  const [pageLoading, setPageLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
@@ -78,6 +80,7 @@ export function PetsPage({
   const [rarityFilter, setRarityFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'enabled' | 'disabled'>('all');
   const [sourceFilter, setSourceFilter] = useState<'all' | 'system' | 'custom'>('all');
+  const [sortBy, setSortBy] = useState<'default' | 'bindCountDesc' | 'bindCountAsc'>('default');
   const [uploadingStageNo, setUploadingStageNo] = useState<number | null>(null);
   const [uploadingCover, setUploadingCover] = useState(false);
   const [selectedPreviewStage, setSelectedPreviewStage] = useState(1);
@@ -135,7 +138,7 @@ export function PetsPage({
 
   const filteredPets = useMemo(() => {
     const keyword = normalizeKeyword(searchKeyword);
-    return pets.filter((item) => {
+    const filtered = pets.filter((item) => {
       const matchesKeyword =
         !keyword ||
         normalizeKeyword(item.name).includes(keyword) ||
@@ -147,7 +150,15 @@ export function PetsPage({
       const matchesSource = sourceFilter === 'all' || item.sourceType === sourceFilter;
       return matchesKeyword && matchesTab && matchesRarity && matchesStatus && matchesSource;
     });
-  }, [pets, rarityFilter, searchKeyword, sourceFilter, statusFilter, tab]);
+
+    if (sortBy === 'bindCountDesc') {
+      return [...filtered].sort((left, right) => right.bindCount - left.bindCount || left.name.localeCompare(right.name, 'zh-CN'));
+    }
+    if (sortBy === 'bindCountAsc') {
+      return [...filtered].sort((left, right) => left.bindCount - right.bindCount || left.name.localeCompare(right.name, 'zh-CN'));
+    }
+    return filtered;
+  }, [pets, rarityFilter, searchKeyword, sortBy, sourceFilter, statusFilter, tab]);
 
   function openCreatePet() {
     setEditingPet(null);
@@ -299,7 +310,13 @@ export function PetsPage({
       item.bindCount > 0
         ? `当前已有 ${item.bindCount} 名学生绑定，后端会阻止删除。建议改为停用。`
         : '当前没有学生绑定，删除后阶段配置也会一起移除。';
-    if (!window.confirm(`确认删除萌宠「${item.name}」吗？\n${riskText}`)) {
+    const confirmed = await confirm({
+      title: '删除萌宠',
+      message: `确认删除萌宠「${item.name}」吗？\n${riskText}`,
+      confirmLabel: '确认删除',
+      tone: 'danger',
+    });
+    if (!confirmed) {
       return;
     }
     try {
@@ -387,6 +404,7 @@ export function PetsPage({
     <Shell
       title="萌宠图鉴"
       subtitle="整理学校当前实际使用的萌宠分布，保持与展示端形象体系一致"
+      loading={loading || pageLoading}
       user={user}
       status={
         <>
@@ -426,6 +444,11 @@ export function PetsPage({
             <option value="system">系统图鉴</option>
             <option value="custom">自定义图鉴</option>
           </select>
+          <select className="filter-select" value={sortBy} onChange={(event) => setSortBy(event.target.value as typeof sortBy)}>
+            <option value="default">默认排序</option>
+            <option value="bindCountDesc">被选最多</option>
+            <option value="bindCountAsc">被选最少</option>
+          </select>
           {allowManage ? (
             <button className="btn btn-primary" type="button" onClick={openCreatePet}>
               + 新增萌宠
@@ -457,6 +480,7 @@ export function PetsPage({
               </div>
               <div className="pet-catalog-meta">
                 <span className="pet-catalog-name">{item.name}</span>
+                <span className="pet-catalog-count">{item.bindCount} 名学生已选</span>
                 {item.sourceType === 'custom' ? <span className="pet-catalog-kind">自定义</span> : null}
               </div>
             </button>
@@ -543,7 +567,7 @@ export function PetsPage({
                     <strong>Lv.{selectedPet.maxLevel}</strong>
                   </div>
                   <div>
-                    <span>当前绑定</span>
+                    <span>已被选择</span>
                     <strong>{selectedPet.bindCount} 名学生</strong>
                   </div>
                   <div>
