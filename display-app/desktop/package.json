@@ -6,8 +6,8 @@
   "author": "YuYingPets",
   "main": "main.js",
   "scripts": {
-    "dev": "cross-env DISPLAY_WEB_URL=http://localhost:5173 electron .",
-    "dev:kiosk": "cross-env DISPLAY_WEB_URL=http://localhost:5173 DISPLAY_FULLSCREEN=true electron .",
+    "dev": "cross-env DISPLAY_WEB_URL=http://localhost:5174 electron .",
+    "dev:kiosk": "cross-env DISPLAY_WEB_URL=http://localhost:5174 DISPLAY_FULLSCREEN=true electron .",
     "start": "electron .",
     "build:web": "cd ../web && npm run build",
     "build": "npm run build:web",
@@ -17,19 +17,20 @@
   },
   "devDependencies": {
     "cross-env": "^7.0.3",
-    "electron": "35.1.4",
-    "electron-builder": "^24.13.3"
+    "electron": "^42.2.0",
+    "electron-builder": "^26.8.1"
   },
   "build": {
     "appId": "com.yuyingschool.yuyingpets.display",
     "productName": "育英星宠 Display",
-    "electronVersion": "35.1.4",
+    "electronVersion": "42.2.0",
     "asar": true,
     "directories": {
       "output": "release"
     },
     "files": [
       "main.js",
+      "preload.js",
       "placeholder.html",
       "../web/dist/**/*",
       "node_modules/**/*"

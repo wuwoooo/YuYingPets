@@ -5,10 +5,13 @@
   "type": "module",
   "scripts": {
     "test:core": "node scripts/display-core.mjs",
+    "test:login-call-only": "node scripts/display-login-call-only.mjs",
+    "test:online-status": "node scripts/display-online-status.mjs",
     "test:roles": "node scripts/display-roles.mjs",
     "test:terminal": "node scripts/display-terminal.mjs",
     "test:prototype": "node scripts/display-prototype.mjs",
     "test:realtime": "node scripts/display-realtime.mjs",
+    "test:touch-guard": "node scripts/display-touch-guard.mjs",
     "test:all": "node scripts/run-all.mjs"
   },
   "devDependencies": {
