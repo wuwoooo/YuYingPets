@@ -78,6 +78,10 @@ backend/public/assets/pet-decorations/400/* 2.png
 backend/public/uploads/rewards/* 2.jpg
 beian.png
 
+# Local planning / AI-generated checklists
+doc/主题皮肤_6.1儿童节_AI生成清单.md
+doc/宠物装饰资源需求_AI生成清单.md
+
 # Generated test artifacts
 display-app/e2e/artifacts/
 
