@@ -63,6 +63,21 @@ backend/prisma/dev.db
 *.db-shm
 *.db-wal
 
+# Local debug / scratch scripts
+backend/check_db*.js
+backend/query_*.js
+backend/test-*.ts
+backend/update_class_rules.js
+test_api*.js
+
+# Local exported reports
+backend/security-reports/
+
+# Finder duplicate assets / local copies
+backend/public/assets/pet-decorations/400/* 2.png
+backend/public/uploads/rewards/* 2.jpg
+beian.png
+
 # Generated test artifacts
 display-app/e2e/artifacts/
 
