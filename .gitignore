@@ -51,6 +51,8 @@ logs/
 **/.venv/
 .codex-venv/
 .venv-imagegen/
+.gemini_scratch/
+**/.gemini_scratch/
 
 # Electron / packaging
 **/release/
