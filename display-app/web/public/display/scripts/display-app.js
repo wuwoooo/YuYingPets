@@ -9601,6 +9601,7 @@ function applyLockOverlay() {
   if (runtimeState.lockStatus !== "active") {
     closeDecorationPanel();
   }
+  syncCallOverlayAction();
 }
 
 function ensureOperationUnlocked() {
@@ -13400,23 +13401,58 @@ function handleCallQueueChanged(call) {
       studEl.appendChild(tag);
     });
     overlay.style.display = "flex";
+    syncCallOverlayAction();
     // 启动悠扬警报铃声
     startAlertSound();
   } else {
     activeCallId = null;
     if (titleEl) titleEl.textContent = "老师正在叫号";
     overlay.style.display = "none";
+    syncCallOverlayAction();
     stopAlertSound();
   }
 }
 
+function canConfirmActiveCall() {
+  return Boolean(activeCallId && runtimeState.terminalCode);
+}
+
+function syncCallOverlayAction() {
+  const btn = document.querySelector(".co-confirm-btn");
+  const label = btn?.querySelector("span");
+  if (!btn || !label) return;
+
+  if (!activeCallId) {
+    btn.disabled = true;
+    label.textContent = "等待老师叫号";
+    return;
+  }
+
+  if (canConfirmActiveCall()) {
+    btn.disabled = false;
+    label.textContent = "我已收到，确认前往";
+    return;
+  }
+
+  btn.disabled = true;
+  label.textContent = "终端未就绪";
+}
+
 async function confirmActiveCall() {
   if (!activeCallId) return;
+  if (!canConfirmActiveCall()) {
+    showDisplayToast("当前终端未就绪，无法确认叫号");
+    syncCallOverlayAction();
+    return;
+  }
   try {
     const btn = document.querySelector(".co-confirm-btn");
     if (btn) btn.disabled = true;
     await apiFetchWithToken(
-      "/call-queue/" + activeCallId + "/confirm",
+      "/call-queue/" +
+        activeCallId +
+        "/confirm?displayTerminalCode=" +
+        encodeURIComponent(runtimeState.terminalCode),
       runtimeState.token,
       { method: "POST" },
     );
@@ -13438,7 +13474,11 @@ async function checkActiveCall() {
   if (!runtimeState.classId) return;
   try {
     const data = await apiFetchWithToken(
-      "/call-queue/active/" + runtimeState.classId,
+      "/call-queue/active/" +
+        runtimeState.classId +
+        (runtimeState.terminalCode
+          ? `?displayTerminalCode=${encodeURIComponent(runtimeState.terminalCode)}`
+          : ""),
       runtimeState.token,
     );
     if (data && data.status === "calling") {

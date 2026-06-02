@@ -71,22 +71,23 @@
 }
 
 .ai-ring.r1 {
-  width: 260px; height: 260px;
-  border-top: 2px solid #00e5ff;
-  border-bottom: 2px solid #00e5ff;
+  width: 260px;
+  height: 260px;
+  border: 2px solid rgba(0, 229, 255, 0.72);
   animation: spin-flat 8s linear infinite;
 }
 
 .ai-ring.r2 {
-  width: 340px; height: 340px;
-  border: 1px dashed rgba(0, 229, 255, 0.6);
+  width: 340px;
+  height: 340px;
+  border: 1px solid rgba(0, 229, 255, 0.55);
   animation: spin-flat 12s linear infinite reverse;
 }
 
 .ai-ring.r3 {
-  width: 420px; height: 420px;
-  border-left: 2px solid #ffb300;
-  border-right: 2px solid #ffb300;
+  width: 420px;
+  height: 420px;
+  border: 2px solid rgba(255, 179, 0, 0.62);
   animation: spin-flat 18s linear infinite;
 }
 

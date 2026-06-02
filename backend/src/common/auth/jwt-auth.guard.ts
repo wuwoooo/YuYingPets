@@ -19,6 +19,7 @@ const PROJECTION_ALLOWED_GET_PATHS = [
   '/display/weather',
   '/admin/settings/display',
   '/admin/analytics/summary',
+  '/admin/analytics/heatmap',
 ];
 
 function normalizeApiPath(path: string) {

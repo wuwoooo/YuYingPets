@@ -8,6 +8,7 @@ import { resolve } from 'node:path';
 import { AppModule } from './app.module';
 import { NestPinoLogger } from './logging/nest-pino-logger';
 import { rootLogger } from './logging/root-logger';
+import { RedisIoAdapter } from './modules/realtime/redis-io.adapter';
 
 const processLogger = rootLogger.child({ context: 'process' });
 
@@ -67,9 +68,22 @@ async function bootstrap() {
   installProcessHandlers();
 
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  app.enableShutdownHooks();
   app.useLogger(new NestPinoLogger());
   app.getHttpAdapter().getInstance().disable('x-powered-by');
   validateRuntimeEnv();
+
+  const redisIoAdapter = new RedisIoAdapter(app);
+  const redisUrl = process.env.REDIS_URL?.trim();
+  if (redisUrl) {
+    await redisIoAdapter.connectToRedis(redisUrl);
+  } else {
+    processLogger.warn({
+      msg: 'socket_io_redis_adapter_disabled',
+      reason: 'missing REDIS_URL',
+    });
+  }
+  app.useWebSocketAdapter(redisIoAdapter);
 
   const publicDir = resolve(__dirname, '../public');
 
@@ -154,6 +168,9 @@ async function bootstrap() {
   const port = process.env.PORT ? Number(process.env.PORT) : 3000;
   const host = process.env.HOST?.trim() || '127.0.0.1';
   await app.listen(port, host);
+  app.getHttpServer().once('close', () => {
+    void redisIoAdapter.close();
+  });
 
   processLogger.info({
     msg: 'backend_started',

@@ -1233,35 +1233,6 @@ export function ProjectionModePage({ token, user }: ProjectionModePageProps) {
         ? 46 + (refreshCount % 4)
         : 30 + (refreshCount % 6);
 
-  const hudItems = {
-    topLeft: {
-      label: "人均积分",
-      value: `${Math.round(analytics?.averageScore ?? totalScore / Math.max(students.length, 1))}`,
-      tone: "green",
-    } as const,
-    topRight: {
-      label: "大屏在线数",
-      value: `${onlineTerminals}/${displayTerminals.length}`,
-      tone: connectionStatus === "online" ? "green" : "gold",
-    } as const,
-    bottomLeft: {
-      label: "评价总数",
-      value: `${totalEvaluationCount}`,
-      tone: "gold",
-    } as const,
-    bottomRight: {
-      label: "今日评价数",
-      value: `${todayEvaluationCount}`,
-      tone: "cyan",
-    } as const,
-  };
-  const hudChipList = [
-    hudItems.topLeft,
-    hudItems.topRight,
-    hudItems.bottomLeft,
-    hudItems.bottomRight,
-  ];
-
   const coreChips = [
     { label: "学生", value: `${students.length}`, tone: "cyan" },
     {
@@ -1543,69 +1514,24 @@ export function ProjectionModePage({ token, user }: ProjectionModePageProps) {
           </section>
 
           <section className="projection-center">
-            <div
-              className={`projection-core${theme === "outdoor" ? " projection-core-outdoor-v2" : ""}`}
-            >
-              {theme === "outdoor" ? (
-                <>
-                  {/* 顶部指标条：4 个 HUD chip + 总积分高亮 */}
-                  <div className="outdoor-core-top">
-                    <div className="outdoor-core-hud-row">
-                      {hudChipList.map((item) => (
-                        <div
-                          className={`projection-core-chip tone-${item.tone}`}
-                          key={item.label}
-                        >
-                          <span>{item.label}</span>
-                          <b>{item.value}</b>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="outdoor-core-score-badge">
-                      <span>总积分</span>
-                      <strong>{formatNumber(totalScore)}</strong>
-                    </div>
+            <div className="projection-core">
+              <ProjectionHeroThree theme={theme} />
+              <div className="projection-core-chip-ring">
+                {coreChips.map((item, index) => (
+                  <div
+                    className={`projection-core-chip tone-${item.tone}`}
+                    key={item.label}
+                    style={{ ["--chip-index" as string]: index }}
+                  >
+                    <span>{item.label}</span>
+                    <b>{item.value}</b>
                   </div>
-
-                  {/* 3D Hero 完整展示区 */}
-                  <div className="outdoor-core-hero">
-                    <ProjectionHeroThree />
-                  </div>
-
-                  {/* 底部指标条：8 个 chip */}
-                  <div className="outdoor-core-bottom">
-                    {coreChips.map((item) => (
-                      <div
-                        className={`projection-core-chip tone-${item.tone}`}
-                        key={item.label}
-                      >
-                        <span>{item.label}</span>
-                        <b>{item.value}</b>
-                      </div>
-                    ))}
-                  </div>
-                </>
-              ) : (
-                <>
-                  <ProjectionHeroThree />
-                  <div className="projection-core-chip-ring">
-                    {coreChips.map((item, index) => (
-                      <div
-                        className={`projection-core-chip tone-${item.tone}`}
-                        key={item.label}
-                        style={{ ["--chip-index" as string]: index }}
-                      >
-                        <span>{item.label}</span>
-                        <b>{item.value}</b>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="projection-core-score">
-                    <span>总积分</span>
-                    <strong>{formatNumber(totalScore)}</strong>
-                  </div>
-                </>
-              )}
+                ))}
+              </div>
+              <div className="projection-core-score">
+                <span>总积分</span>
+                <strong>{formatNumber(totalScore)}</strong>
+              </div>
             </div>
 
             <div className="projection-center-grid">
@@ -1644,12 +1570,9 @@ export function ProjectionModePage({ token, user }: ProjectionModePageProps) {
                   <div className="projection-grade-table">
                     {gradeRows.map((item) => (
                       <div key={item.gradeName}>
-                        <span>{item.gradeName.replace("年级", "")}</span>
+                        <span>{item.gradeName.replace("年级", "").replace(/[^一二三四五六七八九十]/g, "")}</span>
+                        <em>{item.classCount}</em>
                         <b>{item.score}</b>
-                        <em>
-                          {item.classCount}
-                        </em>
-                        <strong>{item.studentCount}</strong>
                       </div>
                     ))}
                   </div>

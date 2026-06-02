@@ -106,6 +106,7 @@ export class CallQueueService {
       },
       select: {
         terminalCode: true,
+        lastOnlineAt: true,
         classId: true,
         classroom: {
           select: {
@@ -144,8 +145,11 @@ export class CallQueueService {
       },
     });
 
-    const onlineTerminalCodes = await this.realtimeService.listOnlineDisplayTerminalCodes(
-      terminals.map((item) => item.terminalCode),
+    const onlineTerminalCodes = await this.realtimeService.resolveDisplayTerminalOnlineCodes(
+      terminals.map((item) => ({
+        terminalCode: item.terminalCode,
+        lastOnlineAt: item.lastOnlineAt,
+      })),
     );
 
     const classMap = new Map<
@@ -310,6 +314,35 @@ export class CallQueueService {
     return { code: 0, message: 'ok' };
   }
 
+  async confirmCallByTerminal(displayTerminalCode: string, id: number) {
+    const terminal = await this.requireActiveDisplayTerminal(displayTerminalCode);
+    const record = await this.prisma.callQueue.findUnique({
+      where: { id: BigInt(id) },
+    });
+
+    if (!record) {
+      throw new NotFoundException('该叫号记录不存在');
+    }
+    if (!terminal.classId || terminal.classId !== record.classId) {
+      throw new ForbiddenException('当前大屏无权确认该叫号');
+    }
+
+    if (record.status === 'completed' || record.status === 'cancelled') {
+      return { code: 0, message: 'ok' };
+    }
+
+    await this.prisma.callQueue.update({
+      where: { id: record.id },
+      data: { status: 'completed' },
+    });
+
+    if (record.status === 'calling') {
+      await this.advanceQueue(record.classId);
+    }
+
+    return { code: 0, message: 'ok' };
+  }
+
   async cancelCall(user: AuthUser, id: number) {
     const record = await this.prisma.callQueue.findUnique({
       where: { id: BigInt(id) },
@@ -357,6 +390,27 @@ export class CallQueueService {
     };
   }
 
+  async getActiveCallByTerminal(displayTerminalCode: string, classId: number) {
+    const terminal = await this.requireActiveDisplayTerminal(displayTerminalCode, classId);
+    if (!terminal.classId || Number(terminal.classId) !== Number(classId)) {
+      throw new ForbiddenException('当前大屏无权查看该班级叫号');
+    }
+
+    const record = await this.prisma.callQueue.findFirst({
+      where: {
+        classId: BigInt(classId),
+        status: 'calling',
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    return {
+      code: 0,
+      message: 'ok',
+      data: this.serializeCall(record),
+    };
+  }
+
   async getQueueList(user: AuthUser, classId: number) {
     await this.ensureClassHasOnlineDisplay(user, classId);
 
@@ -379,6 +433,44 @@ export class CallQueueService {
     if (!this.authService.canOperateDisplay(user)) {
       throw new ForbiddenException('当前角色无权使用大屏叫号');
     }
+  }
+
+  private async requireActiveDisplayTerminal(displayTerminalCode: string, classId?: number) {
+    const terminalCode = displayTerminalCode.trim();
+    if (!terminalCode) {
+      throw new ForbiddenException('缺少 displayTerminalCode');
+    }
+
+    const terminal = await this.prisma.displayTerminal.findFirst({
+      where: {
+        terminalCode,
+        status: 'enabled',
+        ...(classId ? { classId: BigInt(classId) } : {}),
+      },
+      select: {
+        id: true,
+        schoolId: true,
+        classId: true,
+        terminalCode: true,
+        lastOnlineAt: true,
+      },
+    });
+
+    if (!terminal) {
+      throw new ForbiddenException('当前大屏终端不存在或未启用');
+    }
+
+    const isOnline = (
+      await this.realtimeService.resolveDisplayTerminalOnlineCodes([
+        { terminalCode: terminal.terminalCode, lastOnlineAt: terminal.lastOnlineAt },
+      ])
+    ).has(terminal.terminalCode);
+
+    if (!isOnline) {
+      throw new ForbiddenException('当前大屏未在线');
+    }
+
+    return terminal;
   }
 
   private async ensureClassHasOnlineDisplay(user: AuthUser, classId: bigint | number) {
@@ -407,16 +499,14 @@ export class CallQueueService {
         classId: targetClassId,
         status: 'enabled',
       },
-      select: { terminalCode: true },
+      select: { terminalCode: true, lastOnlineAt: true },
     });
 
     if (terminals.length === 0) {
       throw new ForbiddenException('当前班级未绑定大屏终端');
     }
 
-    const onlineTerminalCodes = await this.realtimeService.listOnlineDisplayTerminalCodes(
-      terminals.map((item) => item.terminalCode),
-    );
+    const onlineTerminalCodes = await this.realtimeService.resolveDisplayTerminalOnlineCodes(terminals);
 
     if (onlineTerminalCodes.size === 0) {
       throw new ForbiddenException('当前班级大屏未在线');

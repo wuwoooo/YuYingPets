@@ -1,9 +1,26 @@
 import { Injectable } from '@nestjs/common';
 import { RealtimeGateway } from './realtime.gateway';
 
+const DEFAULT_DISPLAY_ONLINE_STALE_MS = 90_000;
+
 @Injectable()
 export class RealtimeService {
   constructor(private readonly realtimeGateway: RealtimeGateway) {}
+
+  private getDisplayOnlineStaleMs() {
+    const raw = Number(process.env.DISPLAY_ONLINE_STALE_MS ?? DEFAULT_DISPLAY_ONLINE_STALE_MS);
+    if (!Number.isFinite(raw) || raw <= 0) {
+      return DEFAULT_DISPLAY_ONLINE_STALE_MS;
+    }
+    return raw;
+  }
+
+  isDisplayTerminalRecentlyOnline(lastOnlineAt: Date | string | null | undefined) {
+    if (!lastOnlineAt) return false;
+    const timestamp = new Date(lastOnlineAt).getTime();
+    if (!Number.isFinite(timestamp)) return false;
+    return Date.now() - timestamp <= this.getDisplayOnlineStaleMs();
+  }
 
   async listOnlineDisplayTerminalCodes(terminalCodes: string[]) {
     const uniqueCodes = Array.from(new Set(terminalCodes.map((code) => code.trim()).filter(Boolean)));
@@ -14,6 +31,34 @@ export class RealtimeService {
     return uniqueCodes.reduce((result, code, index) => {
       if (onlineRoomSets[index].size > 0) {
         result.add(code);
+      }
+      return result;
+    }, new Set<string>());
+  }
+
+  async resolveDisplayTerminalOnlineCodes(
+    terminals: Array<{ terminalCode: string; lastOnlineAt: Date | string | null }>,
+  ) {
+    const uniqueTerminals = Array.from(
+      terminals.reduce((result, terminal) => {
+        const code = terminal.terminalCode.trim();
+        if (code && !result.has(code)) {
+          result.set(code, terminal);
+        }
+        return result;
+      }, new Map<string, { terminalCode: string; lastOnlineAt: Date | string | null }>()),
+    ).map(([, terminal]) => terminal);
+
+    const realtimeOnlineCodes = await this.listOnlineDisplayTerminalCodes(
+      uniqueTerminals.map((terminal) => terminal.terminalCode),
+    );
+
+    return uniqueTerminals.reduce((result, terminal) => {
+      if (
+        realtimeOnlineCodes.has(terminal.terminalCode) ||
+        this.isDisplayTerminalRecentlyOnline(terminal.lastOnlineAt)
+      ) {
+        result.add(terminal.terminalCode);
       }
       return result;
     }, new Set<string>());
@@ -67,4 +112,3 @@ export class RealtimeService {
     this.realtimeGateway.server.to(`class:${classId}`).emit('class.honor.granted', payload);
   }
 }
-

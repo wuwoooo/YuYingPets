@@ -458,347 +458,44 @@
   animation: projection-outdoor-core-glow 6s ease-in-out infinite alternate;
 }
 
-.projection-theme-outdoor .projection-core:not(.projection-core-outdoor-layout) > * {
-  position: relative;
-  z-index: 1;
-}
-
 @keyframes projection-outdoor-core-glow {
   from { opacity: 0.4; transform: scale(0.96); }
   to { opacity: 0.85; transform: scale(1.04); }
 }
 
-/* ═════════════════════════════════════
-   Core V2: 全新结构，独立 class 名
-   不依赖任何基础 CSS 布局
-   ─────────────────────────────────
-   .outdoor-core-top     → 顶行 (HUD chips + Score badge)
-   .outdoor-core-hero    → 3D 模型完整展示
-   .outdoor-core-bottom  → 底行 (8 chip 统计)
-   ═════════════════════════════════════ */
-
-.projection-theme-outdoor .projection-core-outdoor-v2 {
-  display: grid;
-  grid-template-rows: auto 1fr auto;
-  gap: 4px;
-  padding: 6px 8px;
-  overflow: hidden;
-  /* 覆盖基础 .projection-core 的 place-items: center，否则 grid item 不会拉伸 */
-  place-items: stretch;
-}
-
-/* ── 顶部区：HUD 指标 + 总积分 ── */
-.outdoor-core-top {
-  display: flex;
-  align-items: stretch;
-  gap: 4px;
-  min-height: 28px;
-}
-
-/* HUD 指标行：4 个 chip 横排 */
-.outdoor-core-hud-row {
-  flex: 1;
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 1px;
-  background: rgba(255, 255, 255, 0.5);
-  border-radius: 6px;
-  border: 1px solid rgba(18, 104, 184, 0.12);
-  padding: 0 2px;
-  overflow: hidden;
-}
-
-/* HUD chip 通透融合风格 */
-.outdoor-core-hud-row .projection-core-chip {
-  position: static;
-  width: auto;
-  height: auto;
-  min-height: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 4px;
-  padding: 3px 8px;
-  border: none;
-  border-left: 2px solid rgba(18, 104, 184, 0.18);
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-}
-
-.outdoor-core-hud-row .projection-core-chip:first-child {
-  border-left: none;
-}
-
-.outdoor-core-hud-row .projection-core-chip span {
-  color: rgba(15, 31, 46, 0.55);
-  font-size: 10px;
-  font-weight: 600;
-}
-
-.outdoor-core-hud-row .projection-core-chip b {
-  color: #1a2e3e;
-  font-size: 13px;
-  font-weight: 800;
-  text-shadow: none;
-}
-
-/* HUD chip 色调映射 */
-.outdoor-core-hud-row .projection-core-chip.tone-green b { color: #18985c; }
-.outdoor-core-hud-row .projection-core-chip.tone-gold b { color: #c07800; }
-.outdoor-core-hud-row .projection-core-chip.tone-cyan b { color: #1268b8; }
-
-/* ── 总积分 Badge ── */
-.outdoor-core-score-badge {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 3px 14px;
-  white-space: nowrap;
-  border: 1.5px solid rgba(212, 175, 55, 0.45);
-  border-radius: 8px;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(253, 248, 238, 0.85));
-  box-shadow: 0 2px 12px rgba(212, 175, 55, 0.1);
-  position: relative;
-}
-
-/* Badge 底部金线 */
-.outdoor-core-score-badge::after {
-  content: "";
+.projection-theme-outdoor .projection-core > .projection-three-core {
   position: absolute;
-  bottom: -1px;
-  left: 20%;
-  right: 20%;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, rgba(212, 175, 55, 0.5), transparent);
-  border-radius: 1px;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
 }
 
-.outdoor-core-score-badge span {
-  color: rgba(15, 31, 46, 0.5);
-  font-size: 10px;
-  letter-spacing: 0.15em;
+.projection-theme-outdoor .projection-core-chip-ring {
+  z-index: 2;
 }
 
-.outdoor-core-score-badge strong {
-  font-size: 22px;
-  line-height: 26px;
-  font-weight: 900;
-  font-family: monospace;
+.projection-theme-outdoor .projection-core-score {
+  z-index: 3;
+  border: 1.5px solid rgba(212, 175, 55, 0.45);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(253, 248, 238, 0.88));
+  box-shadow: 0 2px 14px rgba(212, 175, 55, 0.12), 0 4px 18px rgba(18, 104, 184, 0.08);
+}
+
+.projection-theme-outdoor .projection-core-score span {
+  color: rgba(15, 31, 46, 0.52);
+  letter-spacing: 0.12em;
+}
+
+.projection-theme-outdoor .projection-core-score strong {
+  color: #0a3d6b;
+  text-shadow: none;
   background: linear-gradient(135deg, #0a3d6b, #1268b8 45%, #d4af37);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
-
-/* ── 3D Hero 展示区 ── */
-.outdoor-core-hero {
-  position: relative;
-  display: grid;
-  place-items: center;
-  overflow: hidden;
-  isolation: isolate;
-  contain: paint;
-  min-height: 0;
-  border-radius: 8px;
-  border: 1px solid rgba(18, 104, 184, 0.14);
-  background:
-    radial-gradient(ellipse 72% 58% at 50% 56%, rgba(18, 104, 184, 0.1), transparent 72%),
-    radial-gradient(circle at 50% 62%, rgba(212, 175, 55, 0.06), transparent 42%),
-    repeating-linear-gradient(
-      0deg,
-      rgba(18, 104, 184, 0.045) 0 1px,
-      transparent 1px 22px
-    ),
-    repeating-linear-gradient(
-      90deg,
-      rgba(18, 104, 184, 0.045) 0 1px,
-      transparent 1px 22px
-    ),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(234, 242, 249, 0.92));
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.65);
-}
-
-.outdoor-core-stage {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-}
-
-.outdoor-core-corner {
-  position: absolute;
-  width: 28px;
-  height: 28px;
-  border-color: rgba(18, 104, 184, 0.42);
-  border-style: solid;
-  opacity: 0.85;
-}
-
-.outdoor-core-corner.is-tl {
-  top: 8px;
-  left: 10px;
-  border-width: 2px 0 0 2px;
-}
-
-.outdoor-core-corner.is-tr {
-  top: 8px;
-  right: 10px;
-  border-width: 2px 2px 0 0;
-}
-
-.outdoor-core-corner.is-bl {
-  bottom: 8px;
-  left: 10px;
-  border-width: 0 0 2px 2px;
-}
-
-.outdoor-core-corner.is-br {
-  right: 10px;
-  bottom: 8px;
-  border-width: 0 2px 2px 0;
-}
-
-.outdoor-core-orbit {
-  position: absolute;
-  left: 50%;
-  top: 52%;
-  border: 1px solid rgba(18, 104, 184, 0.22);
-  border-radius: 50%;
-  transform: translate(-50%, -50%);
-}
-
-.outdoor-core-orbit.is-a {
-  width: min(78%, 420px);
-  height: min(34%, 120px);
-  border-color: rgba(18, 104, 184, 0.28);
-  animation: outdoor-core-orbit-spin 18s linear infinite;
-}
-
-.outdoor-core-orbit.is-b {
-  width: min(62%, 340px);
-  height: min(28%, 96px);
-  border-style: dashed;
-  border-color: rgba(18, 104, 184, 0.2);
-  animation: outdoor-core-orbit-spin 24s linear infinite reverse;
-}
-
-.outdoor-core-orbit.is-c {
-  width: min(88%, 480px);
-  height: min(40%, 140px);
-  border-color: rgba(212, 133, 0, 0.22);
-  animation: outdoor-core-orbit-spin 30s linear infinite;
-}
-
-.outdoor-core-beam {
-  position: absolute;
-  left: 50%;
-  bottom: 8%;
-  width: min(36%, 180px);
-  height: 42%;
-  transform: translateX(-50%);
-  background: linear-gradient(to top, rgba(18, 104, 184, 0.16), transparent 88%);
-  clip-path: polygon(18% 100%, 82% 100%, 100% 0, 0 0);
-  opacity: 0.75;
-}
-
-.outdoor-core-tag {
-  position: absolute;
-  top: 50%;
-  padding: 4px 8px;
-  border: 1px solid rgba(18, 104, 184, 0.18);
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.72);
-  color: rgba(15, 31, 46, 0.58);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  line-height: 1;
-  transform: translateY(-50%);
-  writing-mode: vertical-rl;
-}
-
-.outdoor-core-tag.is-left {
-  left: 12px;
-}
-
-.outdoor-core-tag.is-right {
-  right: 12px;
-  color: rgba(192, 120, 0, 0.82);
-  border-color: rgba(212, 133, 0, 0.24);
-}
-
-@keyframes outdoor-core-orbit-spin {
-  to {
-    transform: translate(-50%, -50%) rotate(360deg);
-  }
-}
-
-.outdoor-core-hero .hero-3d-container.hero-3d-compact {
-  position: relative;
-  z-index: 1;
-  width: 100%;
-  height: 100%;
-  min-height: 168px;
-  max-width: none;
-  margin: 0;
-}
-
-/* ── 底部指标行：8 chip (4×2 grid) ── */
-.outdoor-core-bottom {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  grid-template-rows: repeat(2, 1fr);
-  gap: 2px;
-  background: rgba(255, 255, 255, 0.55);
-  border-radius: 8px;
-  border: 1px solid rgba(18, 104, 184, 0.12);
-  padding: 3px;
-}
-
-/* 底部 chip 简洁面板风格 */
-.outdoor-core-bottom .projection-core-chip {
-  position: static;
-  width: auto;
-  height: auto;
-  min-height: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 2px;
-  padding: 2px 6px;
-  border: none;
-  border-left: 2px solid rgba(18, 104, 184, 0.2);
-  border-radius: 3px;
-  background: rgba(18, 104, 184, 0.03);
-  box-shadow: none;
-}
-
-.outdoor-core-bottom .projection-core-chip span {
-  color: rgba(15, 31, 46, 0.55);
-  font-size: 9px;
-  font-weight: 600;
-}
-
-.outdoor-core-bottom .projection-core-chip b {
-  color: #1a2e3e;
-  font-size: 13px;
-  font-weight: 800;
-  text-shadow: none;
-}
-
-/* 底部 chip 色调 */
-.outdoor-core-bottom .projection-core-chip.tone-green { border-left-color: #18985c; }
-.outdoor-core-bottom .projection-core-chip.tone-green b { color: #18985c; }
-.outdoor-core-bottom .projection-core-chip.tone-gold { border-left-color: #d48500; }
-.outdoor-core-bottom .projection-core-chip.tone-gold b { color: #c07800; }
-.outdoor-core-bottom .projection-core-chip.tone-red { border-left-color: #d43d2e; }
-.outdoor-core-bottom .projection-core-chip.tone-red b { color: #d43d2e; }
-.outdoor-core-bottom .projection-core-chip.tone-purple { border-left-color: #6852c6; }
-.outdoor-core-bottom .projection-core-chip.tone-purple b { color: #6852c6; }
-.outdoor-core-bottom .projection-core-chip.tone-cyan { border-left-color: #1268b8; }
-.outdoor-core-bottom .projection-core-chip.tone-cyan b,
-.outdoor-core-bottom .projection-core-chip.tone-blue b { color: #1268b8; }
 
 /* ═════════════════════════════════════
    核心 Chip 通用样式
@@ -1336,7 +1033,7 @@
 .projection-theme-outdoor .projection-core .ai-ring.r2 {
   width: 92%;
   height: 92%;
-  border: 1px dashed rgba(18, 104, 184, 0.28);
+  border: 1px solid rgba(18, 104, 184, 0.28);
 }
 
 .projection-theme-outdoor .projection-core .ai-ring.r3 {
@@ -1477,8 +1174,7 @@
 }
 
 .projection-theme-outdoor .ai-ring.r1 {
-  border-top-color: #1268b8;
-  border-bottom-color: #1268b8;
+  border-color: rgba(18, 104, 184, 0.55);
 }
 
 .projection-theme-outdoor .ai-ring.r2 {
@@ -1486,8 +1182,7 @@
 }
 
 .projection-theme-outdoor .ai-ring.r3 {
-  border-left-color: #d48500;
-  border-right-color: #d48500;
+  border-color: rgba(212, 133, 0, 0.45);
 }
 
 .projection-theme-outdoor .ai-holo-beam {
@@ -1663,4 +1358,24 @@
     animation: none;
     opacity: 1;
   }
+}
+
+/* 兜底：确保户外主题背景不被暗色 scifi 或懒加载顺序覆盖 */
+.projection-page.projection-theme-outdoor {
+  background: #e8eef5;
+}
+
+.projection-page.projection-theme-outdoor .projection-stage {
+  background:
+    radial-gradient(ellipse 60% 50% at 50% 42%, rgba(18, 104, 184, 0.07), transparent 55%),
+    radial-gradient(ellipse 35% 25% at 85% 15%, rgba(24, 152, 92, 0.05), transparent 50%),
+    linear-gradient(168deg, #f4f7fb 0%, #edf2f8 50%, #e6eef6 100%);
+  color: #0f1f2e;
+}
+
+.projection-page.projection-theme-outdoor .projection-core {
+  background:
+    radial-gradient(ellipse 40% 32% at 50% 52%, rgba(212, 175, 55, 0.05), transparent 50%),
+    radial-gradient(ellipse 65% 50% at 50% 50%, rgba(18, 104, 184, 0.08), transparent 55%),
+    linear-gradient(180deg, #f6f9fd 0%, #eaf2f9 50%, #e2ecf4 100%);
 }

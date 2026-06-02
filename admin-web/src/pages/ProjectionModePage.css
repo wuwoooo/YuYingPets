@@ -365,7 +365,8 @@
 
 .projection-page.projection-layout-desktop .projection-grade-table div {
   height: 22px;
-  grid-template-columns: 24px 1fr 38px 42px;
+  grid-template-columns: 24px 34px 40px;
+  padding-right: 10px;
 }
 
 .projection-page.projection-layout-desktop .projection-bubble-layout {
@@ -477,34 +478,13 @@
   line-height: 31px;
 }
 
-.projection-page.projection-layout-desktop.projection-theme-outdoor .outdoor-core-top {
-  min-height: 34px;
-  gap: 6px;
+.projection-page.projection-layout-desktop.projection-theme-outdoor .projection-core-chip-ring {
+  inset: 10px 14px 44px;
 }
 
-.projection-page.projection-layout-desktop.projection-theme-outdoor .outdoor-core-hud-row {
-  grid-template-columns: .9fr 1.08fr 1fr 1fr;
-  gap: 0;
-  padding-inline: 1px;
-}
-
-.projection-page.projection-layout-desktop.projection-theme-outdoor .outdoor-core-hud-row .projection-core-chip {
-  gap: 3px;
-  padding: 3px 5px;
-}
-
-.projection-page.projection-layout-desktop.projection-theme-outdoor .outdoor-core-hud-row .projection-core-chip span,
-.projection-page.projection-layout-desktop.projection-theme-outdoor .outdoor-core-hud-row .projection-core-chip b {
-  flex: 0 0 auto;
-  overflow: visible;
-  max-width: none;
-  text-overflow: clip;
-  white-space: nowrap;
-}
-
-.projection-page.projection-layout-desktop.projection-theme-outdoor .outdoor-core-score-badge {
-  gap: 6px;
-  padding-inline: 10px;
+.projection-page.projection-layout-desktop.projection-theme-outdoor .projection-core-chip {
+  width: 96px;
+  height: 30px;
 }
 
 .projection-page.projection-layout-desktop .projection-live-row {
@@ -1063,7 +1043,7 @@
   position: absolute;
   left: 50%;
   top: 50%;
-  border: 1px dashed rgba(0, 229, 255, .46);
+  border: 1px solid rgba(0, 229, 255, .46);
   border-radius: 50%;
   transform: translate(-50%, -50%) rotateX(64deg);
 }
@@ -1449,7 +1429,7 @@
   right: 16%;
   bottom: 15%;
   height: 26%;
-  border: 1px dashed rgba(0, 229, 255, .12);
+  border: 1px solid rgba(0, 229, 255, .12);
   opacity: .5;
 }
 
@@ -1574,8 +1554,8 @@
 
 .projection-grade-table div {
   display: grid;
-  grid-template-columns: 22px 1fr 28px 28px;
-  gap: 3px;
+  grid-template-columns: 22px 30px 44px;
+  gap: 6px;
   align-items: center;
   min-width: 0;
   height: 17px;
@@ -1586,8 +1566,7 @@
 
 .projection-grade-table span,
 .projection-grade-table b,
-.projection-grade-table em,
-.projection-grade-table strong {
+.projection-grade-table em {
   overflow: hidden;
   font-size: 9px;
   line-height: 11px;
@@ -1601,16 +1580,13 @@
 
 .projection-grade-table b {
   color: #73efff;
+  text-align: right;
 }
 
 .projection-grade-table em {
   color: #82ffd2;
   font-style: normal;
-}
-
-.projection-grade-table strong {
-  color: #ffdc75;
-  text-align: right;
+  text-align: center;
 }
 
 .projection-heat-grid {
@@ -2346,7 +2322,7 @@
 
 .projection-radar-ring.r2 {
   inset: 28%;
-  border-style: dashed;
+  border-style: solid; /* 虚线转为实线 */
 }
 
 .projection-radar-sweep {
@@ -2804,4 +2780,24 @@
 .projection-status strong {
   border-color: rgba(255, 91, 109, .5);
   color: #ff8d9a;
+}
+
+/* 暗色 scifi：去掉多层径向渐变与同心圆 mask，避免色带与涟漪感 */
+.projection-theme-scifi .projection-stage {
+  background: #020812;
+}
+
+.projection-theme-scifi .projection-bg-grid {
+  opacity: 0.16;
+  mask-image: none;
+  -webkit-mask-image: none;
+}
+
+.projection-theme-scifi .projection-scanline {
+  opacity: 0.22;
+}
+
+.projection-theme-scifi .projection-core {
+  background: rgba(0, 10, 22, 0.92);
+  box-shadow: inset 0 0 24px rgba(0, 229, 255, 0.06);
 }

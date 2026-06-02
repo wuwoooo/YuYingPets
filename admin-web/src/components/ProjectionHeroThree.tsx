@@ -5,13 +5,15 @@ import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { PresentationHero3D } from "./PresentationHero3D";
+import type { ProjectionTheme } from "../pages/projectionTheme";
 import "./ProjectionHeroThree.css";
 
 type ProjectionHeroThreeProps = {
   className?: string;
+  theme?: ProjectionTheme;
 };
 
-// 颲�𨭌�賣㺭嚗𡁶��園𡺨颲曉�摨衣�蝵烐聢摨訫漣嚗�僎�滨蔭�嗆𦻖�園狍敶�
+// 户外模式：雷达同心圆盘（含放射线）
 function makeRadarDisk() {
   const group = new THREE.Group();
   const ringGeometries: THREE.RingGeometry[] = [];
@@ -25,7 +27,7 @@ function makeRadarDisk() {
     depthWrite: false,
   });
 
-  // 1. �����
+  // 1. 同心圆环
   const radii = [0.8, 1.4, 2.0];
   radii.forEach((r, idx) => {
     const geom = new THREE.RingGeometry(r - 0.015, r + 0.015, 64, 1);
@@ -44,7 +46,7 @@ function makeRadarDisk() {
     group.add(ring);
   });
 
-  // 2. �曉��嗅�摨衣�蝥�
+  // 2. 放射刻度线
   const lineCount = 16;
   const positions: number[] = [];
   for (let i = 0; i < lineCount; i++) {
@@ -73,34 +75,50 @@ function makeRadarDisk() {
   };
 }
 
-// 颲�𨭌�賣㺭嚗𡁶��鞉窒��𪂹摰��閫������舐�鈭烐㺭��
-function createRuleRing(radius: number, count: number) {
-  const positions = new Float32Array(count * 3);
-  const colors = new Float32Array(count * 3);
-  const colorTemp = new THREE.Color();
+// 暗色模式：单层柔光底盘，替代同心圆涟漪
+function makeGroundGlow() {
+  const group = new THREE.Group();
+  const geom = new THREE.CircleGeometry(1.85, 64);
+  const mat = new THREE.MeshBasicMaterial({
+    color: 0x0a4a7a,
+    transparent: true,
+    opacity: 0.14,
+    depthWrite: false,
+  });
+  const disc = new THREE.Mesh(geom, mat);
+  disc.rotation.x = -Math.PI / 2;
+  group.add(disc);
 
-  for (let i = 0; i < count; i++) {
-    const angle = (i / count) * Math.PI * 2;
-    positions[i * 3] = Math.cos(angle) * radius;
-    positions[i * 3 + 1] = 0; // 摰���典像�Ｖ�嚗䔶���僚
-    positions[i * 3 + 2] = Math.sin(angle) * radius;
+  return {
+    group,
+    mat,
+    dispose: () => {
+      geom.dispose();
+      mat.dispose();
+    },
+  };
+}
 
-    // �臭�皜𣂼�憸𡏭𠧧
-    const ratio = i / count;
-    colorTemp.setHSL(0.55 + ratio * 0.1, 0.95, 0.5 + Math.random() * 0.2);
-    colors[i * 3] = colorTemp.r;
-    colors[i * 3 + 1] = colorTemp.g;
-    colors[i * 3 + 2] = colorTemp.b;
+// 根据公转角度计算文字可见度：正面/侧面保持辉光，接近背面再淡出
+function computeTextFacingOpacity(cosVal: number) {
+  if (cosVal > 0) {
+    // 前半圈（正面→侧面）：0.92 ~ 1.0
+    return 0.92 + 0.08 * cosVal;
   }
-
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-  geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-  return geometry;
+  if (cosVal > -0.42) {
+    // 刚转入背面时仍保持亮度，不在侧面就提前消失
+    return 0.92;
+  }
+  // 仅在后段（约 115°→180°）快速淡出
+  const fadeProgress = (-cosVal - 0.42) / 0.58;
+  return THREE.MathUtils.lerp(0.92, 0.04, Math.pow(fadeProgress, 1.2));
 }
 
 // 辅助函数：初始化黑客帝国高逼真数字雨 Canvas 引擎（高性能显式历史字符队列，清除堆积残影，确保超高清字迹下落）
-function initRainCanvas(canvas: HTMLCanvasElement) {
+function initRainCanvas(
+  canvas: HTMLCanvasElement,
+  getIsOutdoor: () => boolean,
+) {
   const ctx = canvas.getContext("2d");
   if (!ctx) return () => {};
 
@@ -112,13 +130,13 @@ function initRainCanvas(canvas: HTMLCanvasElement) {
   resizeObserver.observe(canvas);
 
   const charPool = "0101XY89ABCDEFØZ7".split("");
-  const fontSize = 10; // 调整为更精致小巧的 10px 字体
-  const columnWidth = 16; // 铺满背景时，列宽设为 16px，大幅增加通道内的雨列密度
+  const fontSize = 8; // 精精致微的 8px 像素字体
+  const columnWidth = 8; // 列宽减小至 8px，横向密度翻倍
 
   interface RainCol {
     y: number;         // 头部行位置
     speed: number;     // 速度
-    history: string[]; // 历史队列，长度缩短至 5
+    history: string[]; // 历史队列，长度调整为 10
   }
 
   const rainCols: RainCol[] = [];
@@ -156,11 +174,11 @@ function initRainCanvas(canvas: HTMLCanvasElement) {
     const neededColumns = Math.ceil(targetWidth / columnWidth);
     while (rainCols.length < neededColumns) {
       const history: string[] = [];
-      for (let h = 0; h < 5; h++) {
+      for (let h = 0; h < 10; h++) {
         history.push(charPool[Math.floor(Math.random() * charPool.length)]);
       }
       rainCols.push({
-        y: Math.random() * -20, // 更加随机的起步高度
+        y: Math.random() * -22, // 适当散开初始起步高度
         speed: 0.28 + Math.random() * 0.42, // 稍微提升速度，使数字雨更加充沛流利
         history
       });
@@ -178,20 +196,20 @@ function initRainCanvas(canvas: HTMLCanvasElement) {
     // 核心优化 2：彻底擦除 Canvas，确保底色 100% 透明无残留
     ctx.clearRect(0, 0, targetWidth, targetHeight);
 
-    const isOutdoor = document.querySelector(".projection-theme-outdoor") !== null;
+    const isOutdoor = getIsOutdoor();
 
     // 避让区精细定义：
     // 1. 中间 32% - 68% 避开 3D 模型与文字公转轨道
     // 2. 左右两侧卡片遮挡区各 205px 避开半透明卡片文字重叠
     let midStart = targetWidth * 0.32;
     let midEnd = targetWidth * 0.68;
-    let leftLimit = 205;
-    let rightLimit = 205;
+    let leftLimit = 150; // 缩小排除区，使文字雨贴近两侧边缘降落
+    let rightLimit = 150;
 
     // 兼容小屏大屏适配，当宽度不足时自动缩减避让边界，防止无雨可下
     if (targetWidth < 768) {
-      leftLimit = 80;
-      rightLimit = 80;
+      leftLimit = 60;
+      rightLimit = 60;
       midStart = targetWidth * 0.35;
       midEnd = targetWidth * 0.65;
     }
@@ -211,7 +229,7 @@ function initRainCanvas(canvas: HTMLCanvasElement) {
       if (isInLeftCard || isInRightCard || isInCenterModel) {
         col.y += col.speed;
         if ((col.y - col.history.length) * (fontSize + 3) > targetHeight) {
-          col.y = Math.random() * -8;
+          col.y = Math.random() * -22;
           col.speed = 0.28 + Math.random() * 0.42;
           for (let h = 0; h < col.history.length; h++) {
             col.history[h] = charPool[Math.floor(Math.random() * charPool.length)];
@@ -230,20 +248,21 @@ function initRainCanvas(canvas: HTMLCanvasElement) {
         }
       }
 
-      // 缩短后的 5 深度衰减透明度，尾迹更加精简秀丽
-      const opacities = [1.0, 0.70, 0.42, 0.20, 0.06];
+      // 调整为 10 深度衰减透明度，增强纵向连贯感，同时尾迹柔和避免喧宾夺主
+      const opacities = [0.92, 0.78, 0.64, 0.51, 0.39, 0.28, 0.18, 0.11, 0.05, 0.01];
       for (let h = 0; h < col.history.length; h++) {
         const charY = (col.y - h) * (fontSize + 3);
         if (charY > 0 && charY < targetHeight + fontSize) {
           const baseOpacity = opacities[h];
           
           if (h === 0 && Math.random() < 0.15) {
-            // 头部有 15% 概率高亮
-            ctx.fillStyle = isOutdoor ? "rgba(5, 53, 122, 1.0)" : "rgba(255, 255, 255, 1.0)";
+            // 头部有 15% 概率高亮：户外模式使用极深海蓝色
+            ctx.fillStyle = isOutdoor ? "rgba(1, 15, 36, 1.0)" : "rgba(255, 255, 255, 1.0)";
           } else {
             if (isOutdoor) {
-              // 户外模式：根据透明度衰减，使用深蓝色
-              ctx.fillStyle = `rgba(5, 53, 122, ${baseOpacity * 0.95})`;
+              // 户外模式：在浅色亮背景上，使用更饱满的墨黑色且提升透明度倍率，保底 0.18，极大增强对比度与辨识度
+              const outdoorAlpha = Math.min(1.0, Math.max(0.18, baseOpacity * 1.8));
+              ctx.fillStyle = `rgba(1, 15, 36, ${outdoorAlpha})`;
             } else {
               // 室内模式：根据透明度衰减，使用青蓝色
               ctx.fillStyle = `rgba(0, 243, 255, ${baseOpacity})`;
@@ -259,7 +278,7 @@ function initRainCanvas(canvas: HTMLCanvasElement) {
 
       // 越界重置
       if ((col.y - col.history.length) * (fontSize + 3) > targetHeight) {
-        col.y = Math.random() * -8; // 随机的起步高度
+        col.y = Math.random() * -22; // 随机的起步高度
         col.speed = 0.28 + Math.random() * 0.42; // 重新计算速度
         for (let h = 0; h < col.history.length; h++) {
           col.history[h] = charPool[Math.floor(Math.random() * charPool.length)];
@@ -292,12 +311,12 @@ function createSingleCharSprite(char: string) {
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
 
-  // �桅�𡁏�颲對��其�����砌��滚榆
-  ctx.strokeStyle = "rgba(4, 20, 50, 0.8)";
-  ctx.lineWidth = 8;
+  // 描边略细、填充不用纯白，降低 Bloom 糊化
+  ctx.strokeStyle = "rgba(2, 14, 32, 0.88)";
+  ctx.lineWidth = 5;
   ctx.strokeText(char, 64, 64);
 
-  ctx.fillStyle = "#ffffff";
+  ctx.fillStyle = "#f0fbff";
   ctx.fillText(char, 64, 64);
 
   const texture = new THREE.CanvasTexture(canvas);
@@ -340,10 +359,15 @@ function createSingleCharSprite(char: string) {
   return { mesh: group, frontMaterial, shadowMaterial, texture, geometry };
 }
 
-export function ProjectionHeroThree({ className }: ProjectionHeroThreeProps) {
+export function ProjectionHeroThree({ className, theme = "outdoor" }: ProjectionHeroThreeProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const themeRef = useRef<ProjectionTheme>(theme);
   const [webglFailed, setWebglFailed] = useState(false);
+
+  themeRef.current = theme;
+
+  const getIsOutdoor = useCallback(() => themeRef.current === "outdoor", []);
 
   // �噼� Ref 餈質葵嚗䔶�霂�銁 DOM ��蝸��遙雿閙𧒄�粹��� 100% �𣂼�閫血��嘥��吔�閫��擐硋葷銝� null ���頧賣𧒄�� Bug
   const rainCleanupRef = useRef<(() => void) | null>(null);
@@ -356,9 +380,9 @@ export function ProjectionHeroThree({ className }: ProjectionHeroThreeProps) {
       rainCleanupRef.current = null;
     }
     if (canvas) {
-      rainCleanupRef.current = initRainCanvas(canvas);
+      rainCleanupRef.current = initRainCanvas(canvas, getIsOutdoor);
     }
-  }, []);
+  }, [getIsOutdoor]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -378,6 +402,7 @@ export function ProjectionHeroThree({ className }: ProjectionHeroThreeProps) {
     const textures: THREE.Texture[] = [];
     let envRenderTarget: THREE.WebGLRenderTarget | null = null;
     let radarResourcesCleanup: () => void = () => {};
+    let groundGlowResourcesCleanup: () => void = () => {};
 
     let renderer: THREE.WebGLRenderer;
     try {
@@ -394,6 +419,13 @@ export function ProjectionHeroThree({ className }: ProjectionHeroThreeProps) {
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.setClearColor(0x000000, 0);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+
+    // 启用各向异性过滤以消除 3D 文字在倾斜旋转时的边缘模糊
+    const maxAnisotropy = renderer.capabilities.getMaxAnisotropy();
+    textures.forEach((tex) => {
+      tex.anisotropy = maxAnisotropy;
+      tex.needsUpdate = true;
+    });
 
     // ���� 撘��臬��嗆��屸狍敶� ����
     renderer.shadowMap.enabled = true;
@@ -465,47 +497,59 @@ export function ProjectionHeroThree({ className }: ProjectionHeroThreeProps) {
     root.add(radar.group);
     radarResourcesCleanup = radar.dispose;
 
+    const groundGlow = makeGroundGlow();
+    groundGlow.group.position.y = -1.35;
+    root.add(groundGlow.group);
+    groundGlowResourcesCleanup = groundGlow.dispose;
+
     // ���� 2. �屸��冽���摮𣂷�蝥踵��毺㴓 (蝥踵辺�啁眏 3 �譍蛹 2嚗䔶誑雿踹�閫�凒銝箸��賢⏚��) ����
     const orbitGroup = new THREE.Group();
     root.add(orbitGroup);
 
     const ringConfigs = [
-      { radius: 2.25, count: 180, color: new THREE.Color("#00e5ff"), tilt: [1.15, 0.15, 0] },
-      { radius: 3.00, count: 280, color: new THREE.Color("#ffb300"), tilt: [1.15, 0.15, 0] }
+      {
+        radius: 2.25,
+        color: new THREE.Color("#00e5ff"),
+        outdoorColor: new THREE.Color("#0862b5"),
+        tilt: [1.15, 0.15, 0],
+      },
+      {
+        radius: 3.0,
+        color: new THREE.Color("#ffb300"),
+        outdoorColor: new THREE.Color("#d45d00"),
+        tilt: [1.15, 0.15, 0],
+      },
     ];
 
     const rings = ringConfigs.map((config) => {
-      const geom = createRuleRing(config.radius, config.count);
-      geometries.push(geom);
+      // 实线圆环：加宽 RingGeometry，不再叠加粒子点（粒子点会呈现虚线/点状线圈）
+      const ringHalfWidth = 0.024;
+      const ringGeom = new THREE.RingGeometry(
+        config.radius - ringHalfWidth,
+        config.radius + ringHalfWidth,
+        128,
+      );
+      geometries.push(ringGeom);
 
-      // A. 閫�����雿梶瑪獢�㴓 (LineLoop)
-      const lineMat = new THREE.LineBasicMaterial({
+      const lineMat = new THREE.MeshBasicMaterial({
         color: config.color,
         transparent: true,
-        opacity: 0.35,
+        opacity: 0.55,
         depthWrite: false,
         blending: THREE.AdditiveBlending,
+        side: THREE.DoubleSide,
       });
       materials.push(lineMat);
-      const lineLoop = new THREE.LineLoop(geom, lineMat);
-      lineLoop.rotation.set(config.tilt[0], config.tilt[1], config.tilt[2]);
-      orbitGroup.add(lineLoop);
 
-      // B. 閫������函�鈭𤑳�摮� (Points)
-      const pointMat = new THREE.PointsMaterial({
-        size: 0.035,
-        vertexColors: true,
-        transparent: true,
-        opacity: 0.85,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-      });
-      materials.push(pointMat);
-      const points = new THREE.Points(geom, pointMat);
-      points.rotation.set(config.tilt[0], config.tilt[1], config.tilt[2]);
-      orbitGroup.add(points);
+      const lineMesh = new THREE.Mesh(ringGeom, lineMat);
+      lineMesh.rotation.x = Math.PI / 2;
 
-      return { lineLoop, points, pointMat, lineMat, config };
+      const tiltGroup = new THREE.Group();
+      tiltGroup.rotation.set(config.tilt[0], config.tilt[1], config.tilt[2]);
+      tiltGroup.add(lineMesh);
+      orbitGroup.add(tiltGroup);
+
+      return { lineMesh, lineMat, config };
     });
 
     // ���� 3. �誩��朞�蝎鍦��瑟�蝟餌� ����
@@ -623,7 +667,7 @@ export function ProjectionHeroThree({ className }: ProjectionHeroThreeProps) {
     const textOrbitGroup = new THREE.Group();
     root.add(textOrbitGroup);
 
-    const chars = ["��", "��", "A", "I"];
+    const chars = ["育", "英", "A", "I"];
     const textSpritesData: Array<{
       sprite: THREE.Group;
       frontMaterial: THREE.MeshBasicMaterial;
@@ -641,6 +685,8 @@ export function ProjectionHeroThree({ className }: ProjectionHeroThreeProps) {
       const result = createSingleCharSprite(char);
       if (result) {
         const { mesh, frontMaterial, shadowMaterial, texture, geometry } = result;
+        texture.anisotropy = maxAnisotropy;
+        texture.needsUpdate = true;
         textures.push(texture);
         materials.push(frontMaterial);
         materials.push(shadowMaterial);
@@ -673,13 +719,22 @@ export function ProjectionHeroThree({ className }: ProjectionHeroThreeProps) {
     // ���� 7. �剖遣 EffectComposer �擧�颲匧�憭��蝞∠瑪 ����
     const size = new THREE.Vector2();
     renderer.getSize(size);
+    const pixelRatio = renderer.getPixelRatio();
 
-    const composer = new EffectComposer(renderer);
+    // 配置高采样率渲染目标以启用 4x MSAA 硬件抗锯齿，并与渲染物理分辨率绑定，防止后处理导致像素拉伸模糊
+    const renderTarget = new THREE.WebGLRenderTarget(size.x * pixelRatio, size.y * pixelRatio, {
+      samples: 4, // 4倍多重采样抗锯齿
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
+      format: THREE.RGBAFormat,
+    });
+
+    const composer = new EffectComposer(renderer, renderTarget);
     const renderPass = new RenderPass(scene, camera);
     composer.addPass(renderPass);
 
     const bloomPass = new UnrealBloomPass(
-      new THREE.Vector2(size.x, size.y),
+      new THREE.Vector2(size.x * pixelRatio, size.y * pixelRatio),
       1.2,
       0.6,
       0.35
@@ -697,7 +752,9 @@ export function ProjectionHeroThree({ className }: ProjectionHeroThreeProps) {
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
       renderer.setSize(width, height, false);
-      composer.setSize(width, height);
+      
+      const pixelRatio = renderer.getPixelRatio();
+      composer.setSize(width * pixelRatio, height * pixelRatio);
     };
 
     const resizeObserver = new ResizeObserver(resize);
@@ -719,14 +776,14 @@ export function ProjectionHeroThree({ className }: ProjectionHeroThreeProps) {
       innerColor: new THREE.Color(),
       fogColor: new THREE.Color(),
       radarOpacity: 0.25,
+      groundGlowOpacity: 0.14,
       scanRingColor: new THREE.Color(),
       // 颲匧���㺭�格�
       bloomStrength: 1.2,
       bloomThreshold: 0.35,
-      // 蝎鍦�擃睃�撌桀�蝎烾�蝵�
-      ringPointSize: 0.035,
+      bloomRadius: 0.6,
+      // 粒子喷射尺寸
       jetPointSize: 0.038,
-      ringPointOpacity: 0.65,
       jetPointOpacity: 0.9,
       // 憭𡝗瓲�餌��拍�撅墧�折�蝵�
       glassOpacity: 0.45,
@@ -735,6 +792,7 @@ export function ProjectionHeroThree({ className }: ProjectionHeroThreeProps) {
       // �急�瞈��劐����撅墧��
       scanRingOpacity: 0.7,
       textColor: new THREE.Color(),
+      innerCoreOpacity: 0.85,
     };
 
     const animate = () => {
@@ -746,7 +804,7 @@ export function ProjectionHeroThree({ className }: ProjectionHeroThreeProps) {
       const safeDelta = Math.min(delta, 0.1);
 
       // 璉�瘚𧢲�憭𡝗芋撘�
-      const isOutdoor = document.querySelector(".projection-theme-outdoor") !== null;
+      const isOutdoor = getIsOutdoor();
 
       // 1. 霈曄蔭銝滚�璅∪�銝讠��鍦�潛𤌍��
       if (isOutdoor) {
@@ -755,29 +813,29 @@ export function ProjectionHeroThree({ className }: ProjectionHeroThreeProps) {
         themeTransition.keyLightColor.setHex(0x0a3d6b); 
         themeTransition.goldLightColor.setHex(0xc07800);
         themeTransition.coreColor.setHex(0x0a5cd6); // �瑕�銝衤���滲甇���漁銝賜�摰肽��莎��脫迫�滚��煾�
-        themeTransition.coreEmissive.setHex(0x002288); // 摰肽��脰䌊�穃��睃�
-        themeTransition.coreEmissiveIntensity = 0.55; 
-        themeTransition.innerColor.setHex(0xd48500); 
-        themeTransition.fogColor.setHex(0xe8eef5); 
+        themeTransition.coreEmissive.setHex(0x002288);
+        themeTransition.innerColor.setHex(0xe89400);
+        themeTransition.fogColor.setHex(0xe8eef5);
         themeTransition.radarOpacity = 0.5;
         themeTransition.scanRingColor.setHex(0x0a4a7a);
         themeTransition.scanRingOpacity = 0.9;
-        themeTransition.textColor.setHex(0xffffff); // 鈭桀�嚗𡁶蒾摮埈𨰹�� Canvas �讛器
+        themeTransition.textColor.setHex(0xffffff);
+        themeTransition.innerCoreOpacity = 0.88;
 
-        // �瑕�擃䀹��堆�蝎鍦��删� 3 �滢誑銝𠰴僎摰硺��吔�蝏苷�蝔���
-        themeTransition.ringPointSize = 0.12;
         themeTransition.jetPointSize = 0.11;
-        themeTransition.ringPointOpacity = 1.0;
         themeTransition.jetPointOpacity = 1.0;
 
-        // �餌��睃�嚗𣬚ㄗ���憓𧼮捐嚗峕䲮靘輸��滚��閙�
+        // 户外玻璃质感
         themeTransition.glassOpacity = 0.90;
-        themeTransition.glassRoughness = 0.35;
+        themeTransition.glassRoughness = 0.32;
         themeTransition.glassThickness = 2.5;
 
-        // 瘚�𠧧�峕艶銝衤���閬���删憧蝻���㗇�
-        themeTransition.bloomStrength = 0.18;
-        themeTransition.bloomThreshold = 0.95;
+        // 户外模式：适度 Bloom，让球体/文字/轨道在亮底上也有柔和光晕
+        themeTransition.bloomStrength = 0.42;
+        themeTransition.bloomThreshold = 0.76;
+        themeTransition.bloomRadius = 0.54;
+        themeTransition.coreEmissiveIntensity = 0.68;
+        themeTransition.groundGlowOpacity = 0.12;
       } else {
         themeTransition.ambientColor.setHex(0x00a2ff); // �𥪜�銝��寧��坿���
         themeTransition.ambientIntensity = 0.55;       // �滢��臬��㚁�霈� 3D �詨�撖寞�摨行凒擃�
@@ -785,25 +843,28 @@ export function ProjectionHeroThree({ className }: ProjectionHeroThreeProps) {
         themeTransition.goldLightColor.setHex(0xd48500); // �滢��𤏸𠧧颲�𨭌�㗇�
         themeTransition.coreColor.setHex(0x095cd6); 
         themeTransition.coreEmissive.setHex(0x001a66); // �滢��芸��厩��脣蔗鈭桀��
-        themeTransition.coreEmissiveIntensity = 0.75;  // �滢�憭抒��芸��匧撩摨佗��脫迫������餈��
-        themeTransition.innerColor.setHex(0xff0066); 
-        themeTransition.fogColor.setHex(0x020810);     // �亙凝靚���暹�摨閗𠧧
+        themeTransition.coreEmissiveIntensity = 0.75;
+        themeTransition.innerColor.setHex(0xff4d88); 
+        themeTransition.fogColor.setHex(0x020810);
         themeTransition.radarOpacity = 0.28;
-        themeTransition.scanRingColor.setHex(0x00d2ff); // �急��舀揢�冽��屸���
+        themeTransition.groundGlowOpacity = 0.14;
+        themeTransition.scanRingColor.setHex(0x00d2ff);
         themeTransition.scanRingOpacity = 0.65;
-        themeTransition.textColor.setHex(0x00f3ff); 
+        // 暗色模式：适度青蓝辉光，兼顾可读性与发光感
+        themeTransition.textColor.setHex(0xa8e8f8);
+        themeTransition.innerCoreOpacity = 0.58;
 
-        themeTransition.ringPointSize = 0.045;
         themeTransition.jetPointSize = 0.045;
-        themeTransition.ringPointOpacity = 0.75;
         themeTransition.jetPointOpacity = 0.95;
 
         themeTransition.glassOpacity = 0.50;
         themeTransition.glassRoughness = 0.12;
         themeTransition.glassThickness = 1.6;
 
-        themeTransition.bloomStrength = 0.85; // 颲匧�撘箏漲�� 1.6 憭批��滩秐 0.85嚗峕��斗��匧��潭�
-        themeTransition.bloomThreshold = 0.24; // 颲匧����潛眏 0.15 ��秐 0.24嚗䔶�霈抵�擃䀝漁憭�漣�毺移�游凝��
+        // 中等 Bloom + 略收紧扩散半径：有光晕但不糊字
+        themeTransition.bloomStrength = 0.68;
+        themeTransition.bloomThreshold = 0.32;
+        themeTransition.bloomRadius = 0.46;
       }
 
       // 2. 撟單�餈�腹��㺭 (Lerp �餃側�笔漲 0.04)
@@ -820,8 +881,19 @@ export function ProjectionHeroThree({ className }: ProjectionHeroThreeProps) {
       outerCoreMat.thickness = THREE.MathUtils.lerp(outerCoreMat.thickness, themeTransition.glassThickness, 0.04);
 
       innerCoreMat.color.lerp(themeTransition.innerColor, 0.04);
+      innerCoreMat.opacity = THREE.MathUtils.lerp(
+        innerCoreMat.opacity,
+        themeTransition.innerCoreOpacity,
+        0.04,
+      );
       scanRingMat.color.lerp(themeTransition.scanRingColor, 0.04);
       scanRingMat.opacity = THREE.MathUtils.lerp(scanRingMat.opacity, themeTransition.scanRingOpacity, 0.04);
+      // 动态混合模式切换：户外亮色背景下使用普通混合以增加对比度，暗色背景下使用相加混合以增强辉光
+      const targetScanBlending = isOutdoor ? THREE.NormalBlending : THREE.AdditiveBlending;
+      if (scanRingMat.blending !== targetScanBlending) {
+        scanRingMat.blending = targetScanBlending;
+        scanRingMat.needsUpdate = true;
+      }
 
       // �冽��凒�啣�摮堒憫�� 3D ������蝏�辣����脣��𤩺�摨佗�霈拇迤�Ｗ�蝖祆�敶望�韐函𡠺蝡𧢲���
       textSpritesData.forEach((item) => {
@@ -835,18 +907,10 @@ export function ProjectionHeroThree({ className }: ProjectionHeroThreeProps) {
         const curAngle = textOrbitGroup.rotation.y + item.angleOffset;
         const cosVal = Math.cos(curAngle);
 
-        // 甇�𢒰 (cosVal=1) �𤩺�摨� 1.0嚗䔶儒�� (cosVal=0) �𤩺�摨� 0.15 (瘛∪��脩忽璅�)嚗諹��� (cosVal=-1) �𤩺�摨� 0.45 (�讛�憭抒��餌��睃�)
-        let opacityFactor = 0.15;
-        if (cosVal > 0) {
-          opacityFactor = 0.15 + 0.85 * Math.pow(cosVal, 1.8);
-        } else {
-          opacityFactor = 0.15 + 0.30 * Math.pow(-cosVal, 1.5);
-        }
-        const baseOpacity = isOutdoor ? 1.0 : 0.95;
+        const opacityFactor = computeTextFacingOpacity(cosVal);
+        const baseOpacity = isOutdoor ? 1.0 : 0.9;
         
-        // 甇�𢒰����𤩺�摨�
         item.frontMaterial.opacity = baseOpacity * opacityFactor;
-        // �訫蔣蝖祇狍敶梁��𤩺�摨西���
         item.shadowMaterial.opacity = baseOpacity * opacityFactor * 0.72;
       });
 
@@ -854,32 +918,65 @@ export function ProjectionHeroThree({ className }: ProjectionHeroThreeProps) {
 
       if (scene.fog && scene.fog instanceof THREE.FogExp2) {
         scene.fog.color.lerp(themeTransition.fogColor, 0.04);
-        const targetDensity = isOutdoor ? 0.002 : 0.038;
+        const targetDensity = isOutdoor ? 0.002 : 0.012;
         scene.fog.density = THREE.MathUtils.lerp(scene.fog.density, targetDensity, 0.04);
       }
 
-      // �冽��凒�啁�摮𣂷�蝥踵�撅墧�� (�冽�憭𡝗芋撘譍�撠�瑪獢��𤩺�摨行�擃睃� 0.85嚗𣬚�摮𣂼�蝎梹���之憓𧼮撩撖寞�摨�)
-      rings.forEach((ring, idx) => {
-        ring.pointMat.size = THREE.MathUtils.lerp(ring.pointMat.size, themeTransition.ringPointSize, 0.05);
-        ring.pointMat.opacity = THREE.MathUtils.lerp(ring.pointMat.opacity, themeTransition.ringPointOpacity, 0.05);
-        ring.lineMat.opacity = THREE.MathUtils.lerp(ring.lineMat.opacity, isOutdoor ? 0.85 : 0.45, 0.04);
+      // 暗色模式下更新轨道实线样式
+      rings.forEach((ring) => {
+        const targetBlending = isOutdoor ? THREE.NormalBlending : THREE.AdditiveBlending;
+        if (ring.lineMat.blending !== targetBlending) {
+          ring.lineMat.blending = targetBlending;
+          ring.lineMat.needsUpdate = true;
+        }
+
+        const targetColor = isOutdoor ? ring.config.outdoorColor : ring.config.color;
+        ring.lineMat.color.lerp(targetColor, 0.04);
+
+        const targetOpacity = isOutdoor ? 0.88 : 0.58;
+        ring.lineMat.opacity = THREE.MathUtils.lerp(ring.lineMat.opacity, targetOpacity, 0.04);
       });
       jetMaterial.size = THREE.MathUtils.lerp(jetMaterial.size, themeTransition.jetPointSize, 0.05);
       jetMaterial.opacity = THREE.MathUtils.lerp(jetMaterial.opacity, themeTransition.jetPointOpacity, 0.05);
 
       bloomPass.strength = THREE.MathUtils.lerp(bloomPass.strength, themeTransition.bloomStrength, 0.04);
       bloomPass.threshold = THREE.MathUtils.lerp(bloomPass.threshold, themeTransition.bloomThreshold, 0.04);
+      bloomPass.radius = THREE.MathUtils.lerp(bloomPass.radius, themeTransition.bloomRadius, 0.04);
 
-      radar.group.traverse((child) => {
+      radar.group.visible = isOutdoor;
+      groundGlow.group.visible = !isOutdoor;
+      scanRing.visible = isOutdoor;
+
+      groundGlow.mat.opacity = THREE.MathUtils.lerp(
+        groundGlow.mat.opacity,
+        themeTransition.groundGlowOpacity,
+        0.04,
+      );
+
+      if (isOutdoor) {
+        radar.group.traverse((child) => {
         if (child instanceof THREE.Mesh && child.material instanceof THREE.MeshBasicMaterial) {
           child.material.opacity = THREE.MathUtils.lerp(child.material.opacity, isOutdoor ? 0.52 : 0.28, 0.04);
+          // 动态混合模式切换：亮色背景下使用普通混合以增加对比度
+          const targetBlending = isOutdoor ? THREE.NormalBlending : THREE.AdditiveBlending;
+          if (child.material.blending !== targetBlending) {
+            child.material.blending = targetBlending;
+            child.material.needsUpdate = true;
+          }
         }
         if (child instanceof THREE.LineSegments && child.material instanceof THREE.LineBasicMaterial) {
           child.material.opacity = THREE.MathUtils.lerp(child.material.opacity, isOutdoor ? 0.38 : 0.18, 0.04);
+          // 动态混合模式切换
+          const targetBlending = isOutdoor ? THREE.NormalBlending : THREE.AdditiveBlending;
+          if (child.material.blending !== targetBlending) {
+            child.material.blending = targetBlending;
+            child.material.needsUpdate = true;
+          }
         }
       });
+      }
 
-      // 3. �冽��凒�圈�摮鞱��賜�摮𣂼𪃾瘚��蝵� (CPU 霈∠�)
+      // 3. 暗色模式下更新粒子喷射动画 (CPU 演算)
       const positions = jetGeometry.attributes.position.array as Float32Array;
       for (let i = 0; i < jetCount; i++) {
         let y = positions[i * 3 + 1];
@@ -912,21 +1009,17 @@ export function ProjectionHeroThree({ className }: ProjectionHeroThreeProps) {
       
       // 閫����㴓�滚�敺𣂼�頧砍𢆡
       orbitGroup.rotation.y = elapsed * 0.16;
-      rings.forEach((ring, idx) => {
-        // ��㴓銝羓�蝎鍦��刻��嗵瑪獢�㴓銝𠰴像皛烐�銵峕���
-        ring.points.rotation.z = elapsed * (0.58 - idx * 0.15);
-      });
 
-      // �詨�����贝蓮
+      // 核心球体动画
       outerCoreMesh.rotation.x = elapsed * 0.28;
       outerCoreMesh.rotation.y = -elapsed * 0.4;
       outerCoreMesh.scale.setScalar(pulse);
 
       innerCoreMesh.scale.setScalar(fastPulse);
-      radar.group.rotation.y = -elapsed * 0.08;
-      
-      // �冽��急�瞈��厩㴓�讐�雿枏�憭扯�𣬚�敺桀像蝘餅醌�讛���
-      scanRing.position.y = Math.sin(elapsed * 1.6) * 1.65;
+      if (isOutdoor) {
+        radar.group.rotation.y = -elapsed * 0.08;
+        scanRing.position.y = Math.sin(elapsed * 1.6) * 1.65;
+      }
 
       // 3D ���蝏�◇�園��祈蓮嚗帋蝙�券��園�撖寧妍��挾靚��嚗�迤�Ｘ��Ｗ�蝷箝����Ｖ誑��擃� 15 撘批漲/蝘垍�頞���笔漲�芰緵蝛踹�嚗䔶蝙�屸𢒰�𦦵��園𡢿蝎曉�蝻拍��� 0.5 蝘鍦椰�喉�
       if (textOrbitGroup) {
@@ -951,7 +1044,7 @@ export function ProjectionHeroThree({ className }: ProjectionHeroThreeProps) {
 
       // 敺芰㴓�𨅯�瞈�瘣餅㦤�塚�憒�� DOM ���撌脣銁憿菟𢒰撠梁貌嚗䔶��曹� React 皜脫��嗅��碶艇�潭芋撘讛秤��撖潸稲皜���交�銝箇征嚗�銁甇支蜓�典𤧅�埝㺭摮烾𢂚嚗���� 100% �𣂼���
       if (rainDOMRef.current && !rainCleanupRef.current) {
-        rainCleanupRef.current = initRainCanvas(rainDOMRef.current);
+        rainCleanupRef.current = initRainCanvas(rainDOMRef.current, getIsOutdoor);
       }
 
       // 雿輻鍂 EffectComposer 皜脫�
@@ -981,10 +1074,11 @@ export function ProjectionHeroThree({ className }: ProjectionHeroThreeProps) {
         envRenderTarget.dispose();
       }
       radarResourcesCleanup();
+      groundGlowResourcesCleanup();
       composer.dispose();
       renderer.dispose();
     };
-  }, []);
+  }, [getIsOutdoor]);
 
   if (webglFailed) {
     return (
@@ -1001,10 +1095,10 @@ export function ProjectionHeroThree({ className }: ProjectionHeroThreeProps) {
 
       <canvas ref={canvasRef} aria-hidden="true" />
       <div className="projection-three-core__status is-left" aria-hidden="true">
-        �滚���瓲敹�
+        系统状态
       </div>
       <div className="projection-three-core__status is-right" aria-hidden="true">
-        摰墧𧒄�峕郊
+        实时同步
       </div>
     </div>
   );

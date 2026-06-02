@@ -22,10 +22,14 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         LOG_LEVEL: process.env.LOG_LEVEL || 'info',
+        REDIS_URL: process.env.REDIS_URL || 'redis://127.0.0.1:6379',
+        DISPLAY_ONLINE_STALE_MS: process.env.DISPLAY_ONLINE_STALE_MS || '90000',
       },
       env_production: {
         NODE_ENV: 'production',
         LOG_LEVEL: process.env.LOG_LEVEL || 'info',
+        REDIS_URL: process.env.REDIS_URL || 'redis://127.0.0.1:6379',
+        DISPLAY_ONLINE_STALE_MS: process.env.DISPLAY_ONLINE_STALE_MS || '90000',
       },
     },
   ],

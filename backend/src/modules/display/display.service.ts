@@ -149,8 +149,11 @@ export class DisplayService {
       },
       orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
     });
-    const onlineTerminalCodes = await this.realtimeService.listOnlineDisplayTerminalCodes(
-      rows.map((item) => item.terminalCode),
+    const onlineTerminalCodes = await this.realtimeService.resolveDisplayTerminalOnlineCodes(
+      rows.map((item) => ({
+        terminalCode: item.terminalCode,
+        lastOnlineAt: item.lastOnlineAt,
+      })),
     );
 
     return {
