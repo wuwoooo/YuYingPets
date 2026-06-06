@@ -1422,7 +1422,7 @@ function openBatchPointModal() {
 
 async function openAdoptModal(studentName) {
   if (isDisplayAnimationLocked()) return;
-  if (blockHomeroomOnlyOperation("萌宠领养")) return;
+  if (!ensureOperationUnlocked()) return;
   adoptTargetName = studentName;
   const t = document.getElementById("adoptModalTitle");
   if (t) t.textContent = studentName + " · 选择萌宠";
@@ -1453,11 +1453,11 @@ function closeAdoptModal() {
 
 async function confirmAdopt(petCode) {
   if (!adoptTargetName) return;
-  if (blockHomeroomOnlyOperation("萌宠领养")) return;
+  if (!ensureOperationUnlocked()) return;
   const s = students.find((x) => x.name === adoptTargetName);
   if (!s || s.hasPet !== false) return;
   if (!runtimeState.token || !runtimeState.classId) {
-    showDisplayToast("请先登录班主任账号");
+    showDisplayToast("请先登录教师账号");
     return;
   }
   const confirmed = await showConfirmModal({
@@ -3000,7 +3000,11 @@ function ensurePetPkSceneBackground(overlay) {
 
 function clearPetPkSceneBackground(overlay) {
   if (!overlay) return;
-  overlay.classList.remove("has-scene-bg");
+  overlay.classList.remove(
+    "has-scene-bg",
+    "scene-owner-left",
+    "scene-owner-right",
+  );
   overlay.removeAttribute("data-pk-scene-owner");
 }
 
@@ -3020,7 +3024,75 @@ function applyPetPkSceneBackground(overlay, sourceStudent, targetStudent) {
     img.src = scene.url;
   }
   overlay.dataset.pkSceneOwner = scene.student?.name || "";
+  /* 标记场景归属方向：source=left, target=right */
+  overlay.classList.remove("scene-owner-left", "scene-owner-right");
+  if (scene.student === sourceStudent) {
+    overlay.classList.add("scene-owner-left");
+  } else {
+    overlay.classList.add("scene-owner-right");
+  }
   overlay.classList.add("has-scene-bg");
+}
+
+/** 构建萌宠 PK 头像的装饰层 URL（背景/边框） */
+function getPetPkAvatarDecoUrl(student, type) {
+  const decos = Array.isArray(student?.equippedDecorations)
+    ? student.equippedDecorations
+    : [];
+  const backdrop = decos.find((d) => d.type === THEME_BACKDROP_TYPE);
+  if (type === "bg") {
+    const bg = backdrop || decos.find((d) => d.type === "background");
+    return bg ? resolveDecoAssetUrl(bg, 400) : "";
+  }
+  if (type === "frame") {
+    /* backdrop 模式下隐藏独立边框 */
+    if (backdrop) return "";
+    const frame = decos.find((d) => d.type === "frame");
+    return frame ? resolveDecoAssetUrl(frame, 400) : "";
+  }
+  return "";
+}
+
+/** 将萌宠个人装饰注入 PK 头像 shell */
+function applyPetPkAvatarDeco(shell, student) {
+  if (!shell) return;
+  clearPetPkAvatarDeco(shell);
+  const bgUrl = getPetPkAvatarDecoUrl(student, "bg");
+  const frameUrl = getPetPkAvatarDecoUrl(student, "frame");
+  if (bgUrl) {
+    const bgImg = document.createElement("img");
+    bgImg.className = "pet-pk-deco-bg";
+    bgImg.src = bgUrl;
+    bgImg.alt = "";
+    bgImg.decoding = "async";
+    bgImg.onerror = () => {
+      bgImg.style.display = "none";
+    };
+    shell.insertBefore(bgImg, shell.firstChild);
+  }
+  if (frameUrl) {
+    const frameImg = document.createElement("img");
+    frameImg.className = "pet-pk-deco-frame";
+    frameImg.src = frameUrl;
+    frameImg.alt = "";
+    frameImg.decoding = "async";
+    frameImg.onerror = () => {
+      frameImg.style.display = "none";
+    };
+    shell.appendChild(frameImg);
+  }
+  if (bgUrl || frameUrl) {
+    shell.classList.add("has-deco");
+  }
+}
+
+/** 清除 PK 头像 shell 内的装饰层 */
+function clearPetPkAvatarDeco(shell) {
+  if (!shell) return;
+  shell.querySelectorAll(".pet-pk-deco-bg, .pet-pk-deco-frame").forEach(
+    (el) => el.remove(),
+  );
+  shell.classList.remove("has-deco");
 }
 
 function playPetPkAnimation(sourceStudent, targetStudent) {
@@ -3067,6 +3139,12 @@ function playPetPkAnimation(sourceStudent, targetStudent) {
   overlay.classList.remove("winner-right");
   overlay.classList.remove("winner-draw");
   clearPetPkSceneBackground(overlay);
+  clearPetPkAvatarDeco(
+    document.getElementById("petPkLeft")?.querySelector(".pet-pk-avatar-shell"),
+  );
+  clearPetPkAvatarDeco(
+    document.getElementById("petPkRight")?.querySelector(".pet-pk-avatar-shell"),
+  );
   void overlay.offsetWidth;
 
   leftImg.onerror = () => {
@@ -3083,6 +3161,16 @@ function playPetPkAnimation(sourceStudent, targetStudent) {
   rightImg.alt = targetStudent.petName || `${targetStudent.name}的萌宠`;
   leftStudent.textContent = sourceStudent.name || "";
   rightStudent.textContent = targetStudent.name || "";
+
+  /* 注入萌宠个人装饰到 PK 头像 */
+  applyPetPkAvatarDeco(
+    document.getElementById("petPkLeft")?.querySelector(".pet-pk-avatar-shell"),
+    sourceStudent,
+  );
+  applyPetPkAvatarDeco(
+    document.getElementById("petPkRight")?.querySelector(".pet-pk-avatar-shell"),
+    targetStudent,
+  );
 
   const result = getPetPkResult(sourceStudent, targetStudent);
   resultTitleEl.textContent = result.title;
@@ -3146,6 +3234,12 @@ function playPetPkAnimation(sourceStudent, targetStudent) {
     overlay.classList.remove("winner-right");
     overlay.classList.remove("winner-draw");
     clearPetPkSceneBackground(overlay);
+    clearPetPkAvatarDeco(
+      document.getElementById("petPkLeft")?.querySelector(".pet-pk-avatar-shell"),
+    );
+    clearPetPkAvatarDeco(
+      document.getElementById("petPkRight")?.querySelector(".pet-pk-avatar-shell"),
+    );
     resultEl.setAttribute("aria-hidden", "true");
     petPkState.overlayTimer = null;
     endDisplayAnimationGuard();
@@ -3737,19 +3831,6 @@ function renderLeaderboardList() {
     .join("");
 }
 
-/* ========== 页面导航 ========== */
-const pageMap = {
-  entry: "page-entry",
-  setup: "page-setup",
-  login: "page-login",
-  transition: "page-transition",
-  classroom: "page-classroom",
-  academic: "page-academic",
-  toolbox: "page-toolbox",
-  leaderboard: "page-leaderboard",
-  exchange: "page-exchange",
-};
-
 const DISPLAY_HOLIDAY_CONFIGS = [
   {
     key: "children-day",
@@ -3874,12 +3955,8 @@ function navigateTo(key) {
   if (key !== "toolbox") {
     cleanupToolboxRuntime({ keepTimer: false });
   }
-  document
-    .querySelectorAll(".page")
-    .forEach((p) => p.classList.remove("active"));
-  const target = document.getElementById(pageMap[key]);
+  const target = window.DisplayUI.activatePage(key);
   if (target) {
-    target.classList.add("active");
     if (key === "exchange" && !isLowSpecMode()) {
       const stars = target.querySelector(".deco-stars");
       if (stars && !stars.hasChildNodes()) {
@@ -3920,9 +3997,6 @@ function navigateTo(key) {
     }
   }
 
-  document.querySelectorAll(".bottom-tab").forEach((t) => {
-    t.classList.toggle("active", t.dataset.target === key);
-  });
   if (key === "login") {
     dismissProfileOverlaysForAuthFlow();
     setLoginMessage("");
@@ -3986,8 +4060,10 @@ function closeSelectStudentModal() {
 function confirmExchange(studentName) {
   const s = students.find((x) => x.name === studentName);
   if (!s || s.pts < currentExchangeCost) return;
+  const exchangeItem = currentExchangeItem;
+  const exchangeCost = currentExchangeCost;
 
-  s.pts -= currentExchangeCost;
+  s.pts -= exchangeCost;
   reorderStudents();
 
   renderStudentGrid();
@@ -3995,7 +4071,7 @@ function confirmExchange(studentName) {
   renderLeaderboardList();
 
   closeSelectStudentModal();
-  showExchangeSuccess(currentExchangeItem, s.name, currentExchangeCost);
+  showExchangeSuccess(exchangeItem, s.name, exchangeCost);
 }
 
 function showExchangeSuccess(itemName, studentName, cost) {
@@ -4073,10 +4149,9 @@ function startTransitionAnimation() {
   const isHoliday = resolveDisplayHoliday()?.key === "children-day";
   if (isHoliday) {
     const todayStr = new Date().toLocaleDateString("zh-CN", { timeZone: "Asia/Shanghai" });
-    const lastPlayed = localStorage.getItem("yuying_holiday_splash_played");
-    if (lastPlayed !== todayStr) {
+    if (!window.DisplayRuntime.hasHolidaySplashPlayed(todayStr)) {
       skip.style.display = "none";
-      localStorage.setItem("yuying_holiday_splash_played", todayStr);
+      window.DisplayRuntime.markHolidaySplashPlayed(todayStr);
     }
   }
 
@@ -4805,72 +4880,23 @@ function makeInteractive(card) {
 
 /* ========== 加减分弹窗处理 ========== */
 let currentFocusStudent = null;
-let confirmModalResolver = null;
-let confirmModalSessionId = 0;
 let scoreActionInFlight = false;
 let displayInputGuardTimer = null;
 let displayAnimationGuardDepth = 0;
 let upgradeAnimationSession = 0;
 let transitionAnimationGuardActive = false;
-let displayToastTimer = null;
 let realtimeStatusWasConnected = false;
 
 function showDisplayToast(message, options = {}) {
-  const toast = document.getElementById("displayToast");
-  if (!toast) return;
-  const text = String(message || "").trim();
-  if (!text) return;
-  window.clearTimeout(displayToastTimer);
-  toast.textContent = text;
-  toast.hidden = false;
-  requestAnimationFrame(() => toast.classList.add("active"));
-  displayToastTimer = window.setTimeout(() => {
-    toast.classList.remove("active");
-    window.setTimeout(() => {
-      if (!toast.classList.contains("active")) {
-        toast.hidden = true;
-      }
-    }, 240);
-  }, options.duration || 2800);
+  return window.DisplayUI.showDisplayToast(message, options);
 }
 
 window.alert = (message) => showDisplayToast(message);
 
 function setRealtimeConnectionStatus(mode, message) {
-  const bar = document.getElementById("displayRealtimeStatus");
-  const text = document.getElementById("displayRealtimeStatusText");
-  const icon = document.getElementById("displayRealtimeStatusIcon");
-  if (!bar || !text) return;
-
-  if (mode !== "hidden" && shouldSuppressRealtimeStatusBar()) {
-    mode = "hidden";
-  }
-
-  if (mode === "hidden") {
-    bar.hidden = true;
-    bar.classList.remove(
-      "active",
-      "connecting",
-      "reconnecting",
-      "disconnected",
-    );
-    return;
-  }
-
-  bar.hidden = false;
-  bar.classList.add("active");
-  bar.classList.toggle("connecting", mode === "connecting");
-  bar.classList.toggle("reconnecting", mode === "reconnecting");
-  bar.classList.toggle("disconnected", mode === "disconnected");
-  text.textContent = message || "实时连接异常";
-  if (icon) {
-    icon.className =
-      mode === "reconnecting"
-        ? "fa-solid fa-arrows-rotate"
-        : mode === "disconnected"
-          ? "fa-solid fa-triangle-exclamation"
-          : "fa-solid fa-wifi";
-  }
+  return window.DisplayUI.setRealtimeStatus(mode, message, {
+    suppress: mode !== "hidden" && shouldSuppressRealtimeStatusBar(),
+  });
 }
 
 async function refreshDisplayDataAfterMutation(options = {}) {
@@ -4906,6 +4932,8 @@ function beginDisplayInputGuard(durationMs = 450) {
   }, durationMs);
 }
 
+window.DisplayUI.configure({ beginInputGuard: beginDisplayInputGuard });
+
 function syncDisplayAnimationGuardClass() {
   document.body.classList.toggle(
     "display-animation-guard",
@@ -4928,105 +4956,15 @@ function isDisplayAnimationLocked() {
 }
 
 function closeConfirmModal(confirmed = false) {
-  const overlay = document.getElementById("confirmModal");
-  overlay?.classList.remove("active");
-  beginDisplayInputGuard();
-  if (confirmModalResolver) {
-    const resolver = confirmModalResolver;
-    confirmModalResolver = null;
-    resolver(confirmed);
-  }
-}
-
-function bindConfirmModalButton(button, action) {
-  if (!button) return;
-  button.__displayConfirmAction = action;
-  if (button.__displayConfirmBound) return;
-  button.__displayConfirmBound = true;
-
-  const activate = (event) => {
-    if (button.disabled || button.__displayConfirmActivating) return;
-    event.preventDefault();
-    event.stopPropagation();
-    button.__displayConfirmActivating = true;
-    window.setTimeout(() => {
-      button.__displayConfirmActivating = false;
-    }, 450);
-    button.__displayConfirmAction?.(event);
-  };
-
-  button.addEventListener("click", activate);
+  return window.DisplayUI.closeConfirmModal(confirmed);
 }
 
 function showConfirmModal(options = {}) {
-  const overlay = document.getElementById("confirmModal");
-  const badge = document.getElementById("confirmModalBadge");
-  const badgeText = document.getElementById("confirmModalBadgeText");
-  const badgeIcon = document.getElementById("confirmModalBadgeIcon");
-  const title = document.getElementById("confirmModalTitle");
-  const desc = document.getElementById("confirmModalDesc");
-  const cancelBtn = document.getElementById("confirmModalCancelBtn");
-  const confirmBtn = document.getElementById("confirmModalConfirmBtn");
-  if (
-    !overlay ||
-    !badge ||
-    !badgeText ||
-    !badgeIcon ||
-    !title ||
-    !desc ||
-    !cancelBtn ||
-    !confirmBtn
-  ) {
-    return Promise.resolve(false);
-  }
-
-  const tone = options.tone || "danger";
-  badge.classList.remove("danger", "warn", "success");
-  badge.classList.add(tone);
-  confirmBtn.classList.remove("warn", "success");
-  if (tone === "warn" || tone === "success") {
-    confirmBtn.classList.add(tone);
-  }
-
-  badgeText.textContent = options.badge || "操作确认";
-  badgeIcon.className = `fa-solid ${options.icon || "fa-shield-halved"}`;
-  title.textContent = options.title || "请确认本次操作";
-  desc.textContent = options.description || "确认后将继续执行当前操作。";
-  const alertOnly = options.alertOnly === true;
-  cancelBtn.textContent = options.cancelText || "取消";
-  confirmBtn.textContent =
-    options.confirmText || (alertOnly ? "我知道了" : "确认");
-  cancelBtn.hidden = alertOnly;
-
-  bindConfirmModalButton(cancelBtn, () => closeConfirmModal(false));
-  bindConfirmModalButton(confirmBtn, () => closeConfirmModal(true));
-  overlay.onclick = (event) => {
-    if (event.target === overlay) {
-      closeConfirmModal(alertOnly ? true : false);
-    }
-  };
-
-  const sessionId = ++confirmModalSessionId;
-  overlay.dataset.confirmSession = String(sessionId);
-  overlay.classList.add("active");
-
-  return new Promise((resolve) => {
-    confirmModalResolver = (confirmed) => {
-      if (Number(overlay.dataset.confirmSession || 0) !== sessionId) return;
-      resolve(confirmed);
-    };
-  });
+  return window.DisplayUI.showConfirmModal(options);
 }
 
 function showDisplayAlert(options = {}) {
-  return showConfirmModal({
-    tone: "warn",
-    badge: "温馨提示",
-    icon: "fa-circle-info",
-    confirmText: "我知道了",
-    alertOnly: true,
-    ...options,
-  });
+  return window.DisplayUI.showDisplayAlert(options);
 }
 
 function renderModalHistory(s) {
@@ -5262,31 +5200,7 @@ function refreshCurrentProfileStudent() {
 }
 
 function showToast(message, type = "info") {
-  let container = document.getElementById("toastContainer");
-  if (!container) {
-    container = document.createElement("div");
-    container.id = "toastContainer";
-    container.style.cssText =
-      "position:fixed;top:24px;left:50%;transform:translateX(-50%);z-index:99999;display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none;";
-    document.body.appendChild(container);
-  }
-  const toast = document.createElement("div");
-  const colors = {
-    success: "#1e8e5a",
-    warn: "#d4a017",
-    error: "#d64343",
-    info: "#2980b9",
-  };
-  toast.style.cssText = `padding:12px 28px;border-radius:12px;background:${colors[type] || colors.info};color:#fff;font-size:15px;font-weight:700;box-shadow:0 8px 24px rgba(0,0,0,0.18);opacity:0;transition:opacity 0.3s;pointer-events:auto;`;
-  toast.textContent = message;
-  container.appendChild(toast);
-  requestAnimationFrame(() => {
-    toast.style.opacity = "1";
-  });
-  setTimeout(() => {
-    toast.style.opacity = "0";
-    setTimeout(() => toast.remove(), 300);
-  }, 2500);
+  return window.DisplayUI.showToast(message, type);
 }
 
 function resolveAccessoryDecoSize(context = "hero") {
@@ -5557,7 +5471,6 @@ async function openPetProfileByName(name) {
 /* ===== 宠物改名功能 ===== */
 function openPetRenameInput() {
   if (isDisplayAnimationLocked()) return;
-  if (blockHomeroomLockedOperation("萌宠改名")) return;
 
   const student = refreshCurrentProfileStudent();
   const studentPetId = resolveStudentPetId(student);
@@ -5598,8 +5511,6 @@ function cancelPetRename() {
 }
 
 async function submitPetRename() {
-  if (blockHomeroomLockedOperation("萌宠改名")) return;
-
   const student = refreshCurrentProfileStudent();
   const studentPetId = resolveStudentPetId(student);
   if (!student || !studentPetId) {
@@ -6003,8 +5914,6 @@ function previewSelectNone(type) {
 }
 
 function confirmPendingDecoChange() {
-  if (blockHomeroomLockedOperation("更换装扮")) return;
-
   const type = petDecoCurrentFilter;
   if (!hasPendingDecoChange(type)) return;
 
@@ -6105,7 +6014,6 @@ function resetDecorationPanelScroll() {
 
 async function openDecorationPanel() {
   if (isDisplayAnimationLocked()) return;
-  if (blockHomeroomLockedOperation("更换装扮")) return;
 
   const student = refreshCurrentProfileStudent();
   const studentPetId = resolveStudentPetId(student);
@@ -6326,7 +6234,6 @@ function renderThemeGrid() {
 }
 
 function previewTheme(themeGroup) {
-  if (blockHomeroomLockedOperation("更换装扮")) return;
   const layers = getThemeLayerDecos(themeGroup);
   const student = refreshCurrentProfileStudent();
   const currentLevel = student?.lv || 1;
@@ -6343,8 +6250,6 @@ function previewTheme(themeGroup) {
 }
 
 function previewDecoration(decorationId) {
-  if (blockHomeroomLockedOperation("更换装扮")) return;
-
   const deco = petDecoAllDecorations.find((d) => d.id === decorationId);
   if (!deco) return;
 
@@ -6508,8 +6413,6 @@ async function requestThemeChangeConfirm(themeGroup, action) {
 }
 
 async function performEquipTheme(themeGroup, action) {
-  if (blockHomeroomLockedOperation("更换装扮")) return;
-
   const student = refreshCurrentProfileStudent();
   const studentPetId = resolveStudentPetId(student);
   if (!student || !studentPetId) return;
@@ -6694,8 +6597,6 @@ function renderDecoPreviewLayers() {
 }
 
 async function performEquipDecoration(deco, action) {
-  if (blockHomeroomLockedOperation("更换装扮")) return;
-
   const student = refreshCurrentProfileStudent();
   const studentPetId = resolveStudentPetId(student);
   if (!student || !studentPetId) return;
@@ -7079,10 +6980,6 @@ const DISPLAY_SCENE_ORDER = [
   "moral",
 ];
 
-const DISPLAY_LOGIN_CREDENTIALS_KEY = "yuyingpets_display_login_credentials";
-const DISPLAY_LOGIN_ACCOUNTS_KEY = "yuyingpets_display_login_accounts";
-const DISPLAY_SETUP_LAST_USERNAME_KEY =
-  "yuyingpets_display_setup_last_username";
 const ACADEMIC_RENDER_LIMITS = {
   default: {
     subjectCount: 6,
@@ -7144,23 +7041,13 @@ function isClassroomGridScrolling() {
   );
 }
 
-const LOW_SPEC_MODE_STORAGE_KEY = "yuyingpets_low_spec_mode";
-
 function readLowSpecModeEnabled() {
-  try {
-    return localStorage.getItem(LOW_SPEC_MODE_STORAGE_KEY) === "true";
-  } catch (_error) {
-    return false;
-  }
+  return window.DisplayRuntime.readLowSpecModeEnabled();
 }
 
 function writeLowSpecModeEnabled(enabled) {
   try {
-    if (enabled) {
-      localStorage.setItem(LOW_SPEC_MODE_STORAGE_KEY, "true");
-    } else {
-      localStorage.removeItem(LOW_SPEC_MODE_STORAGE_KEY);
-    }
+    window.DisplayRuntime.writeLowSpecModeEnabled(enabled);
   } catch (error) {
     console.warn("无法保存流畅模式设置", error);
   }
@@ -7184,8 +7071,6 @@ function syncDisplayPerformanceBodyState() {
   }
 }
 
-const GRID_DENSITY_STORAGE_KEY = "yuyingpets_grid_density";
-const SIDEBAR_COLLAPSED_KEY = "yuyingpets_sidebar_collapsed";
 const VALID_GRID_DENSITIES = new Set(["standard", "compact", "panorama"]);
 const PANORAMA_LAYOUT_CSS_VARS = [
   "--grid-columns",
@@ -7215,37 +7100,24 @@ let sidebarCollapsed = false;
 let panoramaLayoutTimer = null;
 
 function readGridDensity() {
-  try {
-    const value = localStorage.getItem(GRID_DENSITY_STORAGE_KEY);
-    return VALID_GRID_DENSITIES.has(value) ? value : "compact";
-  } catch (_error) {
-    return "compact";
-  }
+  return window.DisplayRuntime.readGridDensity(VALID_GRID_DENSITIES, "compact");
 }
 
 function writeGridDensity(mode) {
   try {
-    localStorage.setItem(GRID_DENSITY_STORAGE_KEY, mode);
+    window.DisplayRuntime.writeGridDensity(mode);
   } catch (error) {
     console.warn("无法保存视图密度设置", error);
   }
 }
 
 function readSidebarCollapsed() {
-  try {
-    return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true";
-  } catch (_error) {
-    return false;
-  }
+  return window.DisplayRuntime.readSidebarCollapsed();
 }
 
 function writeSidebarCollapsed(collapsed) {
   try {
-    if (collapsed) {
-      localStorage.setItem(SIDEBAR_COLLAPSED_KEY, "true");
-    } else {
-      localStorage.removeItem(SIDEBAR_COLLAPSED_KEY);
-    }
+    window.DisplayRuntime.writeSidebarCollapsed(collapsed);
   } catch (error) {
     console.warn("无法保存侧栏折叠设置", error);
   }
@@ -7430,88 +7302,25 @@ window.setGridDensity = setGridDensity;
 window.toggleSidebarCollapsed = toggleSidebarCollapsed;
 
 function getDisplayPerformanceTier() {
-  if (readLowSpecModeEnabled()) {
-    return "low-spec";
-  }
-  const params = new URL(window.location.href).searchParams;
-  if (params.get("highQuality") === "1" || params.get("quality") === "high") {
-    return "high";
-  }
-  if (params.get("lowMemory") === "1" || params.get("quality") === "standard") {
-    return "standard";
-  }
-  if (isCoarsePointerDevice()) {
-    return "standard";
-  }
-  return "high";
+  return window.DisplayRuntime.getDisplayPerformanceTier({
+    coarsePointer: isCoarsePointerDevice(),
+  });
 }
 
 function isStandardDisplay() {
-  const tier = getDisplayPerformanceTier();
-  return tier === "standard" || tier === "low-spec";
+  return window.DisplayRuntime.isStandardDisplay(getDisplayPerformanceTier());
 }
 
 function isHighQualityDisplay() {
-  return getDisplayPerformanceTier() === "high";
+  return window.DisplayRuntime.isHighQualityDisplay(getDisplayPerformanceTier());
 }
 
 function isLowSpecMode() {
-  return getDisplayPerformanceTier() === "low-spec";
+  return window.DisplayRuntime.isLowSpecMode(getDisplayPerformanceTier());
 }
 
 function getDisplayEffectBudget() {
-  if (isLowSpecMode()) {
-    return {
-      upgradeBurstParticles: 48,
-      upgradeDriftParticles: 24,
-      upgradeCanvasScale: 0.72,
-      upgradeEnergyLines: 0,
-      transitionParticles: 38,
-      realtimeRefreshDelay: 1200,
-      academicParticles: 35,
-      academicConnectionDist: 110,
-      remoteScoreAnimCap: 3,
-      scoreAnimStaggerMs: 200,
-      scoreFloatDurationMs: 800,
-      scoreFloatTailMs: 120,
-      upgradeOverlayDurationMs: 3000,
-      gridRenderDebounce: 120,
-    };
-  }
-  if (isStandardDisplay()) {
-    return {
-      upgradeBurstParticles: 48,
-      upgradeDriftParticles: 24,
-      upgradeCanvasScale: 0.72,
-      upgradeEnergyLines: 10,
-      transitionParticles: 38,
-      realtimeRefreshDelay: 500,
-      academicParticles: 35,
-      academicConnectionDist: 110,
-      remoteScoreAnimCap: 3,
-      scoreAnimStaggerMs: 120,
-      scoreFloatDurationMs: 1400,
-      scoreFloatTailMs: 180,
-      upgradeOverlayDurationMs: 5600,
-      gridRenderDebounce: 80,
-    };
-  }
-  return {
-    upgradeBurstParticles: 90,
-    upgradeDriftParticles: 60,
-    upgradeCanvasScale: 1,
-    upgradeEnergyLines: 16,
-    transitionParticles: 70,
-    realtimeRefreshDelay: 100,
-    academicParticles: 55,
-    academicConnectionDist: 140,
-    remoteScoreAnimCap: 8,
-    scoreAnimStaggerMs: 120,
-    scoreFloatDurationMs: 1400,
-    scoreFloatTailMs: 180,
-    upgradeOverlayDurationMs: 5600,
-    gridRenderDebounce: 80,
-  };
+  return window.DisplayRuntime.getDisplayEffectBudget(getDisplayPerformanceTier());
 }
 
 function isLowMemoryDisplay() {
@@ -7604,121 +7413,46 @@ function academicGrowthRenderSignature(data, limits) {
   ].join("::");
 }
 
-function getShellLocation() {
-  return window.location;
-}
-
 function resolveRuntimeParams() {
-  const shellLocation = getShellLocation();
-  const shellUrl = new URL(shellLocation.href);
-  const storedTerminalCode = localStorage.getItem(
-    "yuyingpets_display_terminal",
-  );
-  const requestedTerminalCode =
-    shellUrl.searchParams.get("terminal") ||
-    shellUrl.searchParams.get("displayTerminalCode");
-  const allowTerminalOverride =
-    shellUrl.searchParams.get("terminalOverride") === "1";
-  const terminalCode =
-    (allowTerminalOverride && requestedTerminalCode) ||
-    storedTerminalCode ||
-    requestedTerminalCode ||
-    createTerminalCode();
+  const { terminalCode, terminalName } = window.DisplayRuntime.resolveRuntimeParams();
   runtimeState.classId = null;
   runtimeState.terminalCode = terminalCode;
-  localStorage.setItem("yuyingpets_display_terminal", terminalCode);
-  runtimeState.terminalName =
-    localStorage.getItem("yuyingpets_display_terminal_name") ||
-    `育英星宠终端-${terminalCode.slice(-6).toUpperCase()}`;
+  runtimeState.terminalName = terminalName;
 }
 
 function createTerminalCode() {
-  const stored = localStorage.getItem("yuyingpets_display_terminal");
-  if (stored) return stored;
-  const generated = `display-${Math.random().toString(36).slice(2, 10)}`;
-  localStorage.setItem("yuyingpets_display_terminal", generated);
-  return generated;
+  return window.DisplayRuntime.createTerminalCode();
 }
 
 function getApiBase() {
-  if (window.__DISPLAY_API_BASE_URL__) {
-    return String(window.__DISPLAY_API_BASE_URL__).replace(/\/$/, "");
-  }
-  if (window.displayDesktop?.isDesktop === true && window.location.protocol === "file:") {
-    return "";
-  }
-  return `${window.location.origin}/api/v1`;
+  return window.DisplayRuntime.getApiBase();
 }
 
 function getAssetBase() {
-  const apiBase = getApiBase();
-  return apiBase ? apiBase.replace(/\/api\/v1$/, "") : "";
+  return window.DisplayRuntime.getAssetBase();
 }
 
 function resolveAssetUrl(url) {
-  if (!url) return "";
-  if (
-    /^(https?:)?\/\//i.test(url) ||
-    url.startsWith("data:") ||
-    url.startsWith("blob:")
-  ) {
-    return url;
-  }
-  return url.startsWith("/")
-    ? `${getAssetBase()}${url}`
-    : `${getAssetBase()}/${url}`;
+  return window.DisplayRuntime.resolveAssetUrl(url);
 }
 
 function giftImageVariant(url, size = 480) {
-  if (
-    !url ||
-    /^(https?:)?\/\//i.test(url) ||
-    url.startsWith("/") ||
-    url.startsWith("data:") ||
-    url.startsWith("blob:")
-  ) {
-    return url || "";
-  }
-  return url.replace("images/gifts/", `images/gifts/${size}/`);
+  return window.DisplayRuntime.giftImageVariant(url, size);
 }
 
 function resolveDisplayImageUrl(url) {
-  if (!url) return "";
-  return url.startsWith("images/") ? url : resolveAssetUrl(url);
+  return window.DisplayRuntime.resolveDisplayImageUrl(url);
 }
 
 function resolveDecoAssetUrl(deco, size = 400) {
-  if (!deco) return "";
-  const requestedSize = Number(size || 400);
-  const preferPreview = requestedSize <= 400;
-  const rawUrl = preferPreview
-    ? deco.previewUrl || deco.imageUrl
-    : deco.imageUrl || deco.previewUrl;
-  if (!rawUrl) return "";
-  let url = rawUrl;
-  if (url.includes("/pet-decorations/")) {
-    url = preferPreview
-      ? url.replace("/pet-decorations/1024/", "/pet-decorations/400/")
-      : url.replace("/pet-decorations/400/", "/pet-decorations/1024/");
-  }
-  return resolveAssetUrl(url);
+  return window.DisplayRuntime.resolveDecoAssetUrl(deco, size);
 }
 
 function resolvePetAssetVariantUrl(url, size = 400) {
-  if (!url) return "";
-  const requestedSize = Number(size || 400);
-  const effectiveSize =
-    requestedSize > 400 && isHighQualityDisplay() ? requestedSize : 400;
-  if (
-    effectiveSize === 400 ||
-    /^(https?:)?\/\//i.test(url) ||
-    url.startsWith("data:") ||
-    url.startsWith("blob:")
-  ) {
-    return resolveAssetUrl(url);
-  }
-  return resolveAssetUrl(
-    url.replace("/assets/pets/400/", "/assets/pets/1024/"),
+  return window.DisplayRuntime.resolvePetAssetVariantUrl(
+    url,
+    size,
+    isHighQualityDisplay(),
   );
 }
 
@@ -7736,17 +7470,7 @@ function petImgVariant(s, size = 400) {
 }
 
 function getSocketBase() {
-  if (window.__DISPLAY_REALTIME_URL__) {
-    return String(window.__DISPLAY_REALTIME_URL__).replace(/\/$/, "");
-  }
-  const apiBase = getApiBase();
-  if (apiBase) {
-    return apiBase.replace(/\/api\/v1$/, "");
-  }
-  if (window.displayDesktop?.isDesktop === true && window.location.protocol === "file:") {
-    return "";
-  }
-  return window.location.origin;
+  return window.DisplayRuntime.getSocketBase();
 }
 
 async function apiFetch(path, options = {}) {
@@ -7834,11 +7558,6 @@ async function renewDisplayUnlockSession(options = {}) {
 }
 
 async function apiFetchWithToken(path, token, options = {}) {
-  const apiBase = getApiBase();
-  if (!apiBase) {
-    throw new Error("未配置后端服务地址，请在 display.config.json 配置 apiBaseUrl，或通过桌面端注入默认线上地址");
-  }
-
   let unlockRenewResult = null;
   if (shouldAutoRenewUnlock(path, options) && shouldRenewUnlockSoon()) {
     unlockRenewResult = await renewDisplayUnlockSession();
@@ -7853,35 +7572,19 @@ async function apiFetchWithToken(path, token, options = {}) {
       throw new Error("教师操作已锁定，请重新登录后再试");
     }
   }
-  const headers = {
-    ...(options.body ? { "Content-Type": "application/json" } : {}),
-    ...(options.headers || {}),
-  };
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
+  const { data, renewedToken } = await window.DisplayRuntime.fetchApiJson(
+    path,
+    token,
+    options,
+  );
+  if (renewedToken && token) {
+    if (token === runtimeState.token) {
+      setPersistentToken(renewedToken);
+    } else if (token === runtimeState.setupAdminToken) {
+      runtimeState.setupAdminToken = renewedToken;
+    }
   }
-  let response;
-  try {
-    response = await fetch(`${apiBase}${path}`, {
-      ...options,
-      headers,
-    });
-  } catch (error) {
-    throw new Error(
-      `无法连接后端服务：${apiBase}（${error?.message || "网络请求失败"}）`,
-    );
-  }
-  const payload = await response.json().catch(() => null);
-  if (!response.ok || !payload || payload.code !== 0) {
-    const message =
-      payload && payload.message
-        ? payload.message
-        : response.status === 404
-          ? `接口不存在（${response.status}），请确认后端已更新并重启`
-          : `请求失败（${response.status}）`;
-    throw new Error(message);
-  }
-  return payload.data;
+  return data;
 }
 
 function setLoginMessage(message, type = "error") {
@@ -7892,74 +7595,31 @@ function setLoginMessage(message, type = "error") {
 }
 
 function requestDisplayFullscreen() {
-  const root = document.documentElement;
-  if (getDisplayFullscreenElement() || !root) {
-    syncDisplayFullscreenButton();
-    return;
-  }
-  const request =
-    root.requestFullscreen ||
-    root.webkitRequestFullscreen ||
-    root.msRequestFullscreen;
-  if (typeof request !== "function") return;
-  try {
-    const result = request.call(root);
-    if (result && typeof result.catch === "function") {
-      result
-        .then(() => syncDisplayFullscreenButton())
-        .catch(() => syncDisplayFullscreenButton());
-    }
-  } catch {
-    // 浏览器只允许在点击、选择等用户动作内进入全屏。
-    syncDisplayFullscreenButton();
-  }
+  return window.DisplayRuntime.requestFullscreen();
 }
 
 function getDisplayFullscreenElement() {
-  return (
-    document.fullscreenElement ||
-    document.webkitFullscreenElement ||
-    document.msFullscreenElement ||
-    null
-  );
+  return window.DisplayRuntime.getFullscreenElement();
 }
 
 function syncDisplayFullscreenButton() {
-  const button = document.getElementById("displayFullscreenBtn");
-  if (!button) return;
-  button.hidden = Boolean(getDisplayFullscreenElement());
+  return window.DisplayRuntime.syncFullscreenButton();
 }
 
 async function exitDisplayFullscreen() {
-  if (!getDisplayFullscreenElement()) {
-    return;
-  }
-  const exit =
-    document.exitFullscreen ||
-    document.webkitExitFullscreen ||
-    document.msExitFullscreen;
-  if (typeof exit !== "function") {
-    return;
-  }
-  try {
-    await exit.call(document);
-  } catch {
-    // 部分环境在用户手势外退出全屏会失败，忽略即可。
-  }
+  return window.DisplayRuntime.exitFullscreen();
 }
 
 function isDisplayDesktopRuntime() {
-  return window.displayDesktop?.isDesktop === true;
+  return window.DisplayRuntime.isDesktopRuntime();
 }
 
 async function minimizeDisplayWindow() {
   if (!isDisplayDesktopRuntime()) {
     return;
   }
-  await exitDisplayFullscreen();
-  syncDisplayFullscreenButton();
   try {
-    await window.displayDesktop.minimizeWindow();
+    await window.DisplayRuntime.minimizeDesktopWindow();
   } catch (error) {
     showDisplayToast(error?.message || "窗口最小化失败，请重试。");
   }
@@ -7984,111 +7644,28 @@ function enterDisplayLogin() {
 }
 
 function getStoredLoginCredentials() {
-  const raw = localStorage.getItem(DISPLAY_LOGIN_CREDENTIALS_KEY);
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw);
-    if (typeof parsed?.username !== "string") {
-      return null;
-    }
-    const sanitized = {
-      username: parsed.username,
-      displayName:
-        typeof parsed?.displayName === "string" ? parsed.displayName : "",
-    };
-    if (
-      typeof parsed?.password === "string" ||
-      parsed.displayName !== sanitized.displayName
-    ) {
-      localStorage.setItem(
-        DISPLAY_LOGIN_CREDENTIALS_KEY,
-        JSON.stringify(sanitized),
-      );
-    }
-    return sanitized;
-  } catch {
-    return null;
-  }
+  return window.DisplayRuntime.getStoredLoginCredentials();
 }
 
 function getStoredLoginAccounts() {
-  const raw = localStorage.getItem(DISPLAY_LOGIN_ACCOUNTS_KEY);
-  let accounts = [];
-  let shouldRewrite = false;
-  if (raw) {
-    try {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        accounts = parsed.filter(
-          (item) => typeof item?.username === "string" && item.username.trim(),
-        );
-        shouldRewrite = parsed.some(
-          (item) =>
-            typeof item?.password === "string" ||
-            typeof item?.displayName !== "string" ||
-            item?.username !== item?.username?.trim(),
-        );
-        accounts = accounts.map((item) => ({
-          username: item.username.trim(),
-          displayName:
-            typeof item.displayName === "string" && item.displayName.trim()
-              ? item.displayName.trim()
-              : item.username.trim(),
-          updatedAt:
-            typeof item.updatedAt === "number" ? item.updatedAt : Date.now(),
-        }));
-      }
-    } catch {
-      accounts = [];
-    }
-  }
-  const legacy = getStoredLoginCredentials();
-  if (legacy && !accounts.some((item) => item.username === legacy.username)) {
-    accounts.unshift(legacy);
-    shouldRewrite = true;
-  }
-  if (shouldRewrite) {
-    localStorage.setItem(
-      DISPLAY_LOGIN_ACCOUNTS_KEY,
-      JSON.stringify(accounts.slice(0, 12)),
-    );
-  }
-  return accounts;
+  return window.DisplayRuntime.getStoredLoginAccounts();
 }
 
 function setStoredLoginCredentials(username, displayName = "") {
-  const normalizedUsername = String(username || "").trim();
+  const normalizedUsername = window.DisplayRuntime.setStoredLoginCredentials(
+    username,
+    displayName,
+  );
   if (!normalizedUsername) return;
-  localStorage.setItem(
-    DISPLAY_LOGIN_CREDENTIALS_KEY,
-    JSON.stringify({
-      username: normalizedUsername,
-      displayName: displayName || normalizedUsername,
-    }),
-  );
-  const accounts = getStoredLoginAccounts().filter(
-    (item) => item.username !== normalizedUsername,
-  );
-  accounts.unshift({
-    username: normalizedUsername,
-    displayName: displayName || normalizedUsername,
-    updatedAt: Date.now(),
-  });
-  localStorage.setItem(
-    DISPLAY_LOGIN_ACCOUNTS_KEY,
-    JSON.stringify(accounts.slice(0, 12)),
-  );
   renderSavedLoginAccounts(normalizedUsername);
 }
 
 function getStoredSetupUsername() {
-  return localStorage.getItem(DISPLAY_SETUP_LAST_USERNAME_KEY)?.trim() || "";
+  return window.DisplayRuntime.getStoredSetupUsername();
 }
 
 function setStoredSetupUsername(username) {
-  const normalizedUsername = String(username || "").trim();
-  if (!normalizedUsername) return;
-  localStorage.setItem(DISPLAY_SETUP_LAST_USERNAME_KEY, normalizedUsername);
+  window.DisplayRuntime.setStoredSetupUsername(username);
 }
 
 function hydrateSetupUsername() {
@@ -8098,20 +7675,7 @@ function hydrateSetupUsername() {
 }
 
 function removeStoredLoginAccount(username) {
-  const normalizedUsername = String(username || "").trim();
-  if (!normalizedUsername) return false;
-  const accounts = getStoredLoginAccounts().filter(
-    (item) => item.username !== normalizedUsername,
-  );
-  localStorage.setItem(
-    DISPLAY_LOGIN_ACCOUNTS_KEY,
-    JSON.stringify(accounts.slice(0, 12)),
-  );
-  const legacy = getStoredLoginCredentials();
-  if (legacy?.username === normalizedUsername) {
-    localStorage.removeItem(DISPLAY_LOGIN_CREDENTIALS_KEY);
-  }
-  return true;
+  return window.DisplayRuntime.removeStoredLoginAccount(username);
 }
 
 function renderSavedLoginAccounts(selectedUsername = "") {
@@ -8250,11 +7814,7 @@ function handleDeleteSavedAccount() {
 
 function setPersistentToken(token) {
   runtimeState.token = token || "";
-  if (token) {
-    localStorage.setItem("yuyingpets_display_token", token);
-  } else {
-    localStorage.removeItem("yuyingpets_display_token");
-  }
+  window.DisplayRuntime.setPersistentToken(token);
   if (runtimeState.socket) {
     runtimeState.socket.auth = {
       ...(runtimeState.socket.auth || {}),
@@ -8300,14 +7860,14 @@ function clearAuthState(options = {}) {
   runtimeState.lockOverlayForced = false;
   if (!preserveClassId) {
     runtimeState.classId = null;
-    localStorage.removeItem("yuyingpets_display_class_id");
+    window.DisplayRuntime.clearDisplayClassId();
   }
   syncBottomUserName();
   subscribeRealtimeRooms();
 }
 
 async function restoreAuthSession() {
-  const token = localStorage.getItem("yuyingpets_display_token");
+  const token = window.DisplayRuntime.getPersistentToken();
   if (!token) {
     return false;
   }
@@ -8399,7 +7959,12 @@ function isHomeroomOfCurrentClass() {
 }
 
 function canAdoptPet() {
-  return isHomeroomOfCurrentClass();
+  return Boolean(
+    runtimeState.user &&
+      runtimeState.token &&
+      runtimeState.classId &&
+      canCurrentUserAccessClass(runtimeState.classId),
+  );
 }
 
 /** 班主任及以上权限 + 终端未锁定（与领养等班级档案操作一致） */
@@ -8430,7 +7995,6 @@ function blockOperationIfLocked(featureName) {
 function getHomeroomOnlyAlertCopy(featureName) {
   const featureHints = {
     分组管理: "学生分组属于班级基础设置，通常由班主任统一安排。",
-    萌宠领养: "萌宠领养会写入学生成长档案，通常由班主任统一引导完成。",
     更换装扮:
       "更换装扮会消耗积分并写入学生成长档案，通常由班主任统一引导完成。",
     萌宠改名: "萌宠改名会写入学生成长档案，通常由班主任统一引导完成。",
@@ -9818,10 +9382,7 @@ async function confirmTerminalInitialize() {
         }),
       },
     );
-    localStorage.setItem(
-      "yuyingpets_display_terminal_name",
-      runtimeState.terminalName,
-    );
+    window.DisplayRuntime.setTerminalName(runtimeState.terminalName);
     runtimeState.classId = result.classId;
     runtimeState.terminalInitialized = true;
     const latestTerminalState = await loadTerminalState().catch(() => ({
@@ -9872,10 +9433,7 @@ async function loadTerminalState() {
   );
   runtimeState.terminalName = state.terminalName || runtimeState.terminalName;
   if (runtimeState.terminalName) {
-    localStorage.setItem(
-      "yuyingpets_display_terminal_name",
-      runtimeState.terminalName,
-    );
+    window.DisplayRuntime.setTerminalName(runtimeState.terminalName);
   }
   runtimeState.terminalInitialized = Boolean(state.isInitialized);
   runtimeState.classId = state.classId || null;
@@ -9929,7 +9487,7 @@ function applyLockOverlay() {
     badge.textContent = "操作已锁定";
     title.textContent = "教师操作已锁定";
     desc.textContent =
-      "当前为展示状态。若需加减分、兑换或执行其他教师操作，请重新登录后解锁操作权限。";
+      "当前为展示状态。若需加减分、兑换或执行其他教师操作，请重新登录后解锁操作权限；学生可继续更换萌宠装扮和昵称。";
     primaryBtn.textContent = "去解锁";
     secondaryBtn.textContent = "我知道了";
     if (runtimeState.lastLockedAt) {
@@ -9940,7 +9498,7 @@ function applyLockOverlay() {
     if (opTitle) opTitle.textContent = "操作已锁定";
     if (opSubtitle)
       opSubtitle.textContent =
-        "学生可继续查看展示内容，教师需重新登录后才可操作";
+        "学生可继续查看展示内容并更换萌宠装扮，教师操作需重新登录";
     if (opPrimaryBtn) opPrimaryBtn.textContent = "去解锁";
     if (opSecondaryBtn) opSecondaryBtn.textContent = "我知道了";
     if (topActionBtn) {
@@ -9981,7 +9539,7 @@ function applyLockOverlay() {
     badge.textContent = "操作已锁定";
     title.textContent = "教师操作已锁定";
     desc.textContent =
-      "当前为展示状态。若需继续加减分、兑换或执行其他教师操作，请重新登录后解锁操作权限。";
+      "当前为展示状态。若需继续加减分、兑换或执行其他教师操作，请重新登录后解锁操作权限；学生可继续更换萌宠装扮和昵称。";
     primaryBtn.textContent = "去解锁";
     secondaryBtn.textContent = "我知道了";
     if (runtimeState.lastLockedAt || runtimeState.unlockedUntil) {
@@ -9993,7 +9551,7 @@ function applyLockOverlay() {
       opTitle.textContent = "操作已锁定";
     }
     if (opSubtitle) {
-      opSubtitle.textContent = "展示继续可见，教师需重新登录后才可继续操作";
+      opSubtitle.textContent = "展示继续可见，学生装扮与昵称自助操作不受锁定影响";
     }
     if (opPrimaryBtn) opPrimaryBtn.textContent = "去解锁";
     if (opSecondaryBtn) opSecondaryBtn.textContent = "我知道了";
@@ -10004,9 +9562,6 @@ function applyLockOverlay() {
   }
 
   updateLockMeta(metaLines);
-  if (runtimeState.lockStatus !== "active") {
-    closeDecorationPanel();
-  }
   syncCallOverlayAction();
 }
 
@@ -12897,16 +12452,19 @@ async function confirmExchange(studentName) {
   const s = students.find((x) => x.name === studentName);
   if (!s || s.pts < currentExchangeCost) return;
   if (!runtimeState.token) {
-    showDisplayToast("请先登录班主任账号");
+    showDisplayToast("请先登录教师账号");
     return;
   }
   exchangeConfirmInFlight = true;
+  const exchangeItem = currentExchangeItem;
+  const exchangeCost = currentExchangeCost;
+  const exchangeRewardId = currentExchangeRewardId;
   const confirmed = await showConfirmModal({
     tone: "warn",
     badge: "兑换确认",
     icon: "fa-gift",
     title: "确认兑换该礼品吗？",
-    description: `${studentName} 将兑换「${currentExchangeItem}」。\n本次将扣除 ${currentExchangeCost} 积分。`,
+    description: `${studentName} 将兑换「${exchangeItem}」。\n本次将扣除 ${exchangeCost} 积分。`,
     confirmText: "确认兑换",
   });
   if (!confirmed) {
@@ -12920,18 +12478,18 @@ async function confirmExchange(studentName) {
       body: JSON.stringify({
         classId: runtimeState.classId,
         studentId: s.id,
-        rewardId: currentExchangeRewardId,
+        rewardId: exchangeRewardId,
         sourceTerminal: "display",
       }),
     });
-    s.pts = Math.max(0, Number(s.pts || 0) - Number(currentExchangeCost || 0));
+    s.pts = Math.max(0, Number(s.pts || 0) - Number(exchangeCost || 0));
     reorderStudents();
     syncClassroomMeta();
     renderStudentGrid({ force: true });
     renderTodayRank();
     renderLeaderboardList();
     closeSelectStudentModal();
-    showExchangeSuccess(currentExchangeItem, s.name, currentExchangeCost);
+    showExchangeSuccess(exchangeItem, s.name, exchangeCost);
     await refreshDisplayDataAfterMutation({
       actionLabel: "兑换",
       failureMessage: "兑换已提交，但界面刷新失败，请检查网络连接后重试。",
@@ -13172,10 +12730,7 @@ async function finalizeTeacherSession() {
 
 async function selectDisplayClass(classId) {
   runtimeState.classId = Number(classId);
-  localStorage.setItem(
-    "yuyingpets_display_class_id",
-    String(runtimeState.classId),
-  );
+  window.DisplayRuntime.setDisplayClassId(runtimeState.classId);
   document.getElementById("classSelectModal")?.classList.remove("active");
   await finalizeTeacherSession();
 }
@@ -13447,10 +13002,7 @@ async function handleLogin() {
       }
       if (classScopeIds.length === 1) {
         runtimeState.classId = classScopeIds[0];
-        localStorage.setItem(
-          "yuyingpets_display_class_id",
-          String(runtimeState.classId),
-        );
+        window.DisplayRuntime.setDisplayClassId(runtimeState.classId);
         await finalizeTeacherSession();
       } else {
         await loadAvailableClasses();
@@ -13459,10 +13011,7 @@ async function handleLogin() {
         );
         if (available.length === 1) {
           runtimeState.classId = Number(available[0].id);
-          localStorage.setItem(
-            "yuyingpets_display_class_id",
-            String(runtimeState.classId),
-          );
+          window.DisplayRuntime.setDisplayClassId(runtimeState.classId);
           await finalizeTeacherSession();
         } else {
           runtimeState.pendingLoginResult = result;

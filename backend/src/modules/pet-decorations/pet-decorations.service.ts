@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '@/prisma/prisma.service';
 import { AuthService } from '@/modules/auth/auth.service';
+import { AuthUser } from '@/common/auth/auth-user.interface';
 import { toNumber } from '@/common/utils/bigint.util';
 import { resolvePetDecoChangeCost } from '@/common/utils/pet-growth.util';
 import { syncUnlockedDecorationsForLevel } from '@/common/utils/pet-decoration-unlock.util';
@@ -122,20 +123,8 @@ export class PetDecorationsService {
   }
 
   async equip(authorization: string | undefined, studentPetId: number, dto: EquipDecorationDto) {
-    const user = await this.authService.getAuthUserFromAuthorization(authorization);
+    const user = await this.getOptionalAuthUser(authorization);
     const studentPet = await this.loadStudentPetContext(studentPetId);
-    this.authService.ensureCanAccessClass(user, studentPet.student.classId);
-
-    if (
-      !['homeroom_teacher', 'school_admin', 'academic_admin', 'grade_admin', 'moral_admin', 'super_admin'].includes(
-        user.roleCode,
-      )
-    ) {
-      throw new ForbiddenException('当前角色无权更换装扮');
-    }
-    if (user.roleCode === 'homeroom_teacher') {
-      await this.authService.ensureIsHomeroomOfClass(user, studentPet.student.classId);
-    }
 
     const decoration = await this.prisma.petDecoration.findFirst({
       where: {
@@ -214,6 +203,12 @@ export class PetDecorationsService {
           if (!profile || profile.currentScore < changeCost) {
             throw new BadRequestException(`积分不足，更换装扮需要 ${changeCost} 积分`);
           }
+          const operator = await this.resolveDecoChangeOperator(
+            tx,
+            freshPet.student.schoolId,
+            freshPet.student.classId,
+            user,
+          );
 
           const rule = await this.ensureDecoChangeScoreRule(
             tx,
@@ -246,9 +241,9 @@ export class PetDecorationsService {
               scoreDelta: -changeCost,
               remark: `更换装扮：${decoration.name}`,
               sourceTerminal: 'display',
-              sourceRole: user.roleCode,
-              operatorId: user.id,
-              operatorName: user.name,
+              sourceRole: operator.sourceRole,
+              operatorId: operator.operatorId,
+              operatorName: operator.operatorName,
             },
           });
 
@@ -305,20 +300,8 @@ export class PetDecorationsService {
   }
 
   async equipTheme(authorization: string | undefined, studentPetId: number, dto: EquipThemeDto) {
-    const user = await this.authService.getAuthUserFromAuthorization(authorization);
+    const user = await this.getOptionalAuthUser(authorization);
     const studentPet = await this.loadStudentPetContext(studentPetId);
-    this.authService.ensureCanAccessClass(user, studentPet.student.classId);
-
-    if (
-      !['homeroom_teacher', 'school_admin', 'academic_admin', 'grade_admin', 'moral_admin', 'super_admin'].includes(
-        user.roleCode,
-      )
-    ) {
-      throw new ForbiddenException('当前角色无权更换装扮');
-    }
-    if (user.roleCode === 'homeroom_teacher') {
-      await this.authService.ensureIsHomeroomOfClass(user, studentPet.student.classId);
-    }
 
     const themeDecorations = await this.prisma.petDecoration.findMany({
       where: {
@@ -412,6 +395,12 @@ export class PetDecorationsService {
         if (!profile || profile.currentScore < changeCost) {
           throw new BadRequestException(`积分不足，更换主题皮肤需要 ${changeCost} 积分`);
         }
+        const operator = await this.resolveDecoChangeOperator(
+          tx,
+          freshPet.student.schoolId,
+          freshPet.student.classId,
+          user,
+        );
 
         const rule = await this.ensureDecoChangeScoreRule(
           tx,
@@ -444,9 +433,9 @@ export class PetDecorationsService {
             scoreDelta: -changeCost,
             remark: `更换主题皮肤：${themeName}`,
             sourceTerminal: 'display',
-            sourceRole: user.roleCode,
-            operatorId: user.id,
-            operatorName: user.name,
+            sourceRole: operator.sourceRole,
+            operatorId: operator.operatorId,
+            operatorName: operator.operatorName,
           },
         });
 
@@ -591,6 +580,67 @@ export class PetDecorationsService {
       return { decoFreeChangeLevel: null };
     }
     return { decoFreeChangeUsed: true };
+  }
+
+  private async getOptionalAuthUser(authorization?: string) {
+    if (!authorization?.trim()) return null;
+    return this.authService.getAuthUserFromAuthorization(authorization).catch(() => null);
+  }
+
+  private async resolveDecoChangeOperator(
+    tx: Prisma.TransactionClient,
+    schoolId: bigint,
+    classId: bigint,
+    user: AuthUser | null,
+  ) {
+    if (user) {
+      return {
+        operatorId: user.id,
+        operatorName: user.name,
+        sourceRole: user.roleCode,
+      };
+    }
+
+    const classroom = await tx.classroom.findUnique({
+      where: { id: classId },
+      select: {
+        homeroomTeacher: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+    });
+    if (classroom?.homeroomTeacher) {
+      return {
+        operatorId: classroom.homeroomTeacher.id,
+        operatorName: classroom.homeroomTeacher.name,
+        sourceRole: 'student_self_service',
+      };
+    }
+
+    const fallbackUser = await tx.user.findFirst({
+      where: {
+        schoolId,
+        deletedAt: null,
+        status: 'enabled',
+        role: { code: { in: ['super_admin', 'school_admin', 'academic_admin', 'moral_admin'] } },
+      },
+      select: {
+        id: true,
+        name: true,
+      },
+      orderBy: { id: 'asc' },
+    });
+    if (!fallbackUser) {
+      throw new ForbiddenException('当前班级缺少可归属的操作账号，暂不能更换装扮');
+    }
+    return {
+      operatorId: fallbackUser.id,
+      operatorName: fallbackUser.name,
+      sourceRole: 'student_self_service',
+    };
   }
 
   private async loadStudentPetContext(studentPetId: number) {

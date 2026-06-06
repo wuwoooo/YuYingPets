@@ -9,6 +9,7 @@ import { AppModule } from './app.module';
 import { NestPinoLogger } from './logging/nest-pino-logger';
 import { rootLogger } from './logging/root-logger';
 import { RedisIoAdapter } from './modules/realtime/redis-io.adapter';
+import { RENEWED_DISPLAY_TOKEN_HEADER } from './common/auth/jwt-auth.guard';
 
 const processLogger = rootLogger.child({ context: 'process' });
 
@@ -105,6 +106,7 @@ async function bootstrap() {
       callback(null, false);
     },
     credentials: true,
+    exposedHeaders: [RENEWED_DISPLAY_TOKEN_HEADER],
   });
 
   app.use((req: Request, res: Response, next: NextFunction) => {

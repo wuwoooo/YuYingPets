@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "vite",
+    "check:display": "node scripts/validate-display-public.mjs",
     "build": "vite build",
     "preview": "vite preview"
   },

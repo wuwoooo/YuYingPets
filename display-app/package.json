@@ -10,6 +10,7 @@
   ],
   "scripts": {
     "dev:web": "npm --workspace web run dev",
+    "check:display": "npm --workspace web run check:display",
     "build:web": "npm --workspace web run build",
     "dev:desktop": "npm --workspace desktop run dev",
     "build:desktop": "npm --workspace desktop run build",

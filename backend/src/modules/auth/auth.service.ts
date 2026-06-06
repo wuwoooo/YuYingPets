@@ -2,7 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, UnauthorizedExcept
 import { JwtService } from '@nestjs/jwt';
 import { compare, hashSync } from 'bcryptjs';
 import { PrismaService } from '@/prisma/prisma.service';
-import { LoginDto } from './dto/login.dto';
+import { LoginDto, LoginTerminalType } from './dto/login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { ProjectionLoginDto } from './dto/projection-login.dto';
 import { AuthUser } from '@/common/auth/auth-user.interface';
@@ -24,6 +24,8 @@ const DUTY_TAG_ROLE_MAP: Array<{ keywords: string[]; roleCode: string }> = [
 
 const DISPLAY_ADMIN_ROLE_CODES = ['super_admin', 'school_admin', 'academic_admin', 'moral_admin'];
 const DISPLAY_OPERATOR_ROLE_CODES = [...DISPLAY_ADMIN_ROLE_CODES, 'homeroom_teacher', 'subject_teacher'];
+const DISPLAY_TOKEN_EXPIRES_IN = '30m';
+const DISPLAY_TOKEN_RENEW_WINDOW_SECONDS = 10 * 60;
 const PROJECTION_TOKEN_EXPIRES_IN = '3650d';
 const COMMON_WEAK_PASSWORDS = new Set([
   '123456',
@@ -38,6 +40,16 @@ const COMMON_WEAK_PASSWORDS = new Set([
   'abc123',
   'admin',
 ]);
+
+type AuthTokenPayload = {
+  sub: number;
+  schoolId: number;
+  username?: string;
+  roleCode: string;
+  terminalType?: string;
+  exp?: number;
+  iat?: number;
+};
 
 @Injectable()
 export class AuthService {
@@ -82,14 +94,14 @@ export class AuthService {
     }
 
     const payload = {
-      sub: toNumber(user.id),
-      schoolId: toNumber(user.schoolId),
+      sub: Number(user.id),
+      schoolId: Number(user.schoolId),
       username: user.username,
       roleCode: user.role.code,
       terminalType: dto.terminalType,
     };
 
-    const token = await this.jwtService.signAsync(payload);
+    const token = await this.signLoginToken(payload, dto.terminalType);
     await this.prisma.user.update({
       where: { id: user.id },
       data: { lastLoginAt: new Date() },
@@ -287,27 +299,20 @@ export class AuthService {
   }
 
   async getAuthUserFromAuthorization(authorization?: string): Promise<AuthUser> {
-    if (!authorization) {
-      throw new UnauthorizedException('缺少 Authorization');
-    }
+    const { payload } = await this.verifyAuthorizationToken(authorization);
+    return this.getAuthUserFromPayload(payload);
+  }
 
-    const token = authorization.replace(/^Bearer\s+/i, '').trim();
-    if (!token) {
-      throw new UnauthorizedException('无效的 token');
-    }
-
-    let payload: {
-      sub: number;
-      schoolId: number;
-      roleCode: string;
-      terminalType?: string;
+  async getAuthUserAndRenewedTokenFromAuthorization(authorization?: string) {
+    const { payload } = await this.verifyAuthorizationToken(authorization);
+    const user = await this.getAuthUserFromPayload(payload);
+    return {
+      user,
+      renewedToken: await this.renewDisplayTokenIfNeeded(payload),
     };
-    try {
-      payload = await this.jwtService.verifyAsync(token);
-    } catch {
-      throw new UnauthorizedException('无效的 token');
-    }
+  }
 
+  private async getAuthUserFromPayload(payload: AuthTokenPayload): Promise<AuthUser> {
     const user = await this.prisma.user.findFirst({
       where: {
         id: BigInt(payload.sub),
@@ -350,6 +355,53 @@ export class AuthService {
         isPrimary: assignment.isPrimary,
       })),
     };
+  }
+
+  private async verifyAuthorizationToken(authorization?: string): Promise<{ token: string; payload: AuthTokenPayload }> {
+    if (!authorization) {
+      throw new UnauthorizedException('缺少 Authorization');
+    }
+
+    const token = authorization.replace(/^Bearer\s+/i, '').trim();
+    if (!token) {
+      throw new UnauthorizedException('无效的 token');
+    }
+
+    try {
+      const payload = await this.jwtService.verifyAsync<AuthTokenPayload>(token);
+      return { token, payload };
+    } catch {
+      throw new UnauthorizedException('无效的 token');
+    }
+  }
+
+  private signLoginToken(payload: Omit<AuthTokenPayload, 'exp' | 'iat'>, terminalType?: string) {
+    if (terminalType === LoginTerminalType.DISPLAY) {
+      return this.jwtService.signAsync(payload, {
+        expiresIn: DISPLAY_TOKEN_EXPIRES_IN,
+      });
+    }
+    return this.jwtService.signAsync(payload);
+  }
+
+  private renewDisplayTokenIfNeeded(payload: AuthTokenPayload) {
+    if (payload.terminalType !== LoginTerminalType.DISPLAY || typeof payload.exp !== 'number') {
+      return null;
+    }
+    const remainingSeconds = payload.exp - Math.floor(Date.now() / 1000);
+    if (remainingSeconds <= 0 || remainingSeconds > DISPLAY_TOKEN_RENEW_WINDOW_SECONDS) {
+      return null;
+    }
+    return this.signLoginToken(
+      {
+        sub: payload.sub,
+        schoolId: payload.schoolId,
+        username: payload.username,
+        roleCode: payload.roleCode,
+        terminalType: payload.terminalType,
+      },
+      payload.terminalType,
+    );
   }
 
   canAccessClass(user: AuthUser, classId: bigint | number) {
