@@ -55,6 +55,12 @@ export class ScoreRecordsService {
           rule: {
             select: { name: true },
           },
+          student: {
+            select: { name: true },
+          },
+          classroom: {
+            select: { name: true, gradeName: true },
+          },
           reversedBy: {
             select: { name: true },
           },
@@ -77,13 +83,24 @@ export class ScoreRecordsService {
                   name: true,
                 },
               },
+              student: {
+                select: {
+                  name: true,
+                },
+              },
+              classroom: {
+                select: {
+                  name: true,
+                  gradeName: true,
+                },
+              },
             },
             orderBy: { createdAt: 'desc' },
             take: 100,
           }),
     ]);
 
-    const scoreItems = scoreRows.map(({ rule, reversedBy, ...row }) => ({
+    const scoreItems = scoreRows.map(({ rule, reversedBy, student, classroom, ...row }) => ({
       ...row,
       id: toNumber(row.id),
       schoolId: toNumber(row.schoolId),
@@ -96,6 +113,8 @@ export class ScoreRecordsService {
       reversedById: toNumber(row.reversedById),
       reversedByName: reversedBy?.name ?? null,
       ruleName: rule?.name ?? null,
+      studentName: student?.name ?? null,
+      className: classroom ? `${classroom.gradeName}${classroom.name}` : null,
     }));
 
     const rewardOrderItems = rewardOrderRows.map((row) => ({
@@ -118,6 +137,8 @@ export class ScoreRecordsService {
       operatorId: toNumber(row.operatorId),
       operatorName: null,
       ruleName: `兑换奖励：${row.reward.name}`,
+      studentName: row.student?.name ?? null,
+      className: row.classroom ? `${row.classroom.gradeName}${row.classroom.name}` : null,
       occurredAt: row.createdAt,
       createdAt: row.createdAt,
       reversedAt: null,
@@ -318,6 +339,7 @@ export class ScoreRecordsService {
       sourceTerminal: body.sourceTerminal,
       operatorName: user.name,
       batchId: result.batchId,
+      suppressScoreSound: body.sourceTerminal === 'admin' && body.studentIds.length > 1,
       changes: this.buildStudentScoreChanges(result.items),
       upgrades: result.items
         .filter((item) => item.petUpgrade?.upgraded)

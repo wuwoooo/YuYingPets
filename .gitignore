@@ -5,6 +5,9 @@ dist/
 **/dist/
 build/
 **/build/
+!display-app/desktop/build/
+!display-app/desktop/build/icon.ico
+!display-app/desktop/build/floating-ball-logo.png
 coverage/
 **/coverage/
 .npm/
@@ -87,3 +90,10 @@ display-app/e2e/artifacts/
 
 # Generated asset archives
 backend/public/assets/pets/1024/*.zip
+
+# Codex self-distillation local reports
+codex_self_distillation_universal_v1*/
+
+# Local theme asset staging copies; canonical app assets live under backend/public/assets
+pets/acc_theme_*_2026.png
+pets/backdrop_theme_*_2026.png

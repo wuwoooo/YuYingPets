@@ -13,7 +13,9 @@
     "build": "npm run build:web",
     "pack": "npm run build:web && electron-builder --dir",
     "dist:win": "npm run build:web && electron-builder --win nsis --x64",
-    "dist:win:arm64": "npm run build:web && electron-builder --win nsis --arm64"
+    "dist:win:cn": "cross-env ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ npm run dist:win",
+    "dist:win:arm64": "npm run build:web && electron-builder --win nsis --arm64",
+    "dist:win:cn:arm64": "cross-env ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ npm run dist:win:arm64"
   },
   "devDependencies": {
     "cross-env": "^7.0.3",
@@ -28,12 +30,26 @@
     "directories": {
       "output": "release"
     },
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://www.dlbfyy.cn/download/display-app/win/"
+      }
+    ],
     "files": [
       "main.js",
       "preload.js",
+      "floating-ball.html",
+      "floating-ball-preload.js",
       "placeholder.html",
-      "../web/dist/**/*",
+      "build/**/*",
       "node_modules/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../web/dist",
+        "to": "web/dist"
+      }
     ],
     "mac": {
       "identity": null
@@ -42,6 +58,7 @@
       "main": "main.js"
     },
     "win": {
+      "icon": "build/icon.ico",
       "target": [
         {
           "target": "nsis",
@@ -58,7 +75,12 @@
       "perMachine": false,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
       "shortcutName": "育英星宠 Display"
     }
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.3"
   }
 }

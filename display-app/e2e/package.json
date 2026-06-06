@@ -11,6 +11,7 @@
     "test:terminal": "node scripts/display-terminal.mjs",
     "test:prototype": "node scripts/display-prototype.mjs",
     "test:realtime": "node scripts/display-realtime.mjs",
+    "test:toolbox": "node scripts/display-toolbox.mjs",
     "test:touch-guard": "node scripts/display-touch-guard.mjs",
     "test:all": "node scripts/run-all.mjs"
   },

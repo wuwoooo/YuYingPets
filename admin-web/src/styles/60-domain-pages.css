@@ -5956,6 +5956,35 @@
   line-height: 1.7;
 }
 
+.presentation-summary-list--ai {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 100%;
+  overflow: auto;
+  padding-right: 4px;
+  cursor: grab;
+  user-select: none;
+  touch-action: pan-y;
+}
+
+.presentation-summary-list--ai.is-dragging {
+  cursor: grabbing;
+}
+
+.presentation-summary-list--ai::-webkit-scrollbar {
+  width: 6px;
+}
+
+.presentation-summary-list--ai::-webkit-scrollbar-thumb {
+  background: rgba(136, 210, 255, 0.2);
+  border-radius: 999px;
+}
+
+.presentation-summary-item--ai {
+  font-size: 13px;
+  line-height: 1.55;
+}
+
 .presentation-curtain {
   position: fixed;
   inset: 0;

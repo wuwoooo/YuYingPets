@@ -18,6 +18,7 @@ import type {
   AdminStudent,
   AnalyticsData,
   ClassScoreRecord,
+  ClassScoreRankingRow,
   ClassGroupSummary,
   GroupScoreRankingRow,
   GroupScoreRecordRow,
@@ -31,7 +32,7 @@ import type {
 } from '../lib/api';
 import { adminApi } from '../lib/api';
 import { canGrantStudentHonors } from '../utils/adminPermissions';
-import { canShowScoreRecordReverse, formatScoreDelta, formatScoreRecordLabel } from '../utils/scoreRecordReverse';
+import { canShowClassScoreRecordReverse, canShowScoreRecordReverse, formatScoreDelta, formatScoreRecordLabel } from '../utils/scoreRecordReverse';
 
 type EvaluationPageProps = {
   token: string;
@@ -61,6 +62,12 @@ type RecentSubmitRecord = {
 type ReverseTarget = {
   record: ScoreRecord;
   studentName: string;
+  currentScore: number | null;
+};
+
+type ClassReverseTarget = {
+  record: ClassScoreRecord;
+  className: string;
   currentScore: number | null;
 };
 
@@ -94,6 +101,15 @@ function formatDateTime(value: string) {
     minute: '2-digit',
     hour12: false,
   }).format(new Date(value));
+}
+
+function normalizeDateValue(value?: string | null) {
+  if (!value) return '';
+  const direct = value.slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(direct)) return direct;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '';
+  return parsed.toISOString().slice(0, 10);
 }
 
 function compareGradeName(a: string, b: string) {
@@ -206,6 +222,7 @@ export function EvaluationPage({
   const [recordKeyword, setRecordKeyword] = useState('');
   const [recentSubmitRecords, setRecentSubmitRecords] = useState<RecentSubmitRecord[]>([]);
   const [reverseTarget, setReverseTarget] = useState<ReverseTarget | null>(null);
+  const [classReverseTarget, setClassReverseTarget] = useState<ClassReverseTarget | null>(null);
   const [reverseLoading, setReverseLoading] = useState(false);
   const today = new Date().toISOString().slice(0, 10);
   const summaryDefaultStartDate = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -213,6 +230,14 @@ export function EvaluationPage({
   const [summaryEndDate, setSummaryEndDate] = useState(today);
   const [recordStartDate, setRecordStartDate] = useState(summaryDefaultStartDate);
   const [recordEndDate, setRecordEndDate] = useState(today);
+  const [semesterStartDate, setSemesterStartDate] = useState('');
+  const [semesterEndDate, setSemesterEndDate] = useState('');
+  const [classScoreStartDate, setClassScoreStartDate] = useState('');
+  const [classScoreEndDate, setClassScoreEndDate] = useState('');
+  const [classScoreDateInitialized, setClassScoreDateInitialized] = useState(false);
+  const [classRankingRows, setClassRankingRows] = useState<ClassScoreRankingRow[]>([]);
+  const [classRankingLoading, setClassRankingLoading] = useState(false);
+  const [classRankingError, setClassRankingError] = useState<string | null>(null);
   const [summaryStudentKeyword, setSummaryStudentKeyword] = useState('');
   const [scoreSummaryLoading, setScoreSummaryLoading] = useState(false);
   const [scoreSummaryError, setScoreSummaryError] = useState<string | null>(null);
@@ -356,6 +381,15 @@ export function EvaluationPage({
     }),
     [activeSubjectView?.subjectCode, isSubjectTeacher, recordEndDate, recordStartDate, recordStudentFilter, selectedClassId],
   );
+  const classScoreRecordQuery = useMemo(
+    () => ({
+      classId: selectedClassId ?? undefined,
+      ...(classScoreStartDate ? { startDate: classScoreStartDate } : {}),
+      ...(classScoreEndDate ? { endDate: classScoreEndDate } : {}),
+    }),
+    [classScoreEndDate, classScoreStartDate, selectedClassId],
+  );
+  const classScoreDateMax = semesterEndDate && semesterEndDate > today ? semesterEndDate : today;
   const canManageGroupScore = ['super_admin', 'school_admin', 'academic_admin', 'homeroom_teacher'].includes(user?.roleCode ?? '');
   const summaryQuickRange = useMemo(() => {
     const monthStart = `${today.slice(0, 8)}01`;
@@ -593,6 +627,35 @@ export function EvaluationPage({
     : 0;
 
   useEffect(() => {
+    if (!isClassEvaluationPage || classScoreDateInitialized) return;
+    let active = true;
+    adminApi.settings(token)
+      .then((response) => {
+        if (!active) return;
+        const startDate = normalizeDateValue(response.data.semester?.startDate);
+        const endDate = normalizeDateValue(response.data.semester?.endDate);
+        setSemesterStartDate(startDate);
+        setSemesterEndDate(endDate);
+        if (startDate) setClassScoreStartDate((prev) => prev || startDate);
+        if (endDate) setClassScoreEndDate((prev) => prev || endDate);
+      })
+      .catch(() => {
+        // 学期设置读取失败时保留手动日期筛选能力。
+      })
+      .finally(() => {
+        if (active) setClassScoreDateInitialized(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [classScoreDateInitialized, isClassEvaluationPage, token]);
+
+  function resetClassScoreDateToSemester() {
+    if (semesterStartDate) setClassScoreStartDate(semesterStartDate);
+    if (semesterEndDate) setClassScoreEndDate(semesterEndDate);
+  }
+
+  useEffect(() => {
     if (isSubjectTeacher && activeSubjectView) {
       setSelectedClassId(activeSubjectView.classId);
       setSubjectFilter(activeSubjectView.subjectCode);
@@ -684,6 +747,7 @@ export function EvaluationPage({
 
   useEffect(() => {
     if (!selectedClassId) return;
+    if (isClassEvaluationPage && !classScoreDateInitialized) return;
     let active = true;
     setPageLoading(true);
     setSubmitError(null);
@@ -691,7 +755,7 @@ export function EvaluationPage({
     Promise.all([
       adminApi.scoreRecords(token, scoreRecordQuery),
       adminApi.classGroups(token, selectedClassId),
-      canManageClassScore ? adminApi.classScoreRecords(token, { classId: selectedClassId }) : Promise.resolve({ data: [] as ClassScoreRecord[] }),
+      canManageClassScore ? adminApi.classScoreRecords(token, classScoreRecordQuery) : Promise.resolve({ data: [] as ClassScoreRecord[] }),
     ])
       .then(([recordResponse, groupResponse, classRecordResponse]) => {
         if (!active) return;
@@ -713,7 +777,7 @@ export function EvaluationPage({
     return () => {
       active = false;
     };
-  }, [canManageClassScore, scoreRecordQuery, selectedClassId, selectedGroupId, token]);
+  }, [canManageClassScore, classScoreDateInitialized, classScoreRecordQuery, isClassEvaluationPage, scoreRecordQuery, selectedClassId, selectedGroupId, token]);
 
   useEffect(() => {
     if (!selectedClassId || isClassEvaluationPage) {
@@ -928,7 +992,7 @@ export function EvaluationPage({
     const [recordResponse, groupResponse, classRecordResponse] = await Promise.all([
       adminApi.scoreRecords(token, scoreRecordQuery),
       adminApi.classGroups(token, selectedClassId),
-      canManageClassScore ? adminApi.classScoreRecords(token, { classId: selectedClassId }) : Promise.resolve({ data: [] as ClassScoreRecord[] }),
+      canManageClassScore ? adminApi.classScoreRecords(token, classScoreRecordQuery) : Promise.resolve({ data: [] as ClassScoreRecord[] }),
     ]);
     setRecords(recordResponse.data);
     setGroups(groupResponse.data);
@@ -989,6 +1053,44 @@ export function EvaluationPage({
       );
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : '撤销评价失败');
+      throw err;
+    } finally {
+      setReverseLoading(false);
+    }
+  }
+
+  function openClassReverseModal(record: ClassScoreRecord) {
+    const targetClass = availableClasses.find((item) => item.id === record.classId);
+    setClassReverseTarget({
+      record,
+      className: `${record.gradeName} ${record.className}`,
+      currentScore: targetClass?.classScore ?? selectedClass?.classScore ?? null,
+    });
+  }
+
+  async function handleClassReverseConfirm(remark: string) {
+    if (!classReverseTarget || reverseLoading) return;
+    setReverseLoading(true);
+    setSubmitError(null);
+    try {
+      const response = await adminApi.reverseClassScoreRecord(token, classReverseTarget.record.id, { remark });
+      await Promise.all([onSaved(), reloadCurrentClassData()]);
+      if (rankGradeCode) {
+        adminApi
+          .classScoreRankings(token, {
+            gradeCode: rankGradeCode,
+            ...(classScoreStartDate ? { startDate: classScoreStartDate } : {}),
+            ...(classScoreEndDate ? { endDate: classScoreEndDate } : {}),
+          })
+          .then((rankResponse) => setClassRankingRows(rankResponse.data.rows))
+          .catch(() => undefined);
+      }
+      setClassReverseTarget(null);
+      setSubmitSuccess(
+        `班级评价已撤销，${classReverseTarget.className} 当前班级积分 ${response.data.classScoreProfile.currentScore} 分`,
+      );
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : '撤销班级评价失败');
       throw err;
     } finally {
       setReverseLoading(false);
@@ -1129,6 +1231,16 @@ export function EvaluationPage({
       }
 
       await Promise.all([onSaved(), reloadCurrentClassData()]);
+      if (rankGradeCode) {
+        adminApi
+          .classScoreRankings(token, {
+            gradeCode: rankGradeCode,
+            ...(classScoreStartDate ? { startDate: classScoreStartDate } : {}),
+            ...(classScoreEndDate ? { endDate: classScoreEndDate } : {}),
+          })
+          .then((rankResponse) => setClassRankingRows(rankResponse.data.rows))
+          .catch(() => undefined);
+      }
       if (classMode === 'batch') setSelectedClassScoreIds([]);
       setConfirmRule(null);
       setConfirmRemark('');
@@ -1243,25 +1355,59 @@ export function EvaluationPage({
     setSelectedClassScoreIds((prev) => prev.filter((item) => allowed.has(item)));
   }, [batchGradeClasses, classMode]);
 
-  const classRankRows = useMemo(() => {
-    const rows = availableClasses
-      .filter((item) => item.gradeName === rankGradeName)
-      .sort((left, right) => right.classScore - left.classScore || left.name.localeCompare(right.name, 'zh-CN'));
-    let prevScore: number | null = null;
-    let prevRank = 0;
-    return rows.map((item, index) => {
-      const rank = prevScore === item.classScore ? prevRank : index + 1;
-      prevScore = item.classScore;
-      prevRank = rank;
-      return {
-        id: item.id,
-        rank,
+  const rankGradeCode = classesSorted.find((item) => item.gradeName === rankGradeName)?.gradeCode ?? '';
+
+  useEffect(() => {
+    if (!isClassEvaluationPage || !rankGradeCode) {
+      setClassRankingRows([]);
+      setClassRankingError(null);
+      return;
+    }
+    if (!classScoreDateInitialized) return;
+    let active = true;
+    setClassRankingLoading(true);
+    setClassRankingError(null);
+    adminApi
+      .classScoreRankings(token, {
+        gradeCode: rankGradeCode,
+        ...(classScoreStartDate ? { startDate: classScoreStartDate } : {}),
+        ...(classScoreEndDate ? { endDate: classScoreEndDate } : {}),
+      })
+      .then((response) => {
+        if (!active) return;
+        setClassRankingRows(response.data.rows);
+      })
+      .catch((err) => {
+        if (!active) return;
+        setClassRankingRows([]);
+        setClassRankingError(err instanceof Error ? err.message : '班级积分排名加载失败');
+      })
+      .finally(() => {
+        if (active) setClassRankingLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [
+    classScoreDateInitialized,
+    classScoreEndDate,
+    classScoreStartDate,
+    isClassEvaluationPage,
+    rankGradeCode,
+    token,
+  ]);
+
+  const classRankRows = useMemo(
+    () =>
+      classRankingRows.map((item) => ({
+        id: item.classId,
+        rank: item.rank,
         gradeName: item.gradeName,
-        className: item.name,
-        classScore: item.classScore,
-      };
-    });
-  }, [availableClasses, rankGradeName]);
+        className: item.className,
+        classScore: item.currentScore,
+      })),
+    [classRankingRows],
+  );
 
   const selectionSummary = useMemo(() => {
     if (mode === 'single') {
@@ -1625,7 +1771,7 @@ export function EvaluationPage({
                     <p>
                       {classMode === 'single'
                         ? selectedClass
-                          ? `${selectedClass.gradeName} ${selectedClass.name} 最近 ${classScoreRecords.length} 条`
+                          ? `${selectedClass.gradeName} ${selectedClass.name} ${classScoreStartDate && classScoreEndDate ? `${classScoreStartDate} 至 ${classScoreEndDate}` : '最近'} ${classScoreRecords.length} 条`
                           : '当前班级暂无记录'
                         : '班级评价提交后会同步出现在这里，便于核对本次打分结果。'}
                     </p>
@@ -1646,10 +1792,21 @@ export function EvaluationPage({
                           {item.gradeName} {item.className}
                           {item.remark ? ` · 备注：${item.remark}` : ''}
                         </p>
+                        {item.reversedAt ? (
+                          <div className="class-evaluation-record-reversed">
+                            已撤销：{item.reverseRemark || '无撤销原因'} · {item.reversedByName || '管理员'} · {formatDateTime(item.reversedAt)}
+                          </div>
+                        ) : null}
                       </div>
                       <div className="class-evaluation-record-meta">
                         <span>{item.operatorName || item.sourceRole || '系统'}</span>
                         <span>{formatDateTime(item.createdAt)}</span>
+                        {!item.reversedAt && canShowClassScoreRecordReverse(item, user) ? (
+                          <button type="button" className="score-record-reverse-button" onClick={() => openClassReverseModal(item)}>
+                            撤销
+                          </button>
+                        ) : null}
+                        {item.reversedAt ? <span className="score-record-reversed-tag">已撤销</span> : null}
                       </div>
                     </div>
                   ))}
@@ -1826,6 +1983,33 @@ export function EvaluationPage({
           {isClassEvaluationPage ? (
             <div className="panel admin-list-panel">
               <div className="panel-title">各年级班级积分排名</div>
+              <div className="class-score-date-toolbar">
+                <DatePickerField
+                  wrapperClassName="picker-input-inline"
+                  className="filter-select filter-select--compact"
+                  aria-label="班级积分排名开始日期"
+                  value={classScoreStartDate}
+                  max={classScoreEndDate || classScoreDateMax}
+                  onChange={setClassScoreStartDate}
+                />
+                <DatePickerField
+                  wrapperClassName="picker-input-inline"
+                  className="filter-select filter-select--compact"
+                  aria-label="班级积分排名结束日期"
+                  value={classScoreEndDate}
+                  min={classScoreStartDate}
+                  max={classScoreDateMax}
+                  onChange={setClassScoreEndDate}
+                />
+                <button
+                  type="button"
+                  className="score-record-link-button class-score-semester-button"
+                  onClick={resetClassScoreDateToSemester}
+                  disabled={!semesterStartDate && !semesterEndDate}
+                >
+                  本学期
+                </button>
+              </div>
               <div className="security-chip-row">
                 {gradeOptions.map((item) => (
                   <button
@@ -1838,8 +2022,10 @@ export function EvaluationPage({
                   </button>
                 ))}
               </div>
+              {classRankingError ? <div className="table-empty">{classRankingError}</div> : null}
               <div className="mini-list">
-                {classRankRows.map((item) => (
+                {classRankingLoading ? <div className="table-empty">班级积分排名加载中...</div> : null}
+                {!classRankingLoading && classRankRows.map((item) => (
                   <div className="mini-list-item" key={`class-rank-${item.id}`}>
                     <div>
                       <strong>第 {item.rank} 名 · {item.gradeName} {item.className}</strong>
@@ -1848,7 +2034,7 @@ export function EvaluationPage({
                     <b>{item.rank <= 3 ? '领先组' : '追赶组'}</b>
                   </div>
                 ))}
-                {classRankRows.length === 0 ? <div className="table-empty">当前筛选条件下暂无班级。</div> : null}
+                {!classRankingLoading && classRankRows.length === 0 ? <div className="table-empty">当前筛选条件下暂无班级。</div> : null}
               </div>
             </div>
           ) : null}
@@ -2187,6 +2373,23 @@ export function EvaluationPage({
             setReverseTarget(null);
           }}
           onConfirm={handleReverseConfirm}
+        />
+      ) : null}
+      {classReverseTarget ? (
+        <ScoreRecordReverseModal
+          record={classReverseTarget.record}
+          studentName={classReverseTarget.className}
+          currentScore={classReverseTarget.currentScore}
+          targetLabel="评价班级"
+          currentScoreLabel="当前班级积分"
+          subtitle="撤销后该条班级评价作废，班级积分将按原分值反向调整。"
+          remarkPlaceholder="例如：选错班级、误触规则"
+          negativeWarning="撤销后班级积分将为负数，请确认后再操作。"
+          onClose={() => {
+            if (reverseLoading) return;
+            setClassReverseTarget(null);
+          }}
+          onConfirm={handleClassReverseConfirm}
         />
       ) : null}
       </div>

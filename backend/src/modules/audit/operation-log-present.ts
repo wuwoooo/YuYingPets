@@ -60,6 +60,7 @@ const ACTION_LABEL_COMPOSITE: Record<string, string> = {
   'class_group.update_members': '调整班级小组成员',
   'class_score_record.create': '录入班级积分',
   'class_score_record.batch_create': '批量录入班级积分',
+  'class_score_record.reverse': '撤销班级评价',
   'score_record.create': '为学生加减分',
   'score_record.batch_create': '批量为学生加减分',
   'score_record.group_create': '按小组加减分',

@@ -801,6 +801,12 @@
   line-height: 1.6;
 }
 
+.class-evaluation-record-reversed {
+  color: #a0897d;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .class-evaluation-record-meta {
   display: grid;
   gap: 6px;
@@ -809,6 +815,35 @@
   color: #6c8194;
   font-size: 12px;
   font-weight: 700;
+}
+
+.class-evaluation-record-meta .score-record-reverse-button,
+.class-evaluation-record-meta .score-record-reversed-tag {
+  justify-self: end;
+}
+
+.class-score-date-toolbar {
+  display: grid;
+  grid-template-columns: minmax(112px, 1fr) minmax(112px, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.class-score-date-toolbar .filter-select {
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+}
+
+.class-score-semester-button {
+  white-space: nowrap;
+}
+
+@media (max-width: 1280px) {
+  .class-score-date-toolbar {
+    grid-template-columns: 1fr;
+  }
 }
 
 .rule-select-card {

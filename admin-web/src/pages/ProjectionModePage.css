@@ -31,14 +31,412 @@
 }
 
 .projection-page.projection-layout-classic {
-  place-items: center;
+  place-items: stretch;
 }
 
 .projection-page.projection-layout-classic .projection-stage {
-  width: 1280px;
-  height: 720px;
-  transform: scale(min(calc(100vw / 1280), calc(100dvh / 720)));
-  transform-origin: center center;
+  grid-template-rows: 44px minmax(0, 1fr) 32px;
+}
+
+.projection-page.projection-layout-classic .projection-topbar {
+  height: 44px;
+  grid-template-columns: 280px minmax(0, 1fr) max-content;
+  gap: 8px;
+  padding: 5px 10px 4px;
+}
+
+.projection-page.projection-layout-classic .projection-brand img {
+  width: 30px;
+  height: 30px;
+}
+
+.projection-page.projection-layout-classic .projection-brand strong {
+  font-size: 14px;
+  line-height: 16px;
+}
+
+.projection-page.projection-layout-classic .projection-brand span,
+.projection-page.projection-layout-classic .projection-top-metrics span {
+  font-size: 10px;
+  line-height: 13px;
+}
+
+.projection-page.projection-layout-classic .projection-top-metrics {
+  grid-template-columns: minmax(100px, .92fr) minmax(180px, 1.36fr) minmax(80px, .54fr) minmax(120px, .7fr);
+  gap: 5px;
+}
+
+.projection-page.projection-layout-classic .projection-top-metrics span {
+  height: 26px;
+  padding: 5px 7px;
+}
+
+.projection-page.projection-layout-classic .projection-top-metrics span:last-child {
+  font-size: 9px;
+}
+
+.projection-page.projection-layout-classic .projection-clock b {
+  font-size: 24px;
+  line-height: 27px;
+}
+
+.projection-page.projection-layout-classic .projection-clock span {
+  font-size: 12px;
+}
+
+.projection-page.projection-layout-classic .projection-main {
+  grid-template-columns: minmax(240px, 22%) minmax(0, 1fr) minmax(310px, 27%);
+  gap: 6px;
+  padding: 7px 8px 5px;
+}
+
+.projection-page.projection-layout-classic .projection-left {
+  grid-template-rows: 210fr 88fr 118fr 230fr;
+  gap: 5px;
+}
+
+.projection-page.projection-layout-classic .projection-center {
+  grid-template-rows: 260fr 380fr;
+  gap: 5px;
+}
+
+.projection-page.projection-layout-classic .projection-right {
+  grid-template-rows: 140fr 310fr 148fr;
+  gap: 5px;
+}
+
+.projection-page.projection-layout-classic .projection-center-grid {
+  grid-template-columns: 1.12fr .92fr;
+  grid-template-rows: .92fr .86fr .52fr;
+  gap: 5px;
+}
+
+.projection-page.projection-layout-classic .projection-panel-title {
+  font-size: 12px;
+  line-height: 14px;
+}
+
+.projection-page.projection-layout-classic .projection-panel {
+  padding: 22px 8px 7px;
+}
+
+.projection-page.projection-layout-classic .projection-metric-card {
+  padding: 5px 7px 5px;
+}
+
+.projection-page.projection-layout-classic .projection-metric-card span {
+  font-size: 10px;
+  line-height: 12px;
+}
+
+.projection-page.projection-layout-classic .projection-metric-card strong {
+  font-size: 20px;
+  line-height: 22px;
+}
+
+.projection-page.projection-layout-classic .projection-metric-card em {
+  font-size: 9px;
+  line-height: 11px;
+}
+
+.projection-page.projection-layout-classic .projection-metric-card svg {
+  height: 24px;
+  margin-top: 2px;
+}
+
+.projection-page.projection-layout-classic .projection-axis-text {
+  font-size: 8px;
+}
+
+.projection-page.projection-layout-classic .projection-series-data span,
+.projection-page.projection-layout-classic .projection-ai-trend-data i,
+.projection-page.projection-layout-classic .projection-ai-trend-data em {
+  font-size: 9px;
+  line-height: 11px;
+}
+
+.projection-page.projection-layout-classic .projection-left > .projection-panel-mini:not(.projection-panel-ai) {
+  padding-bottom: 4px;
+}
+
+.projection-page.projection-layout-classic .projection-left > .projection-panel-mini:not(.projection-panel-ai) .projection-series-data {
+  display: none;
+}
+
+.projection-page.projection-layout-classic .projection-left > .projection-panel-mini:not(.projection-panel-ai) .projection-wide-line {
+  min-height: 42px;
+  width: calc(100% + 20px);
+  margin-left: -10px;
+  margin-right: -10px;
+}
+
+.projection-page.projection-layout-classic .projection-core .hero-3d-container.hero-3d-compact {
+  height: 168px;
+  max-width: 480px;
+}
+
+.projection-page.projection-layout-classic .projection-core-chip-ring {
+  inset: 6px 10px 40px;
+}
+
+.projection-page.projection-layout-classic .projection-core-chip {
+  width: 82px;
+  height: 24px;
+  grid-template-columns: 28px 1fr;
+  padding: 3px 5px;
+}
+
+.projection-page.projection-layout-classic .projection-core-chip span {
+  font-size: 9px;
+  line-height: 11px;
+}
+
+.projection-page.projection-layout-classic .projection-core-chip b {
+  font-size: 13px;
+  line-height: 14px;
+}
+
+.projection-page.projection-layout-classic .projection-core-score {
+  bottom: 6px;
+  width: 190px;
+  padding: 5px 10px;
+}
+
+.projection-page.projection-layout-classic .projection-core-score strong {
+  font-size: 24px;
+  line-height: 27px;
+}
+
+.projection-page.projection-layout-classic .projection-bubble span,
+.projection-page.projection-layout-classic .projection-heat-grid b,
+.projection-page.projection-layout-classic .projection-heat-grid em,
+.projection-page.projection-layout-classic .projection-heat-grid i,
+.projection-page.projection-layout-classic .projection-heat-footnote,
+.projection-page.projection-layout-classic .projection-grade-table span,
+.projection-page.projection-layout-classic .projection-grade-table b,
+.projection-page.projection-layout-classic .projection-grade-table em,
+.projection-page.projection-layout-classic .projection-risk-metrics span {
+  font-size: 10px;
+  line-height: 12px;
+}
+
+.projection-page.projection-layout-classic .projection-bubble b {
+  font-size: 16px;
+  line-height: 17px;
+}
+
+.projection-page.projection-layout-classic .projection-bubble.glow-strong b {
+  font-size: 18px;
+  line-height: 19px;
+}
+
+.projection-page.projection-layout-classic .projection-grade-table div {
+  height: 19px;
+  grid-template-columns: 22px 30px 38px;
+  padding-right: 6px;
+}
+
+.projection-page.projection-layout-classic .projection-bubble-layout {
+  grid-template-columns: minmax(0, 1fr) 100px;
+  gap: 4px;
+}
+
+.projection-page.projection-layout-classic .projection-heat-grid {
+  gap: 4px;
+}
+
+.projection-page.projection-layout-classic .projection-heat-grid i {
+  min-height: 16px;
+}
+
+.projection-page.projection-layout-classic .projection-live-row {
+  grid-template-columns: 52px 48px 66px minmax(0, 1fr) 38px;
+  gap: 5px;
+  height: 21px;
+  font-size: 11px;
+}
+
+.projection-page.projection-layout-classic .projection-students-grid {
+  grid-template-rows: repeat(15, minmax(18px, 1fr));
+  gap: 2px 10px;
+  align-content: stretch;
+}
+
+.projection-page.projection-layout-classic .projection-student-row {
+  grid-template-columns: 16px minmax(0, 1fr) 36px 22px 30px 28px;
+  height: 18px;
+  gap: 3px;
+}
+
+.projection-page.projection-layout-classic .projection-student-row > em {
+  font-size: 10px;
+  line-height: 14px;
+}
+
+.projection-page.projection-layout-classic .projection-student-row > u {
+  font-size: 8px;
+  line-height: 14px;
+}
+
+.projection-page.projection-layout-classic .projection-student-row span,
+.projection-page.projection-layout-classic .projection-student-row small,
+.projection-page.projection-layout-classic .projection-student-row b,
+.projection-page.projection-layout-classic .projection-bar-row b,
+.projection-page.projection-layout-classic .projection-bar-row small {
+  font-size: 10px;
+  line-height: 13px;
+}
+
+.projection-page.projection-layout-classic .projection-student-row i,
+.projection-page.projection-layout-classic .projection-bar-row i {
+  height: 8px;
+}
+
+.projection-page.projection-layout-classic .projection-left-risk {
+  padding: 22px 8px 6px;
+}
+
+.projection-page.projection-layout-classic .projection-left-risk-list {
+  grid-template-rows: repeat(9, minmax(16px, 1fr));
+  gap: 3px 8px;
+  align-content: stretch;
+}
+
+.projection-page.projection-layout-classic .projection-left-risk-row {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.76fr) 22px;
+  height: 18px;
+}
+
+.projection-page.projection-layout-classic .projection-left-risk-row em,
+.projection-page.projection-layout-classic .projection-left-risk-row i,
+.projection-page.projection-layout-classic .projection-left-risk-row span {
+  font-size: 10px;
+  line-height: 14px;
+}
+
+.projection-page.projection-layout-classic .projection-bars-list {
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: repeat(5, minmax(18px, 1fr));
+  gap: 4px 10px;
+  align-content: stretch;
+}
+
+.projection-page.projection-layout-classic .projection-bar-row {
+  grid-template-columns: 18px minmax(0, 76px) minmax(28px, 1fr) 40px;
+  height: 20px;
+}
+
+.projection-page.projection-layout-classic .projection-bar-row span {
+  font-size: 10px;
+  line-height: 14px;
+}
+
+.projection-page.projection-layout-classic .projection-donuts-body {
+  gap: 8px;
+  align-items: stretch;
+}
+
+.projection-page.projection-layout-classic .projection-donuts-body .projection-donut-block {
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 6px;
+}
+
+.projection-page.projection-layout-classic .projection-donuts-body .projection-donut {
+  width: 44px;
+  height: 44px;
+}
+
+.projection-page.projection-layout-classic .projection-donuts-body .projection-donut-legend {
+  grid-auto-rows: minmax(11px, 1fr);
+  gap: 2px;
+}
+
+.projection-page.projection-layout-classic .projection-donuts-body .projection-donut-legend span {
+  font-size: 9px;
+  line-height: 11px;
+}
+
+.projection-page.projection-layout-classic .projection-progress-list {
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: repeat(10, minmax(15px, 1fr));
+  gap: 3px 8px;
+  align-content: stretch;
+}
+
+.projection-page.projection-layout-classic .projection-progress-row {
+  grid-template-columns: 16px minmax(0, 1.1fr) minmax(0, .88fr) 36px;
+  height: 17px;
+  gap: 4px;
+}
+
+.projection-page.projection-layout-classic .projection-progress-row span {
+  font-size: 10px;
+  line-height: 14px;
+}
+
+.projection-page.projection-layout-classic .projection-progress-row b,
+.projection-page.projection-layout-classic .projection-progress-row em,
+.projection-page.projection-layout-classic .projection-progress-row i {
+  font-size: 10px;
+  line-height: 14px;
+}
+
+.projection-page.projection-layout-classic .projection-right-strip {
+  gap: 5px;
+}
+
+.projection-page.projection-layout-classic .projection-panel-strip {
+  --projection-strip-dial: min(100px, calc(100% - 6px));
+  padding: 20px 8px 5px;
+  grid-template-rows: var(--projection-strip-dial) auto;
+  align-content: center;
+}
+
+.projection-page.projection-layout-classic .projection-panel-strip .projection-radar-core,
+.projection-page.projection-layout-classic .projection-panel-strip .projection-gauge-ring {
+  width: var(--projection-strip-dial);
+  height: var(--projection-strip-dial);
+  max-width: var(--projection-strip-dial);
+  max-height: var(--projection-strip-dial);
+  aspect-ratio: 1 / 1;
+}
+
+.projection-page.projection-layout-classic .projection-panel-strip .projection-radar-stats,
+.projection-page.projection-layout-classic .projection-panel-strip .projection-gauge-stats {
+  margin-top: 2px;
+}
+
+.projection-page.projection-layout-classic .projection-panel-strip .projection-radar-stats span,
+.projection-page.projection-layout-classic .projection-panel-strip .projection-gauge-stats span {
+  padding: 2px 4px;
+  font-size: 9px;
+  line-height: 12px;
+}
+
+.projection-page.projection-layout-classic .projection-panel-strip .projection-gauge-ring strong {
+  font-size: 20px;
+}
+
+.projection-page.projection-layout-classic .projection-panel-strip .projection-gauge-ring span {
+  max-width: 86px;
+  font-size: 9px;
+}
+
+.projection-page.projection-layout-classic .projection-ticker {
+  height: 32px;
+}
+
+.projection-page.projection-layout-classic .projection-ticker span {
+  font-size: 11px;
+}
+
+.projection-page.projection-layout-classic.projection-theme-outdoor .projection-core-chip-ring {
+  inset: 8px 12px 42px;
+}
+
+.projection-page.projection-layout-classic.projection-theme-outdoor .projection-core-chip {
+  width: 88px;
+  height: 26px;
 }
 
 .projection-page.projection-layout-tablet-fluid {

@@ -1,14 +1,21 @@
 import { useState } from 'react';
 import { Modal } from './Modal';
-import type { ScoreRecord } from '../lib/api';
+import type { ClassScoreRecord, ScoreRecord } from '../lib/api';
 import { formatScoreDelta, formatScoreRecordExtraRemark, formatScoreRecordLabel, formatScoreRecordOperator, formatScoreRecordTime } from '../utils/scoreRecordReverse';
 
+type ReversibleScoreRecord = ScoreRecord | ClassScoreRecord;
+
 type ScoreRecordReverseModalProps = {
-  record: ScoreRecord;
+  record: ReversibleScoreRecord;
   studentName: string;
   currentScore: number | null;
   onClose: () => void;
   onConfirm: (remark: string) => Promise<void>;
+  targetLabel?: string;
+  currentScoreLabel?: string;
+  subtitle?: string;
+  remarkPlaceholder?: string;
+  negativeWarning?: string;
 };
 
 export function ScoreRecordReverseModal({
@@ -17,6 +24,11 @@ export function ScoreRecordReverseModal({
   currentScore,
   onClose,
   onConfirm,
+  targetLabel = '评价对象',
+  currentScoreLabel = '当前可用积分',
+  subtitle = '撤销后该条评价作废，学生积分将按原分值反向调整。',
+  remarkPlaceholder = '例如：选错学生、误触规则',
+  negativeWarning = '撤销后可用积分将为负数，请确认后再操作。',
 }: ScoreRecordReverseModalProps) {
   const [remark, setRemark] = useState('');
   const [loading, setLoading] = useState(false);
@@ -47,7 +59,7 @@ export function ScoreRecordReverseModal({
   return (
     <Modal
       title="撤销评价"
-      subtitle="撤销后该条评价作废，学生积分将按原分值反向调整。"
+      subtitle={subtitle}
       onClose={() => {
         if (loading) return;
         onClose();
@@ -56,7 +68,7 @@ export function ScoreRecordReverseModal({
       <div className="score-record-reverse-modal">
         <div className="score-record-reverse-summary">
           <div className="score-record-reverse-card">
-            <span className="score-record-reverse-card__label">评价对象</span>
+            <span className="score-record-reverse-card__label">{targetLabel}</span>
             <div className="score-record-reverse-card__main">
               <strong>{studentName}</strong>
               <span className={`score-record-reverse-delta ${record.scoreDelta >= 0 ? 'add' : 'deduct'}`}>
@@ -69,7 +81,7 @@ export function ScoreRecordReverseModal({
           <div className="score-record-reverse-card">
             <span className="score-record-reverse-card__label">积分影响</span>
             {currentScore == null ? (
-              <strong className="score-record-reverse-score-unknown">当前可用积分未知</strong>
+              <strong className="score-record-reverse-score-unknown">{currentScoreLabel}未知</strong>
             ) : (
               <div className="score-record-reverse-score-flow">
                 <span className="score-record-reverse-score-value">{currentScore}</span>
@@ -81,7 +93,7 @@ export function ScoreRecordReverseModal({
               </div>
             )}
             {projectedNegative ? (
-              <p className="score-record-reverse-warning">撤销后可用积分将为负数，请确认后再操作。</p>
+              <p className="score-record-reverse-warning">{negativeWarning}</p>
             ) : null}
           </div>
         </div>
@@ -91,7 +103,7 @@ export function ScoreRecordReverseModal({
           <textarea
             className="score-record-reverse-textarea"
             value={remark}
-            placeholder="例如：选错学生、误触规则"
+            placeholder={remarkPlaceholder}
             rows={3}
             onChange={(event) => setRemark(event.target.value)}
           />

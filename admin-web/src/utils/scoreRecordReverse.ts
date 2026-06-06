@@ -1,4 +1,6 @@
-import type { ScoreRecord, SessionUser } from '../lib/api';
+import type { ClassScoreRecord, ScoreRecord, SessionUser } from '../lib/api';
+
+type ReversibleScoreRecord = ScoreRecord | ClassScoreRecord;
 
 const WRITE_SCORE_ROLES = [
   'homeroom_teacher',
@@ -48,7 +50,13 @@ export function canShowScoreRecordReverse(
   return false;
 }
 
-export function formatScoreRecordLabel(record: ScoreRecord) {
+export function canShowClassScoreRecordReverse(record: ClassScoreRecord, user: SessionUser | null): boolean {
+  if (!user) return false;
+  if (record.reversedAt) return false;
+  return ADMIN_REVERSE_ROLES.includes(user.roleCode as (typeof ADMIN_REVERSE_ROLES)[number]);
+}
+
+export function formatScoreRecordLabel(record: ReversibleScoreRecord) {
   return record.ruleName || record.tag || record.dimension || record.sceneCode || '评价记录';
 }
 
@@ -77,7 +85,7 @@ const ROLE_LABEL_MAP: Record<string, string> = {
   display_account: '展示端',
 };
 
-export function formatScoreRecordOperator(record: ScoreRecord) {
+export function formatScoreRecordOperator(record: ReversibleScoreRecord) {
   if (record.operatorName?.trim()) return record.operatorName.trim();
   if (record.sourceRole && ROLE_LABEL_MAP[record.sourceRole]) {
     return ROLE_LABEL_MAP[record.sourceRole];
@@ -85,7 +93,7 @@ export function formatScoreRecordOperator(record: ScoreRecord) {
   return record.sourceRole || '教师';
 }
 
-export function formatScoreRecordExtraRemark(record: ScoreRecord, label: string) {
+export function formatScoreRecordExtraRemark(record: ReversibleScoreRecord, label: string) {
   const remark = record.remark?.trim();
   if (!remark || remark === label) return null;
   if (remark.includes(label) || label.includes(remark)) return null;

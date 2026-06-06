@@ -1,5 +1,16 @@
 {
-  "startUrl": "https://display.example.com/display/",
+  "startUrl": "https://www.dlbfyy.cn/display/display.html",
+  "apiBaseUrl": "https://www.dlbfyy.cn/api/v1",
+  "realtimeUrl": "https://www.dlbfyy.cn",
   "fullscreen": true,
-  "clearCacheOnLaunch": true
+  "clearCacheOnLaunch": true,
+  "autoUpdate": true,
+  "autoUpdateUrl": "https://www.dlbfyy.cn/download/display-app/win/",
+  "autoUpdateCheckIntervalMinutes": 360,
+  "floatingBall": true,
+  "floatingBallSize": 72,
+  "floatingBallPosition": "right-bottom",
+  "floatingBallAlwaysOnTopLevel": "screen-saver",
+  "summonedWindowAlwaysOnTop": true,
+  "summonedWindowAlwaysOnTopLevel": "screen-saver"
 }

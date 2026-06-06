@@ -440,6 +440,67 @@ export class DisplayService {
     };
   }
 
+  async unlockRenew(authorization: string | undefined, dto: DisplayUnlockDto) {
+    const user = await this.authService.getAuthUserFromAuthorization(authorization);
+    if (!this.authService.canOperateDisplay(user)) {
+      throw new ForbiddenException('当前角色不可续期展示端操作模式');
+    }
+    this.authService.ensureCanAccessClass(user, dto.classId);
+
+    const latestSession = await this.prisma.displayUnlockSession.findFirst({
+      where: {
+        classId: BigInt(dto.classId),
+        displayTerminalCode: dto.displayTerminalCode,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const now = new Date();
+    if (!latestSession || latestSession.status !== 'active' || latestSession.expiredAt <= now) {
+      return {
+        code: 0,
+        message: 'ok',
+        data: {
+          classId: dto.classId,
+          displayTerminalCode: dto.displayTerminalCode,
+          status: latestSession ? 'expired' : 'locked',
+          unlockSessionId: latestSession ? toNumber(latestSession.id) : null,
+          expiredAt: latestSession?.expiredAt ?? null,
+        },
+      };
+    }
+
+    const unlockMinutes = Number(this.configService.get('DISPLAY_UNLOCK_MINUTES', '15'));
+    const expiresAt = new Date(Date.now() + unlockMinutes * 60 * 1000);
+    const renewed = await this.prisma.displayUnlockSession.update({
+      where: { id: latestSession.id },
+      data: {
+        expiredAt: expiresAt,
+      },
+    });
+
+    this.realtimeService.emitDisplayUnlocked(dto.classId, dto.displayTerminalCode, {
+      classId: dto.classId,
+      displayTerminalCode: dto.displayTerminalCode,
+      unlockSessionId: toNumber(renewed.id),
+      renewedBy: user.name,
+      roleCode: user.roleCode,
+      expiredAt: expiresAt.toISOString(),
+    });
+
+    return {
+      code: 0,
+      message: 'ok',
+      data: {
+        classId: dto.classId,
+        displayTerminalCode: dto.displayTerminalCode,
+        status: 'active',
+        unlockSessionId: toNumber(renewed.id),
+        expiredAt: expiresAt.toISOString(),
+      },
+    };
+  }
+
   async unlockStatus(authorization: string | undefined, classId: number, displayTerminalCode: string) {
     await this.ensureDisplayClassAccess(authorization, classId);
     const session = await this.prisma.displayUnlockSession.findFirst({

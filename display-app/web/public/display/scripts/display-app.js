@@ -2273,6 +2273,27 @@ const ACC_PLACEMENT = {
     nudgeY: 14,
     offsetX: -26,
   },
+  acc_theme_mini_adventure_2026: {
+    mode: "canvas",
+    canvasX: 3,
+    canvasY: 4,
+    scale: 0.7,
+    transformOrigin: "left top",
+  },
+  acc_theme_arcane_library_2026: {
+    mode: "canvas",
+    canvasX: 4,
+    canvasY: 6,
+    scale: 0.68,
+    transformOrigin: "left top",
+  },
+  acc_theme_ninja_flame_2026: {
+    mode: "canvas",
+    canvasX: -3,
+    canvasY: 5,
+    scale: 0.68,
+    transformOrigin: "right top",
+  },
 };
 
 /**
@@ -2330,6 +2351,7 @@ function applyDecoOffset(el, accCode, petSpeciesCode) {
     el.style.removeProperty("--deco-offset-x");
     el.style.removeProperty("--deco-offset-y");
     el.style.removeProperty("--deco-scale");
+    el.style.removeProperty("--deco-transform-origin");
     return;
   }
   const mode =
@@ -2339,6 +2361,11 @@ function applyDecoOffset(el, accCode, petSpeciesCode) {
   el.style.setProperty("--deco-offset-x", x + "%");
   el.style.setProperty("--deco-offset-y", y + "%");
   el.style.setProperty("--deco-scale", String(scale));
+  if (acc.transformOrigin) {
+    el.style.setProperty("--deco-transform-origin", acc.transformOrigin);
+  } else {
+    el.style.removeProperty("--deco-transform-origin");
+  }
 }
 
 /** 设置装饰层图片（背景/边框）；无有效 URL 时移除 src，避免浏览器把空 src 解析成页面地址 */
@@ -2409,7 +2436,6 @@ function buildCardDecoLayers(s) {
   const backdrop = decos.find((d) => d.type === THEME_BACKDROP_TYPE);
   const bg = decos.find((d) => d.type === "background");
   const frame = decos.find((d) => d.type === "frame");
-  const accessory = decos.find((d) => d.type === "accessory");
   const backdropUrl = backdrop ? resolveDecoAssetUrl(backdrop, 400) : "";
   const bgUrl = !backdrop && bg ? resolveDecoAssetUrl(bg, 400) : "";
   const frameUrl = !backdrop && frame ? resolveDecoAssetUrl(frame, 400) : "";
@@ -2421,16 +2447,6 @@ function buildCardDecoLayers(s) {
     }
     if (frameUrl) {
       html += `<img class="card-pet-deco-frame" src="${frameUrl}" alt="" loading="lazy" decoding="async" fetchpriority="low" onerror="this.style.display='none'">`;
-    }
-  }
-  if (accessory) {
-    const accUrl = resolveDecoAssetUrl(accessory, 400);
-    if (accUrl) {
-      const accCode = resolveDecoCode(accessory);
-      const petCode = extractPetSpeciesCode(s);
-      const { x, y, scale } = computeDecoTransform(accCode, petCode);
-      const offsetStyle = ` style="--deco-offset-x:${x}%;--deco-offset-y:${y}%;--deco-scale:${scale}"`;
-      html += `<img class="card-pet-deco-accessory" ${buildAccessoryDecoAttrs(accessory)}${offsetStyle} src="${accUrl}" alt="" loading="lazy" decoding="async" fetchpriority="low" onerror="this.style.display='none'">`;
     }
   }
   return html;
@@ -2909,6 +2925,104 @@ function getPetPkResult(sourceStudent, targetStudent) {
   };
 }
 
+function getPetPkStudentLevel(student) {
+  return Number(
+    student?.lv ?? student?.currentPetLevel ?? student?.pet?.currentLevel ?? 0,
+  );
+}
+
+function getPetPkStudentScore(student) {
+  return Number(student?.pts ?? student?.currentScore ?? 0);
+}
+
+function getPetPkSceneDeco(student) {
+  const decos = Array.isArray(student?.equippedDecorations)
+    ? student.equippedDecorations
+    : [];
+  const backdrop = decos.find((deco) => deco.type === THEME_BACKDROP_TYPE);
+  const background = decos.find((deco) => deco.type === "background");
+  const deco = backdrop || background || null;
+  if (!deco) return null;
+  const size = isHighQualityDisplay() ? 1024 : 400;
+  const url = resolveDecoAssetUrl(deco, size);
+  if (!url) return null;
+  return {
+    student,
+    deco,
+    url,
+    priority: backdrop ? 2 : 1,
+  };
+}
+
+function comparePetPkSceneCandidates(a, b) {
+  if (!a && !b) return 0;
+  if (a && !b) return 1;
+  if (!a && b) return -1;
+  if (a.priority !== b.priority) return a.priority - b.priority;
+
+  const levelDiff =
+    getPetPkStudentLevel(a.student) - getPetPkStudentLevel(b.student);
+  if (levelDiff !== 0) return levelDiff;
+
+  const scoreDiff =
+    getPetPkStudentScore(a.student) - getPetPkStudentScore(b.student);
+  if (scoreDiff !== 0) return scoreDiff;
+
+  return 0;
+}
+
+function selectPetPkSceneDeco(sourceStudent, targetStudent) {
+  const source = getPetPkSceneDeco(sourceStudent);
+  const target = getPetPkSceneDeco(targetStudent);
+  return comparePetPkSceneCandidates(source, target) >= 0 ? source : target;
+}
+
+function ensurePetPkSceneBackground(overlay) {
+  let img = overlay.querySelector(".pet-pk-scene-bg");
+  if (!img) {
+    img = document.createElement("img");
+    img.className = "pet-pk-scene-bg";
+    img.alt = "";
+    img.decoding = "async";
+    img.loading = "eager";
+    overlay.insertBefore(img, overlay.firstChild);
+  }
+
+  let mask = overlay.querySelector(".pet-pk-scene-vignette");
+  if (!mask) {
+    mask = document.createElement("div");
+    mask.className = "pet-pk-scene-vignette";
+    overlay.insertBefore(mask, img.nextSibling);
+  }
+
+  return img;
+}
+
+function clearPetPkSceneBackground(overlay) {
+  if (!overlay) return;
+  overlay.classList.remove("has-scene-bg");
+  overlay.removeAttribute("data-pk-scene-owner");
+}
+
+function applyPetPkSceneBackground(overlay, sourceStudent, targetStudent) {
+  if (!overlay) return;
+  const scene = selectPetPkSceneDeco(sourceStudent, targetStudent);
+  if (!scene) {
+    clearPetPkSceneBackground(overlay);
+    return;
+  }
+  const img = ensurePetPkSceneBackground(overlay);
+  img.onerror = () => {
+    img.onerror = null;
+    clearPetPkSceneBackground(overlay);
+  };
+  if (img.getAttribute("src") !== scene.url) {
+    img.src = scene.url;
+  }
+  overlay.dataset.pkSceneOwner = scene.student?.name || "";
+  overlay.classList.add("has-scene-bg");
+}
+
 function playPetPkAnimation(sourceStudent, targetStudent) {
   const overlay = document.getElementById("petPkOverlay");
   const leftImg = document.getElementById("petPkLeftImg");
@@ -2952,6 +3066,7 @@ function playPetPkAnimation(sourceStudent, targetStudent) {
   overlay.classList.remove("winner-left");
   overlay.classList.remove("winner-right");
   overlay.classList.remove("winner-draw");
+  clearPetPkSceneBackground(overlay);
   void overlay.offsetWidth;
 
   leftImg.onerror = () => {
@@ -2974,6 +3089,7 @@ function playPetPkAnimation(sourceStudent, targetStudent) {
   resultNameEl.textContent = result.name;
   resultMetaEl.textContent = result.meta;
   resultEl.setAttribute("aria-hidden", "true");
+  applyPetPkSceneBackground(overlay, sourceStudent, targetStudent);
 
   overlay.classList.add("active");
   overlay.classList.add("countdown-active");
@@ -3029,6 +3145,7 @@ function playPetPkAnimation(sourceStudent, targetStudent) {
     overlay.classList.remove("winner-left");
     overlay.classList.remove("winner-right");
     overlay.classList.remove("winner-draw");
+    clearPetPkSceneBackground(overlay);
     resultEl.setAttribute("aria-hidden", "true");
     petPkState.overlayTimer = null;
     endDisplayAnimationGuard();
@@ -3628,6 +3745,7 @@ const pageMap = {
   transition: "page-transition",
   classroom: "page-classroom",
   academic: "page-academic",
+  toolbox: "page-toolbox",
   leaderboard: "page-leaderboard",
   exchange: "page-exchange",
 };
@@ -3753,6 +3871,9 @@ window.syncDisplayHolidayState = syncDisplayHolidayState;
 window.playDisplayHolidaySplash = playDisplayHolidaySplash;
 
 function navigateTo(key) {
+  if (key !== "toolbox") {
+    cleanupToolboxRuntime({ keepTimer: false });
+  }
   document
     .querySelectorAll(".page")
     .forEach((p) => p.classList.remove("active"));
@@ -3788,6 +3909,9 @@ function navigateTo(key) {
       if (!isLowSpecMode()) {
         startAcademicSplash(target);
       }
+    }
+    if (key === "toolbox") {
+      initToolboxPage();
     }
     /* 离开 academic 页时清理粒子动画 */
     if (key !== "academic") {
@@ -5177,6 +5301,7 @@ function getProfileShowcaseStudentKey(student) {
 
 function resetPetProfileShowcase() {
   petProfileShowcaseToken += 1;
+  syncShowcaseDecoSceneClass("petProfileDecoContainer", false);
   document
     .getElementById("petProfileDecoContainer")
     ?.classList.add("is-loading");
@@ -5243,6 +5368,12 @@ function updatePetProfileShowcase(student) {
   preload.src = primaryUrl;
 }
 
+function syncShowcaseDecoSceneClass(containerId, hasScene) {
+  document
+    .getElementById(containerId)
+    ?.classList.toggle("has-deco-scene", !!hasScene);
+}
+
 function renderPetProfileDecoLayers(student, prefix = "petProfile") {
   const bgEl = document.getElementById(prefix + "DecoBg");
   const frameEl = document.getElementById(prefix + "DecoFrame");
@@ -5267,6 +5398,12 @@ function renderPetProfileDecoLayers(student, prefix = "petProfile") {
     resolveAccessoryDecoSize("hero"),
     petCode,
   );
+  if (prefix === "petProfile") {
+    syncShowcaseDecoSceneClass(
+      "petProfileDecoContainer",
+      !!(backdrop || bg || frame || accessory),
+    );
+  }
 }
 
 function switchPetProfileTab(tab) {
@@ -5516,6 +5653,9 @@ let petDecoCurrentFilter = "background";
 let petDecoConfirmedLayers = {};
 let petDecoDraft = null;
 let petDecoThemeDraft = null;
+/** 装扮面板中不展示的饰品 code */
+const HIDDEN_DECO_PANEL_CODES = new Set(["acc_campus_cap"]);
+
 const PET_DECO_TYPE_LABELS = {
   background: "背景",
   frame: "边框",
@@ -5533,6 +5673,30 @@ const PET_DECO_THEME_META = {
     accent: "#ff6b9d",
     holidayKey: "children-day",
     freeRule: { kind: "annual", month: 6, day: 1 },
+  },
+  mini_adventure_2026: {
+    name: "迷你冒险",
+    subtitle: "沙盒冒险主题皮肤",
+    badge: "冒险",
+    accent: "#5cb85c",
+  },
+  goldfish_express_2026: {
+    name: "金鱼列车",
+    subtitle: "治愈系水下地铁·金鱼融入氛围",
+    badge: "治愈",
+    accent: "#ff8c42",
+  },
+  arcane_library_2026: {
+    name: "秘典书廊",
+    subtitle: "哥特图书馆主题皮肤",
+    badge: "书阁",
+    accent: "#2a9d8f",
+  },
+  ninja_flame_2026: {
+    name: "火影忍者",
+    subtitle: "忍者村热血冒险主题皮肤",
+    badge: "忍者",
+    accent: "#ff6b35",
   },
 };
 
@@ -5699,8 +5863,12 @@ function getThemePreviewDeco(themeGroup) {
   return layers.themeBackdrop || layers.background || null;
 }
 
-function describeThemeEquipLayersText(mode) {
-  return mode === "composite" ? "主题氛围与饰品" : "背景、边框与饰品";
+function describeThemeEquipLayersText(mode, pieces = []) {
+  if (mode === "composite") {
+    const hasAccessory = pieces.some((item) => item?.type === "accessory");
+    return hasAccessory ? "主题氛围与饰品" : "主题氛围";
+  }
+  return "背景、边框与饰品";
 }
 
 function isThemeFullyEquipped(themeGroup) {
@@ -5760,6 +5928,34 @@ function isSameDeco(a, b) {
   if (!a || !b) return false;
   if (a.id != null && b.id != null) return a.id === b.id;
   return a.name === b.name || a.imageUrl === b.imageUrl;
+}
+
+function isHiddenDecorationInPanel(deco) {
+  const code = resolveDecoCode(deco);
+  return code ? HIDDEN_DECO_PANEL_CODES.has(code) : false;
+}
+
+/** 已装备项排在「无xx」之后的第一位，其余保持 sortOrder */
+function sortDecorationsWithEquippedFirst(items, type) {
+  const equipped = getEquippedDecoByType(type);
+  if (!equipped) return items;
+  return [...items].sort((a, b) => {
+    const aFirst = isSameDeco(a, equipped) ? 0 : 1;
+    const bFirst = isSameDeco(b, equipped) ? 0 : 1;
+    if (aFirst !== bFirst) return aFirst - bFirst;
+    return (
+      (a.sortOrder ?? 999999) - (b.sortOrder ?? 999999) ||
+      (a.id ?? 0) - (b.id ?? 0)
+    );
+  });
+}
+
+function sortThemesWithEquippedFirst(themes) {
+  return [...themes].sort((a, b) => {
+    const aFirst = isThemeFullyEquipped(a.key) ? 0 : 1;
+    const bFirst = isThemeFullyEquipped(b.key) ? 0 : 1;
+    return aFirst - bFirst;
+  });
 }
 
 function hasPendingDecoChange(type) {
@@ -5977,7 +6173,7 @@ async function openDecorationPanel() {
 
   renderDecoChangePolicyHint();
 
-  const defaultFilter = "background";
+  const defaultFilter = "theme";
   petDecoCurrentFilter = defaultFilter;
   clearDecoDraft();
   document
@@ -6025,8 +6221,12 @@ function renderDecorationGrid() {
     (student?.equippedDecorations || []).map((d) => String(d.name)),
   );
 
-  const filtered = petDecoAllDecorations.filter(
-    (d) => d.type === petDecoCurrentFilter,
+  const filtered = sortDecorationsWithEquippedFirst(
+    petDecoAllDecorations.filter(
+      (d) =>
+        d.type === petDecoCurrentFilter && !isHiddenDecorationInPanel(d),
+    ),
+    petDecoCurrentFilter,
   );
   const typeLabel = PET_DECO_TYPE_LABELS[petDecoCurrentFilter] || "装饰";
   const gridSelection = getActiveLayerChoice(petDecoCurrentFilter);
@@ -6079,7 +6279,7 @@ function renderThemeGrid() {
   if (!grid) return;
   const student = currentProfileStudent;
   const currentLevel = student?.lv || 1;
-  const themes = listPetDecoThemes();
+  const themes = sortThemesWithEquippedFirst(listPetDecoThemes());
 
   if (themes.length === 0) {
     grid.innerHTML =
@@ -6242,7 +6442,7 @@ async function requestThemeChangeConfirm(themeGroup, action) {
 
   const meta = resolvePetDecoThemeMeta(themeGroup);
   const layers = getThemeLayerDecos(themeGroup);
-  const layerText = describeThemeEquipLayersText(layers.mode);
+  const layerText = describeThemeEquipLayersText(layers.mode, layers.pieces);
   const currentLevel = student.lv || 1;
   const locked = layers.pieces.some(
     (item) => item && isPetDecoLevelLocked(item, currentLevel),
@@ -6486,6 +6686,10 @@ function renderDecoPreviewLayers() {
     accessory,
     resolveAccessoryDecoSize("preview"),
     petCode,
+  );
+  syncShowcaseDecoSceneClass(
+    "petDecoPreviewContainer",
+    !!(bg || frame || accessory),
   );
 }
 
@@ -6757,6 +6961,8 @@ const runtimeState = {
   lockStatus: "locked",
   unlockSessionId: null,
   unlockedUntil: null,
+  lastUnlockRenewAt: 0,
+  unlockRenewPromise: null,
   lastLockedAt: null,
   lockOverlayForced: false,
   pendingLoginResult: null,
@@ -6790,6 +6996,63 @@ const runtimeState = {
   deferredDisplayDataTimer: null,
   deferredDisplayDataPromise: null,
   displayHeartbeatTimer: null,
+  toolbox: {
+    activeMode: "home",
+    activeTool: null,
+    isImmersive: false,
+    audioStream: null,
+    audioContext: null,
+    analyser: null,
+    audioData: null,
+    audioRAF: null,
+    audioLevel: 0,
+    audioRenderLastAt: 0,
+    paused: false,
+    settings: {
+      energyMode: "reading",
+      energyTarget: 90,
+      energyDuration: 0,
+      gardenTarget: 0,
+      gardenThreshold: 34,
+      luckyScope: "class",
+      luckyGroupNo: "",
+      luckyRepeat: false,
+      luckyExcludedIds: [],
+      timerDuration: 300,
+    },
+    energyMode: "reading",
+    energyRunning: false,
+    energyScore: 0,
+    energyPeak: 0,
+    energyDb: null,
+    energyStartedAt: 0,
+    energySamples: [],
+    energyPkScores: new Map(),
+    gardenRunning: false,
+    gardenQuietSeconds: 0,
+    gardenLastTick: 0,
+    gardenDb: null,
+    luckyScope: "class",
+    luckyDrawnIds: new Set(),
+    luckyHistory: [],
+    luckyExcludedIds: new Set(),
+    luckyRolling: false,
+    luckyRollRAF: null,
+    luckyRollStartedAt: 0,
+    luckyRollDuration: 0,
+    luckyRollPool: [],
+    luckySelected: null,
+    luckyRollLastCenterIndex: -1,
+    timerDuration: 300,
+    timerRemaining: 300000,
+    timerStartedAt: 0,
+    timerRemainingMs: 300000,
+    timerDurationMs: 300000,
+    timerDeadlineAt: 0,
+    timerRAF: null,
+    timerRunning: false,
+    timerPaused: false,
+  },
 };
 
 const displayRulePanelState = {
@@ -7378,11 +7641,18 @@ function createTerminalCode() {
 }
 
 function getApiBase() {
+  if (window.__DISPLAY_API_BASE_URL__) {
+    return String(window.__DISPLAY_API_BASE_URL__).replace(/\/$/, "");
+  }
+  if (window.displayDesktop?.isDesktop === true && window.location.protocol === "file:") {
+    return "";
+  }
   return `${window.location.origin}/api/v1`;
 }
 
 function getAssetBase() {
-  return getApiBase().replace(/\/api\/v1$/, "");
+  const apiBase = getApiBase();
+  return apiBase ? apiBase.replace(/\/api\/v1$/, "") : "";
 }
 
 function resolveAssetUrl(url) {
@@ -7466,6 +7736,16 @@ function petImgVariant(s, size = 400) {
 }
 
 function getSocketBase() {
+  if (window.__DISPLAY_REALTIME_URL__) {
+    return String(window.__DISPLAY_REALTIME_URL__).replace(/\/$/, "");
+  }
+  const apiBase = getApiBase();
+  if (apiBase) {
+    return apiBase.replace(/\/api\/v1$/, "");
+  }
+  if (window.displayDesktop?.isDesktop === true && window.location.protocol === "file:") {
+    return "";
+  }
   return window.location.origin;
 }
 
@@ -7473,7 +7753,106 @@ async function apiFetch(path, options = {}) {
   return apiFetchWithToken(path, runtimeState.token, options);
 }
 
+function shouldAutoRenewUnlock(path, options = {}) {
+  const method = String(options.method || "GET").toUpperCase();
+  if (method === "GET" || method === "HEAD") return false;
+  if (!runtimeState.token || !runtimeState.user || !runtimeState.classId) {
+    return false;
+  }
+  if (runtimeState.lockStatus !== "active") return false;
+  if (
+    path === "/auth/login" ||
+    path === "/display/unlock" ||
+    path === "/display/unlock-renew" ||
+    path === "/display/lock"
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function shouldRenewUnlockSoon(options = {}) {
+  const force = options.force === true;
+  const thresholdMs = options.thresholdMs ?? 5 * 60 * 1000;
+  if (force) return true;
+  if (!runtimeState.unlockedUntil) return true;
+  const unlockedUntilTs = new Date(runtimeState.unlockedUntil).getTime();
+  if (!Number.isFinite(unlockedUntilTs)) return true;
+  return unlockedUntilTs - Date.now() <= thresholdMs;
+}
+
+async function renewDisplayUnlockSession(options = {}) {
+  const now = Date.now();
+  const throttleMs = options.throttleMs ?? 60 * 1000;
+  const force = options.force === true;
+  if (!runtimeState.token || !runtimeState.user || !runtimeState.classId) {
+    return null;
+  }
+  if (runtimeState.lockStatus !== "active") return null;
+  if (!shouldRenewUnlockSoon(options)) return null;
+  if (
+    !force &&
+    runtimeState.lastUnlockRenewAt &&
+    now - runtimeState.lastUnlockRenewAt < throttleMs
+  ) {
+    return null;
+  }
+  if (runtimeState.unlockRenewPromise) {
+    return runtimeState.unlockRenewPromise;
+  }
+  runtimeState.unlockRenewPromise = apiFetchWithToken(
+    "/display/unlock-renew",
+    runtimeState.token,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        classId: runtimeState.classId,
+        displayTerminalCode: runtimeState.terminalCode,
+      }),
+    },
+  )
+    .then((result) => {
+      if (result?.status === "active") {
+        runtimeState.lastUnlockRenewAt = Date.now();
+        runtimeState.lockStatus = "active";
+        runtimeState.unlockSessionId = result.unlockSessionId || null;
+        runtimeState.unlockedUntil = result.expiredAt || null;
+        runtimeState.lastLockedAt = null;
+      } else {
+        runtimeState.lastUnlockRenewAt = 0;
+      }
+      return result;
+    })
+    .catch((error) => {
+      console.warn("续期展示端解锁会话失败", error);
+      return null;
+    })
+    .finally(() => {
+      runtimeState.unlockRenewPromise = null;
+    });
+  return runtimeState.unlockRenewPromise;
+}
+
 async function apiFetchWithToken(path, token, options = {}) {
+  const apiBase = getApiBase();
+  if (!apiBase) {
+    throw new Error("未配置后端服务地址，请在 display.config.json 配置 apiBaseUrl，或通过桌面端注入默认线上地址");
+  }
+
+  let unlockRenewResult = null;
+  if (shouldAutoRenewUnlock(path, options) && shouldRenewUnlockSoon()) {
+    unlockRenewResult = await renewDisplayUnlockSession();
+    if (unlockRenewResult && unlockRenewResult.status !== "active") {
+      requireUnlockRelogin({
+        preserveClassId: true,
+        lockedAt:
+          unlockRenewResult.expiredAt || new Date().toISOString(),
+        forceOverlay: false,
+      });
+      applyLockOverlay();
+      throw new Error("教师操作已锁定，请重新登录后再试");
+    }
+  }
   const headers = {
     ...(options.body ? { "Content-Type": "application/json" } : {}),
     ...(options.headers || {}),
@@ -7481,10 +7860,17 @@ async function apiFetchWithToken(path, token, options = {}) {
   if (token) {
     headers.Authorization = `Bearer ${token}`;
   }
-  const response = await fetch(`${getApiBase()}${path}`, {
-    ...options,
-    headers,
-  });
+  let response;
+  try {
+    response = await fetch(`${apiBase}${path}`, {
+      ...options,
+      headers,
+    });
+  } catch (error) {
+    throw new Error(
+      `无法连接后端服务：${apiBase}（${error?.message || "网络请求失败"}）`,
+    );
+  }
   const payload = await response.json().catch(() => null);
   if (!response.ok || !payload || payload.code !== 0) {
     const message =
@@ -7909,6 +8295,8 @@ function clearAuthState(options = {}) {
   runtimeState.lockStatus = "locked";
   runtimeState.unlockSessionId = null;
   runtimeState.unlockedUntil = null;
+  runtimeState.lastUnlockRenewAt = 0;
+  runtimeState.unlockRenewPromise = null;
   runtimeState.lockOverlayForced = false;
   if (!preserveClassId) {
     runtimeState.classId = null;
@@ -8134,6 +8522,7 @@ function createEmptyScoreEffectsBucket() {
     upgrades: new Map(),
     classScoreDelta: 0,
     eventCount: 0,
+    suppressSound: false,
   };
 }
 
@@ -8151,9 +8540,17 @@ function ensureImmediateScoreBatch() {
   return runtimeState.immediateScoreBatch;
 }
 
+function shouldSuppressScoreSoundForPayload(payload) {
+  if (!payload) return false;
+  return payload.suppressScoreSound === true;
+}
+
 function accumulateScoreEffects(bucket, payload) {
   if (!bucket || !payload) return;
   const changes = Array.isArray(payload.changes) ? payload.changes : [];
+  if (shouldSuppressScoreSoundForPayload(payload)) {
+    bucket.suppressSound = true;
+  }
   changes.forEach((change) => {
     const studentId = Number(change?.studentId);
     if (!Number.isFinite(studentId) || studentId <= 0) return;
@@ -8323,7 +8720,7 @@ function scheduleScoreGridReorderAfterAnim(animCount) {
   }, remaining);
 }
 
-function playSingleStudentScoreAnim(row) {
+function playSingleStudentScoreAnim(row, options = {}) {
   const studentId = Number(row?.studentId);
   const netDelta = Number(row?.netDelta || 0);
   if (!Number.isFinite(studentId) || studentId <= 0 || netDelta === 0) return;
@@ -8342,7 +8739,9 @@ function playSingleStudentScoreAnim(row) {
       void petImgEl.offsetWidth;
       petImgEl.classList.add("card-hit-flash");
     }
-    playScoreSound(netDelta);
+    if (!options.suppressSound) {
+      playScoreSound(netDelta);
+    }
     const cardBounds = card.getBoundingClientRect();
     const floatSpan = document.createElement("span");
     floatSpan.className = "point-float-anim";
@@ -8360,6 +8759,7 @@ function playSingleStudentScoreAnim(row) {
 
 function playRemoteScoreAnimations(rows, options = {}) {
   const mode = options.mode || "immediate";
+  const suppressSound = Boolean(options.suppressSound);
   const budget = getDisplayEffectBudget();
   const staggerMs =
     options.staggerMs ?? budget.scoreAnimStaggerMs ?? SCORE_ANIM_STAGGER_MS;
@@ -8407,7 +8807,10 @@ function playRemoteScoreAnimations(rows, options = {}) {
   });
 
   toAnimate.forEach((row, index) => {
-    setTimeout(() => playSingleStudentScoreAnim(row), index * staggerMs);
+    setTimeout(
+      () => playSingleStudentScoreAnim(row, { suppressSound }),
+      index * staggerMs,
+    );
   });
 
   syncClassroomMeta();
@@ -8528,7 +8931,10 @@ function flushClassroomScoreVisuals(batch, options = {}) {
     (isStandardDisplay() ? 3 : 8);
   const animCount =
     mode === "deferred" && activeRows.length > cap ? cap : activeRows.length;
-  playRemoteScoreAnimations(rows, { mode });
+  playRemoteScoreAnimations(rows, {
+    mode,
+    suppressSound: Boolean(batch?.suppressSound),
+  });
   queueScoreUpgradesFromBucket(batch);
   setTimeout(() => {
     playPendingPetUpgradeAnimations();
@@ -9605,7 +10011,12 @@ function applyLockOverlay() {
 }
 
 function ensureOperationUnlocked() {
-  if (runtimeState.lockStatus === "active") return true;
+  if (runtimeState.lockStatus === "active") {
+    if (shouldRenewUnlockSoon()) {
+      renewDisplayUnlockSession().catch(() => {});
+    }
+    return true;
+  }
   runtimeState.lockOverlayForced = true;
   applyLockOverlay();
   return false;
@@ -12563,6 +12974,7 @@ async function refreshUnlockStatus(options = {}) {
       runtimeState.lockStatus = "locked";
       runtimeState.unlockSessionId = statusData.unlockSessionId || null;
       runtimeState.unlockedUntil = statusData.expiredAt || null;
+      runtimeState.lastUnlockRenewAt = 0;
       runtimeState.lastLockedAt =
         statusData.expiredAt || new Date().toISOString();
     }
@@ -12572,6 +12984,7 @@ async function refreshUnlockStatus(options = {}) {
   runtimeState.lockStatus = "active";
   runtimeState.unlockSessionId = statusData.unlockSessionId || null;
   runtimeState.unlockedUntil = statusData.expiredAt || null;
+  runtimeState.lastUnlockRenewAt = Date.now();
   runtimeState.lastLockedAt = null;
   applyLockOverlay();
 }
@@ -12594,6 +13007,7 @@ async function unlockDisplay() {
   runtimeState.lockStatus = "active";
   runtimeState.unlockSessionId = unlocked.unlockSessionId || null;
   runtimeState.unlockedUntil = unlocked.expiredAt || null;
+  runtimeState.lastUnlockRenewAt = Date.now();
   runtimeState.lastLockedAt = null;
   runtimeState.lockOverlayForced = false;
   applyLockOverlay();
@@ -13065,6 +13479,1901 @@ async function handleLogin() {
     if (loginBtn) loginBtn.textContent = "登 录";
   }
 }
+
+// ==================== 教室工具箱：课堂氛围仪式导演 ====================
+const TOOLBOX_CONFIG = {
+  home: {
+    bg: "toolbox-bg-home",
+    title: "教室工具箱",
+    kicker: "CLASSROOM RITUAL DIRECTOR",
+  },
+  energy: {
+    bg: "toolbox-bg-energy",
+    title: "点燃课堂",
+    kicker: "VOICE ENERGY RITUAL",
+    primary: "开始点亮",
+    running: "正在点亮",
+  },
+  garden: {
+    bg: "toolbox-bg-garden",
+    title: "安静下来",
+    kicker: "QUIET GARDEN RITUAL",
+    primary: "开始守护",
+    running: "守护中",
+  },
+  lucky: {
+    bg: "toolbox-bg-lucky",
+    title: "随机抽取",
+    kicker: "RANDOM SELECT RITUAL",
+    primary: "开始抽取",
+    running: "停止抽取",
+  },
+  timer: {
+    bg: "toolbox-bg-timer",
+    title: "倒计时",
+    kicker: "COUNTDOWN RITUAL",
+    primary: "开始倒计时",
+    running: "倒计时中",
+  },
+};
+
+const TOOLBOX_MODE_ASSETS = {
+  home: {
+    backgrounds: ["images/toolbox/toolbox-energy-bg.webp"],
+    decos: [
+      ".toolbox-deco-orb",
+      ".toolbox-deco-sparkles",
+      ".toolbox-deco-flower",
+      ".toolbox-deco-butterfly",
+      ".toolbox-deco-ticket",
+      ".toolbox-deco-ribbon",
+      ".toolbox-deco-hourglass",
+      ".toolbox-deco-timer-stars",
+    ],
+  },
+  energy: {
+    backgrounds: ["images/toolbox/toolbox-energy-bg.webp"],
+    decos: [".toolbox-deco-orb", ".toolbox-deco-sparkles"],
+  },
+  garden: {
+    backgrounds: ["images/toolbox/toolbox-garden-bg.webp"],
+    decos: [".toolbox-deco-flower", ".toolbox-deco-butterfly"],
+  },
+  lucky: {
+    backgrounds: ["images/toolbox/toolbox-lucky-bg.webp"],
+    decos: [".toolbox-deco-ticket", ".toolbox-deco-ribbon"],
+  },
+  timer: {
+    backgrounds: ["images/toolbox/toolbox-timer-bg.webp"],
+    decos: [".toolbox-deco-hourglass", ".toolbox-deco-timer-stars"],
+  },
+};
+
+const preloadedToolboxAssets = new Set();
+
+function preloadToolboxModeAssets(mode) {
+  const assets = TOOLBOX_MODE_ASSETS[mode] || TOOLBOX_MODE_ASSETS.home;
+  assets.backgrounds.forEach((src) => {
+    if (!src || preloadedToolboxAssets.has(src)) return;
+    preloadedToolboxAssets.add(src);
+    const image = new Image();
+    image.decoding = "async";
+    image.src = src;
+  });
+  assets.decos.forEach((selector) => {
+    document.querySelectorAll(selector).forEach((img) => {
+      if (!(img instanceof HTMLImageElement)) return;
+      const src = img.dataset.src;
+      if (src && !img.src) {
+        img.src = src;
+      }
+    });
+  });
+}
+
+function setText(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = value == null ? "" : String(value);
+}
+
+function toolboxState() {
+  return runtimeState.toolbox;
+}
+
+function initToolboxPage() {
+  syncToolboxGroupOptions();
+  syncToolboxSettingsInputs();
+  openToolboxHome({ silent: true });
+  renderEnergyToolbox();
+  initGardenFlora();
+  renderGardenToolbox(false);
+  renderLuckyToolbox();
+  renderToolboxTimer();
+}
+
+function stopEnergyTool(options = {}) {
+  const state = toolboxState();
+  if (!state.energyRunning && !state.paused && options.silent) return;
+
+  const score = state.energyMode === "cheer" ? Math.min(100, state.energyPeak) : state.energyScore;
+  const level = resolveEnergyLevel(score);
+
+  state.energyRunning = false;
+  state.paused = false;
+  cancelToolboxAudioLoop();
+  if (!options.silent) {
+    setToolboxResult("toolboxEnergyResult", buildEnergyResultText());
+    stopToolboxAudio();
+
+    let scoreToShow = score;
+    let customFeedback = "";
+    if (state.energyMode === "pk") {
+      const left = state.energyPkScoreLeft || 0;
+      const right = state.energyPkScoreRight || 0;
+      scoreToShow = Math.max(left, right);
+      if (left > right) {
+        customFeedback = `【${level}】PK 战况：第 1 组以 ${left} 分险胜第 2 组的 ${right} 分！第 1 组表现太精彩了！`;
+      } else if (right > left) {
+        customFeedback = `【${level}】PK 战况：第 2 组以 ${right} 分险胜第 1 组 of ${left} 分！第 2 组表现太精彩了！`;
+      } else {
+        customFeedback = `【${level}】PK 战况：双方声浪不相上下，以 ${left} 分握手言和！真是棋逢对手！`;
+      }
+    }
+
+    showEnergyResultOverlay(scoreToShow, level, customFeedback);
+  }
+  syncToolboxPrimaryButton();
+}
+
+function showEnergyResultOverlay(score, level, customFeedback) {
+  const scoreEl = document.getElementById("energyResultScore");
+  const feedbackEl = document.getElementById("energyResultFeedback");
+  const overlay = document.getElementById("toolboxEnergyResultOverlay");
+  
+  if (scoreEl) scoreEl.textContent = String(score);
+  if (feedbackEl) {
+    if (customFeedback) {
+      feedbackEl.textContent = customFeedback;
+    } else {
+      let feedback = "";
+      if (score >= 95) {
+        feedback = `【${level}】全班星光爆发！本轮声浪活力斩获了不可思议的 ${score} 分！这一下，课堂真的被彻底点燃了！`;
+      } else if (score >= 85) {
+        feedback = `【${level}】全班默契共振！本轮声浪活力获得了极高评价的 ${score} 分，凝聚力十分强大！`;
+      } else if (score >= 70) {
+        feedback = `【${level}】星光能量升起！本轮声浪获得了优秀的 ${score} 分，继续加油，向更高的星光发起挑战！`;
+      } else {
+        feedback = `【${level}】本轮声浪积攒了 ${score} 分，期待下一次更响亮的点亮仪式，让我们一起照亮课堂！`;
+      }
+      feedbackEl.textContent = feedback;
+    }
+  }
+  
+  if (overlay) {
+    overlay.style.display = "flex";
+  }
+}
+
+function setToolboxBackground(mode) {
+  const page = document.getElementById("page-toolbox");
+  const bg = document.getElementById("toolboxBg");
+  const config = TOOLBOX_CONFIG[mode] || TOOLBOX_CONFIG.home;
+  preloadToolboxModeAssets(mode);
+  if (page) {
+    page.dataset.toolboxMode = mode;
+    page.dataset.toolboxView = mode === "home" ? "home" : "immersive";
+  }
+  if (bg) {
+    bg.className = `toolbox-bg ${config.bg}`;
+  }
+}
+
+function isToolboxAudioTool(tool = toolboxState().activeTool) {
+  return tool === "energy" || tool === "garden";
+}
+
+function isToolboxAudioRunning() {
+  const state = toolboxState();
+  return isToolboxAudioTool(state.activeTool) && (state.energyRunning || state.gardenRunning || state.paused);
+}
+
+function syncToolboxRunningChrome() {
+  const page = document.getElementById("page-toolbox");
+  if (!page) return;
+  const state = toolboxState();
+  const audioRunning = isToolboxAudioRunning();
+  page.classList.toggle("toolbox-audio-running", audioRunning);
+  page.classList.toggle("toolbox-paused", Boolean(state.paused || state.timerPaused));
+  page.classList.toggle("toolbox-energy-running", state.activeTool === "energy" && audioRunning);
+  page.classList.toggle("toolbox-garden-running", state.activeTool === "garden" && audioRunning);
+}
+
+function openToolboxHome(options = {}) {
+  cleanupToolboxRuntime({ keepTimer: false });
+  const state = toolboxState();
+  state.activeMode = "home";
+  state.activeTool = null;
+  state.isImmersive = false;
+  state.paused = false;
+  
+  Object.assign(state.settings, {
+    energyMode: "reading",
+    energyTarget: 90,
+    energyDuration: 0,
+    gardenTarget: 0,
+    gardenThreshold: 34,
+    luckyScope: "class",
+    luckyGroupNo: "",
+    luckyRepeat: false,
+    luckyExcludedIds: [],
+    timerDuration: 300,
+  });
+  state.luckyScope = "class";
+  state.luckyExcludedIds.clear();
+  syncToolboxSettingsInputs();
+
+  setToolboxBackground("home");
+  document.getElementById("toolboxHome")?.classList.add("active");
+  document.getElementById("toolboxImmersive")?.classList.remove("active");
+  document.querySelectorAll(".toolbox-scene").forEach((scene) => {
+    scene.classList.remove("active");
+  });
+  syncToolboxRunningChrome();
+  if (!options.silent) {
+    showDisplayToast("已回到教室工具箱", { duration: 1200 });
+  }
+}
+
+function enterToolboxTool(tool, options = {}) {
+  const nextTool = TOOLBOX_CONFIG[tool] ? tool : "energy";
+  const state = toolboxState();
+  cleanupToolboxRuntime({ keepTimer: false });
+  state.activeMode = nextTool;
+  state.activeTool = nextTool;
+  state.isImmersive = true;
+  state.paused = false;
+  setToolboxBackground(nextTool);
+  document.getElementById("toolboxHome")?.classList.remove("active");
+  document.getElementById("toolboxImmersive")?.classList.add("active");
+  document.querySelectorAll(".toolbox-scene").forEach((scene) => {
+    scene.classList.toggle("active", scene.dataset.toolboxScene === nextTool);
+  });
+  setText("toolboxLiveKicker", TOOLBOX_CONFIG[nextTool].kicker);
+  setText("toolboxLiveTitle", TOOLBOX_CONFIG[nextTool].title);
+  syncToolboxPrimaryButton();
+  if (nextTool === "lucky") {
+    renderLuckyToolbox();
+  } else if (nextTool === "timer") {
+    resetToolboxTimer({ silent: true });
+    initTimerPickers();
+  }
+  syncToolboxRunningChrome();
+}
+
+function exitToolboxImmersive() {
+  openToolboxHome();
+}
+
+function switchToolboxMode(mode, options = {}) {
+  if (mode === "home") {
+    openToolboxHome(options);
+    return;
+  }
+  enterToolboxTool(mode, options);
+}
+
+function syncToolboxPrimaryButton() {
+  const state = toolboxState();
+  const config = TOOLBOX_CONFIG[state.activeTool] || TOOLBOX_CONFIG.energy;
+  const primary = document.getElementById("toolboxPrimaryBtn");
+  const reset = document.getElementById("toolboxResetBtn");
+  const pause = document.getElementById("toolboxPauseBtn");
+  const audioToolActive = isToolboxAudioTool(state.activeTool);
+  const audioRunning = isToolboxAudioRunning();
+
+  const modeTip = document.getElementById("toolboxEnergyModeTip");
+  if (modeTip) {
+    if (state.activeTool === "energy") {
+      const modeText = state.energyMode === "pk" ? "小组 PK" : "自由朗读";
+      const modeTextEl = document.getElementById("toolboxEnergyModeTipText");
+      if (modeTextEl) modeTextEl.textContent = `当前模式：${modeText}`;
+      modeTip.style.display = "inline-flex";
+    } else {
+      modeTip.style.display = "none";
+    }
+  }
+
+  if (primary) {
+    primary.classList.remove("timer-icon-btn");
+    const running =
+      state.energyRunning || state.gardenRunning || state.luckyRolling || state.timerRunning;
+    if (state.activeTool === "timer") {
+      if (state.timerFinishedAlerting) {
+        primary.classList.add("timer-icon-btn");
+        primary.innerHTML = '<i class="fa-solid fa-rotate-right"></i>';
+      } else if (state.timerRunning) {
+        primary.textContent = "暂停";
+      } else if (state.timerPaused) {
+        primary.textContent = "继续";
+      } else {
+        primary.textContent = config.primary;
+      }
+    } else if (audioToolActive && audioRunning) {
+      primary.textContent = state.paused ? "继续" : "暂停";
+    } else {
+      primary.textContent = running ? config.running : config.primary;
+    }
+    primary.disabled = (state.activeTool === "lucky") ? false : state.luckyRolling;
+  }
+  const luckyResetBtn = document.getElementById("toolboxLuckyResetBtn");
+  if (luckyResetBtn) {
+    luckyResetBtn.style.display = state.activeTool === "lucky" ? "" : "none";
+  }
+
+  if (reset) {
+    reset.classList.remove("timer-icon-btn");
+    if (state.activeTool === "lucky") {
+      reset.style.display = "none";
+    } else if (state.activeTool === "timer") {
+      if (state.timerFinishedAlerting) {
+        reset.style.display = "";
+        reset.classList.add("timer-icon-btn");
+        reset.innerHTML = '<i class="fa-solid fa-xmark"></i>';
+      } else {
+        const isTimerActive = state.timerRunning || state.timerPaused;
+        reset.style.display = isTimerActive ? "" : "none";
+        reset.textContent = "取消";
+      }
+    } else {
+      reset.style.display = "";
+      if (audioToolActive && audioRunning) {
+        reset.textContent = "结束";
+      } else if (audioToolActive) {
+        reset.textContent = "结束";
+      } else {
+        reset.textContent = "重置";
+      }
+    }
+  }
+  if (pause) {
+    pause.style.display = "none";
+  }
+  syncToolboxRunningChrome();
+
+  const pkBtn = document.getElementById("toolboxEnergyPkBtn");
+  if (pkBtn) {
+    const isEnergyReady = state.activeTool === "energy" && !state.energyRunning && !state.paused;
+    pkBtn.style.display = isEnergyReady ? "" : "none";
+  }
+
+  // 控制右下角返回/设置栏在点击开始运行后自动隐藏
+  const running =
+    state.energyRunning || state.gardenRunning || state.luckyRolling || state.timerRunning;
+  const isTimerActive = state.timerRunning || state.timerPaused || state.timerFinishedAlerting;
+  const shouldHideActions = running || audioRunning || isTimerActive;
+  const actionsEl = document.getElementById("toolboxImmersiveActions");
+  if (actionsEl) {
+    actionsEl.style.display = shouldHideActions ? "none" : "flex";
+  }
+}
+
+async function startEnergyPkAction() {
+  setEnergyMode("pk");
+  await startEnergyTool();
+}
+
+function runToolboxPrimaryAction() {
+  const state = toolboxState();
+  const tool = state.activeTool;
+  if (tool === "energy") {
+    if (state.energyRunning || state.paused) {
+      toggleToolboxPause();
+      return;
+    }
+    setEnergyMode("reading");
+    startEnergyTool();
+  } else if (tool === "garden") {
+    if (state.gardenRunning || state.paused) {
+      toggleToolboxPause();
+      return;
+    }
+    startGardenTool();
+  } else if (tool === "lucky") {
+    if (state.luckyRolling) {
+      stopLuckyDrawWithWinner();
+    } else {
+      drawLuckyStudent();
+    }
+  } else if (tool === "timer") {
+    if (state.timerFinishedAlerting) {
+      stopTimerAlertLoop();
+      state.timerFinishedAlerting = false;
+      document.getElementById("toolboxTimerDisplay")?.classList.remove("finished");
+      startToolboxTimer();
+    } else if (state.timerRunning) {
+      pauseToolboxTimer();
+    } else {
+      startToolboxTimer();
+    }
+  }
+}
+
+function toggleToolboxPause() {
+  const state = toolboxState();
+  if (state.activeTool === "timer") {
+    if (state.timerRunning) {
+      pauseToolboxTimer();
+    } else if (state.timerPaused) {
+      startToolboxTimer();
+    }
+    return;
+  }
+  if (state.activeTool === "energy") {
+    state.paused = !state.paused;
+    state.energyRunning = !state.paused;
+    setToolboxResult(
+      "toolboxEnergyResult",
+      state.paused ? "声浪仪式已暂停，点击继续重新点亮。" : "继续点亮星光。",
+    );
+  } else if (state.activeTool === "garden") {
+    state.paused = !state.paused;
+    state.gardenRunning = !state.paused;
+    state.gardenLastTick = performance.now();
+    setToolboxResult(
+      "toolboxGardenResult",
+      state.paused ? "花园守护已暂停。" : "继续守护安静花园。",
+    );
+  }
+  syncToolboxPrimaryButton();
+}
+
+function resetActiveToolboxTool() {
+  const state = toolboxState();
+  const tool = state.activeTool;
+  if (tool === "energy") {
+    if (state.energyRunning || state.paused) {
+      endAudioToolboxTool();
+      return;
+    }
+    exitToolboxImmersive();
+  } else if (tool === "garden") {
+    if (state.gardenRunning || state.paused) {
+      endAudioToolboxTool();
+      return;
+    }
+    exitToolboxImmersive();
+  } else if (tool === "lucky") {
+    resetLuckyTool();
+  } else if (tool === "timer") {
+    if (state.timerFinishedAlerting) {
+      stopTimerAlertLoop();
+      state.timerFinishedAlerting = false;
+      document.getElementById("toolboxTimerDisplay")?.classList.remove("finished");
+      resetToolboxTimer();
+    } else {
+      resetToolboxTimer();
+    }
+  }
+}
+
+function endAudioToolboxTool() {
+  const state = toolboxState();
+  if (state.activeTool === "energy") {
+    stopEnergyTool();
+  } else if (state.activeTool === "garden") {
+    stopGardenTool();
+  }
+  syncToolboxPrimaryButton();
+}
+
+function cleanupToolboxRuntime(options = {}) {
+  const resultOverlay = document.getElementById("toolboxEnergyResultOverlay");
+  if (resultOverlay) {
+    resultOverlay.style.display = "none";
+  }
+  const gardenResultOverlay = document.getElementById("toolboxGardenResultOverlay");
+  if (gardenResultOverlay) {
+    gardenResultOverlay.style.display = "none";
+  }
+
+  stopEnergyTool({ silent: true });
+  stopGardenTool({ silent: true });
+  stopToolboxAudio();
+  stopLuckyRoll();
+  if (!options.keepTimer) {
+    stopToolboxTimerRAF();
+    const state = toolboxState();
+    state.timerRunning = false;
+    state.timerPaused = false;
+    stopTimerAlertLoop();
+    state.timerFinishedAlerting = false;
+  }
+  syncToolboxPrimaryButton();
+}
+
+function syncToolboxGroupOptions() {
+  const groupOptions = getToolboxGroupOptions();
+  const select = document.getElementById("toolboxLuckyGroupSelect");
+  if (!select) return;
+  const current = select.value || toolboxState().settings.luckyGroupNo;
+  select.innerHTML =
+    groupOptions
+      .map(
+        (group) =>
+          `<option value="${escapeHtml(String(group.groupNo))}">${escapeHtml(group.name)}</option>`,
+      )
+      .join("") || '<option value="">暂无小组</option>';
+  if (current && [...select.options].some((option) => option.value === String(current))) {
+    select.value = String(current);
+  }
+}
+
+function syncToolboxSettingsInputs() {
+  const state = toolboxState();
+  const settings = state.settings;
+  const mappings = [
+    ["toolboxEnergyModeSelect", settings.energyMode],
+    ["toolboxEnergyTarget", settings.energyTarget],
+    ["toolboxEnergyDuration", settings.energyDuration ? settings.energyDuration / 60 : 0],
+    ["toolboxGardenTarget", settings.gardenTarget !== undefined && settings.gardenTarget !== null ? settings.gardenTarget / 60 : 0],
+    ["toolboxGardenThreshold", settings.gardenThreshold],
+    ["toolboxLuckyScopeSelect", settings.luckyScope],
+    ["toolboxLuckyGroupSelect", settings.luckyGroupNo],
+    ["toolboxTimerCustom", ""],
+  ];
+  mappings.forEach(([id, value]) => {
+    const input = document.getElementById(id);
+    if (input && value !== "") input.value = value;
+  });
+  const repeat = document.getElementById("toolboxLuckyRepeat");
+  if (repeat) repeat.checked = Boolean(settings.luckyRepeat);
+  renderLuckyExcludeList();
+  const groupSelectContainer = document.getElementById("toolboxLuckyGroupSelectContainer");
+  if (groupSelectContainer) {
+    if (settings.luckyScope === "group") {
+      groupSelectContainer.style.setProperty("display", "grid", "important");
+    } else {
+      groupSelectContainer.style.setProperty("display", "none", "important");
+    }
+  }
+
+  const thresholdLabel = getGardenThresholdLabel(settings.gardenThreshold || 34);
+  setText("toolboxGardenDifficulty", thresholdLabel);
+}
+
+function readToolboxSettings() {
+  const state = toolboxState();
+  const settings = state.settings;
+  settings.energyMode = document.getElementById("toolboxEnergyModeSelect")?.value || settings.energyMode;
+  settings.energyTarget = Number(document.getElementById("toolboxEnergyTarget")?.value || settings.energyTarget);
+  settings.energyDuration = Math.max(0, Number(document.getElementById("toolboxEnergyDuration")?.value || 0)) * 60;
+  settings.gardenTarget = Number(document.getElementById("toolboxGardenTarget")?.value ?? 0) * 60;
+  settings.gardenThreshold = Number(document.getElementById("toolboxGardenThreshold")?.value || settings.gardenThreshold);
+  settings.luckyScope = document.getElementById("toolboxLuckyScopeSelect")?.value || settings.luckyScope;
+  settings.luckyGroupNo = document.getElementById("toolboxLuckyGroupSelect")?.value || settings.luckyGroupNo;
+  settings.luckyRepeat = Boolean(document.getElementById("toolboxLuckyRepeat")?.checked);
+  settings.luckyExcludedIds = [...state.luckyExcludedIds];
+  state.energyMode = settings.energyMode;
+  state.luckyScope = settings.luckyScope;
+
+  const thresholdLabel = getGardenThresholdLabel(settings.gardenThreshold || 34);
+  setText("toolboxGardenDifficulty", thresholdLabel);
+
+  return settings;
+}
+
+function openToolboxSettings() {
+  const state = toolboxState();
+  const tool = state.activeTool || "energy";
+  const overlay = document.getElementById("toolboxSettingsOverlay");
+  syncToolboxGroupOptions();
+  syncToolboxSettingsInputs();
+  if (overlay) {
+    overlay.dataset.tool = tool;
+    overlay.classList.add("active");
+  }
+  const titles = {
+    energy: "点燃课堂设置：只调整声浪目标和可选限时",
+    garden: "安静下来设置：只调整守护时间",
+    lucky: "随机抽取设置：只调整抽取范围",
+    timer: "倒计时设置：只调整自定义时长",
+  };
+  setText("toolboxSettingsTitle", titles[tool] || "默认一键可用，这里只给需要微调的老师。");
+  if (tool === "lucky") {
+    renderLuckyExcludeList();
+  }
+}
+
+function closeToolboxSettings(event) {
+  if (event?.target && event.target !== document.getElementById("toolboxSettingsOverlay")) {
+    return;
+  }
+  readToolboxSettings();
+  document.getElementById("toolboxSettingsOverlay")?.classList.remove("active");
+}
+
+function getToolboxGroupOptions() {
+  const byNo = new Map();
+  (runtimeState.groups || []).forEach((group) => {
+    const groupNo = Number(group.groupNo ?? group.id);
+    if (!Number.isFinite(groupNo) || groupNo <= 0) return;
+    byNo.set(groupNo, {
+      groupNo,
+      name: group.name || `第${groupNo}组`,
+    });
+  });
+  students.forEach((student) => {
+    const groupNo = Number(student.group);
+    if (!Number.isFinite(groupNo) || groupNo <= 0) return;
+    if (!byNo.has(groupNo)) {
+      byNo.set(groupNo, {
+        groupNo,
+        name: student.groupName || `第${groupNo}组`,
+      });
+    }
+  });
+  return [...byNo.values()].sort((a, b) => a.groupNo - b.groupNo);
+}
+
+function getToolboxStudentsByScope(scope, groupNo) {
+  if (scope === "group") {
+    const target = Number(groupNo);
+    return students.filter((student) => Number(student.group) === target);
+  }
+  return students.slice();
+}
+
+function luckyStudentKey(student) {
+  if (!student) return "";
+  const raw = student.id !== undefined && student.id !== null ? student.id : student.name;
+  return String(raw || "");
+}
+
+function luckyStudentKeyForInlineHandler(student) {
+  return encodeURIComponent(luckyStudentKey(student));
+}
+
+function isLuckyStudentExcluded(student) {
+  const key = luckyStudentKey(student);
+  return Boolean(key && toolboxState().luckyExcludedIds.has(key));
+}
+
+function getLuckyScopedStudentsForSettings() {
+  const state = toolboxState();
+  const groupNo =
+    state.settings.luckyGroupNo ||
+    document.getElementById("toolboxLuckyGroupSelect")?.value;
+  return getToolboxStudentsByScope(state.settings.luckyScope, groupNo);
+}
+
+function getLuckyExcludedCountInScope(scope, groupNo) {
+  return getToolboxStudentsByScope(scope, groupNo).filter(isLuckyStudentExcluded)
+    .length;
+}
+
+function renderLuckyExcludeList() {
+  const list = document.getElementById("toolboxLuckyExcludeList");
+  if (!list) return;
+  const scopedStudents = getLuckyScopedStudentsForSettings();
+  if (!scopedStudents.length) {
+    list.innerHTML =
+      '<div class="toolbox-lucky-exclude-empty">当前抽选范围暂无学生</div>';
+    return;
+  }
+  const excludedCount = scopedStudents.filter(isLuckyStudentExcluded).length;
+  const summary = `<div class="toolbox-lucky-exclude-summary">当前范围 ${scopedStudents.length} 人，已排除 ${excludedCount} 人</div>`;
+  const rows = scopedStudents
+    .map((student) => {
+      const key = luckyStudentKey(student);
+      const checked = isLuckyStudentExcluded(student) ? " checked" : "";
+      return `
+        <label class="toolbox-lucky-exclude-item">
+          <span>
+            ${buildLuckyAvatarMarkup(student, "toolbox-lucky-exclude-avatar")}
+            <b>${escapeHtml(student.name)}</b>
+            <em>${escapeHtml(student.groupName || (student.group ? `第${student.group}组` : "未分组"))}</em>
+          </span>
+          <input
+            type="checkbox"
+            value="${escapeHtml(key)}"
+            ${checked}
+            onchange="toggleLuckyExcludedStudent(this.value, this.checked)"
+          />
+        </label>`;
+    })
+    .join("");
+  list.innerHTML = summary + rows;
+}
+
+function toggleLuckyExcludedStudent(key, excluded) {
+  const state = toolboxState();
+  const safeKey = String(key || "");
+  if (!safeKey) return;
+  if (excluded) {
+    state.luckyExcludedIds.add(safeKey);
+  } else {
+    state.luckyExcludedIds.delete(safeKey);
+  }
+  state.settings.luckyExcludedIds = [...state.luckyExcludedIds];
+  state.luckyDrawnIds.delete(safeKey);
+  if (state.luckySelected && luckyStudentKey(state.luckySelected) === safeKey) {
+    state.luckySelected = null;
+  }
+  state.luckyHistory = state.luckyHistory.filter(
+    (student) => luckyStudentKey(student) !== safeKey,
+  );
+  renderLuckyExcludeList();
+  renderLuckyToolbox();
+}
+
+function clearLuckyExcludedStudents() {
+  const state = toolboxState();
+  state.luckyExcludedIds.clear();
+  state.settings.luckyExcludedIds = [];
+  renderLuckyExcludeList();
+  renderLuckyToolbox();
+}
+
+function describeToolboxAudioError(error) {
+  const name = String(error?.name || "");
+  const message = String(error?.message || "");
+  const text = `${name} ${message}`.toLowerCase();
+
+  if (
+    name === "NotFoundError" ||
+    name === "DevicesNotFoundError" ||
+    text.includes("requested device not found") ||
+    text.includes("device not found") ||
+    text.includes("no audio input")
+  ) {
+    return "没有检测到麦克风输入设备。请检查大屏电脑是否已插入或启用麦克风，并在 Windows 声音设置中确认输入设备可用。";
+  }
+
+  if (
+    name === "NotAllowedError" ||
+    name === "PermissionDeniedError" ||
+    name === "SecurityError" ||
+    text.includes("permission") ||
+    text.includes("denied")
+  ) {
+    return "麦克风权限被系统或浏览器拦截。请在 Windows“设置 > 隐私和安全性 > 麦克风”中允许桌面应用访问麦克风，然后重新打开本工具。";
+  }
+
+  if (
+    name === "NotReadableError" ||
+    name === "TrackStartError" ||
+    text.includes("could not start") ||
+    text.includes("in use") ||
+    text.includes("busy")
+  ) {
+    return "麦克风暂时无法启动，可能正被其他程序占用。请关闭会议软件、录音软件或浏览器页面后重试。";
+  }
+
+  if (name === "OverconstrainedError" || name === "ConstraintNotSatisfiedError") {
+    return "当前麦克风不支持所需采样配置。请更换输入设备，或重启应用后再试。";
+  }
+
+  if (name === "AbortError") {
+    return "麦克风启动被系统中断，请稍后重试。";
+  }
+
+  return message || "无法启动麦克风，请检查设备连接和系统权限。";
+}
+
+async function ensureToolboxAudio() {
+  const state = toolboxState();
+  if (state.audioStream && state.analyser && state.audioData) {
+    return state;
+  }
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new Error("当前浏览器不支持麦克风能力");
+  }
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: false,
+        autoGainControl: false,
+      },
+    });
+  } catch (error) {
+    if (error?.name === "OverconstrainedError" || error?.name === "ConstraintNotSatisfiedError") {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch (fallbackError) {
+        throw new Error(describeToolboxAudioError(fallbackError));
+      }
+    } else {
+      throw new Error(describeToolboxAudioError(error));
+    }
+  }
+  if (!stream.getAudioTracks().length) {
+    stream.getTracks().forEach((track) => track.stop());
+    throw new Error("没有检测到麦克风输入设备。请检查大屏电脑是否已插入或启用麦克风。");
+  }
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtx) {
+    stream.getTracks().forEach((track) => track.stop());
+    throw new Error("当前浏览器不支持 AudioContext");
+  }
+  const context = new AudioCtx();
+  if (context.state === "suspended") {
+    await context.resume().catch(() => {});
+  }
+  const source = context.createMediaStreamSource(stream);
+  const analyser = context.createAnalyser();
+  analyser.fftSize = 1024;
+  analyser.smoothingTimeConstant = 0.78;
+  source.connect(analyser);
+  state.audioStream = stream;
+  state.audioContext = context;
+  state.analyser = analyser;
+  state.audioData = new Uint8Array(analyser.fftSize);
+  return state;
+}
+
+function startToolboxAudioLoop(onSample) {
+  const state = toolboxState();
+  cancelToolboxAudioLoop();
+  state.audioRenderLastAt = 0;
+  const tick = () => {
+    if (!state.analyser || !state.audioData) return;
+    const now = performance.now();
+    state.analyser.getByteTimeDomainData(state.audioData);
+    let sum = 0;
+    for (let i = 0; i < state.audioData.length; i += 1) {
+      const centered = (state.audioData[i] - 128) / 128;
+      sum += centered * centered;
+    }
+    const rms = Math.sqrt(sum / state.audioData.length);
+    const level = Math.max(0, Math.min(100, Math.round(rms * 260)));
+    state.audioLevel = Math.round(state.audioLevel * 0.68 + level * 0.32);
+    onSample(state.audioLevel, now);
+    state.audioRAF = requestAnimationFrame(tick);
+  };
+  state.audioRAF = requestAnimationFrame(tick);
+}
+
+function shouldRenderToolboxAudioFrame(state, now) {
+  const minInterval = isStandardDisplay() ? 96 : 72;
+  if (!state.audioRenderLastAt || now - state.audioRenderLastAt >= minInterval) {
+    state.audioRenderLastAt = now;
+    return true;
+  }
+  return false;
+}
+
+function cancelToolboxAudioLoop() {
+  const state = toolboxState();
+  if (state.audioRAF) {
+    cancelAnimationFrame(state.audioRAF);
+    state.audioRAF = null;
+  }
+}
+
+function stopToolboxAudio() {
+  const state = toolboxState();
+  cancelToolboxAudioLoop();
+  if (state.audioStream) {
+    state.audioStream.getTracks().forEach((track) => track.stop());
+    state.audioStream = null;
+  }
+  if (state.audioContext) {
+    const closePromise = state.audioContext.close?.();
+    closePromise?.catch?.(() => {});
+    state.audioContext = null;
+  }
+  state.analyser = null;
+  state.audioData = null;
+  state.audioLevel = 0;
+  state.audioRenderLastAt = 0;
+}
+
+function setEnergyMode(mode) {
+  const state = toolboxState();
+  const next = ["reading", "pk", "cheer"].includes(mode) ? mode : "reading";
+  state.energyMode = next;
+  state.settings.energyMode = next;
+  const select = document.getElementById("toolboxEnergyModeSelect");
+  if (select) select.value = next;
+  resetEnergyTool();
+}
+
+async function startEnergyTool() {
+  const state = toolboxState();
+  readToolboxSettings();
+  if (state.activeTool !== "energy") {
+    enterToolboxTool("energy", { silent: true });
+  }
+  try {
+    await ensureToolboxAudio();
+    state.paused = false;
+    state.energyRunning = true;
+    state.energySamples = [];
+    state.energyDb = null;
+    state.energyStartedAt = performance.now();
+    document.getElementById("toolboxLiveStage")?.classList.add("energy-awake");
+    setToolboxResult("toolboxEnergyResult", "星光正在听见全班的声音。系统只计算能量，不录音、不上传。");
+    startToolboxAudioLoop((level) => updateEnergySample(level));
+  } catch (error) {
+    state.energyRunning = false;
+    setToolboxResult("toolboxEnergyResult", error.message || "无法启动麦克风", true);
+  }
+  syncToolboxPrimaryButton();
+}
+
+function updateEnergySample(level, now = performance.now()) {
+  const state = toolboxState();
+  if (!state.energyRunning || state.paused) return;
+  state.energyDb = Math.round(38 + Math.max(0, Math.min(100, level)) * 0.55);
+  state.energySamples.push(level);
+  if (state.energySamples.length > 600) state.energySamples.shift();
+  const avg =
+    state.energySamples.reduce((sum, item) => sum + item, 0) /
+    Math.max(1, state.energySamples.length);
+  const score =
+    state.energyMode === "cheer"
+      ? Math.max(state.energyPeak, level)
+      : Math.max(0, Math.min(100, Math.round(avg * 1.28)));
+  state.energyScore = Math.max(0, Math.min(100, Math.round(score)));
+  state.energyPeak = Math.max(state.energyPeak, level);
+
+  if (state.energyMode === "pk") {
+    const biasLeft = (Math.random() - 0.48) * 8;
+    const biasRight = (Math.random() - 0.48) * 8;
+    state.energyPkScoreLeft = Math.max(0, Math.min(100, Math.round(state.energyScore + biasLeft)));
+    state.energyPkScoreRight = Math.max(0, Math.min(100, Math.round(state.energyScore + biasRight)));
+  }
+
+  const durationSeconds = Number(state.settings.energyDuration || 0);
+  const timedOut =
+    durationSeconds > 0 && now - state.energyStartedAt >= durationSeconds * 1000;
+  if (shouldRenderToolboxAudioFrame(state, now) || timedOut) {
+    renderEnergyToolbox();
+  }
+  if (timedOut) {
+    stopEnergyTool();
+    setToolboxResult("toolboxEnergyResult", "限时声浪挑战结束。");
+  }
+}
+
+function stopEnergyTool(options = {}) {
+  const state = toolboxState();
+  if (!state.energyRunning && !state.paused && options.silent) return;
+
+  const score = state.energyMode === "cheer" ? Math.min(100, state.energyPeak) : state.energyScore;
+  const level = resolveEnergyLevel(score);
+
+  state.energyRunning = false;
+  state.paused = false;
+  cancelToolboxAudioLoop();
+  if (!options.silent) {
+    setToolboxResult("toolboxEnergyResult", buildEnergyResultText());
+    stopToolboxAudio();
+
+    let scoreToShow = score;
+    let customFeedback = "";
+    if (state.energyMode === "pk") {
+      const left = state.energyPkScoreLeft || 0;
+      const right = state.energyPkScoreRight || 0;
+      scoreToShow = Math.max(left, right);
+      if (left > right) {
+        customFeedback = `【${level}】PK 战况：第 1 组以 ${left} 分险胜第 2 组的 ${right} 分！第 1 组表现太精彩了！`;
+      } else if (right > left) {
+        customFeedback = `【${level}】PK 战况：第 2 组以 ${right} 分险胜第 1 组 of ${left} 分！第 2 组表现太精彩了！`;
+      } else {
+        customFeedback = `【${level}】PK 战况：双方声浪不相上下，以 ${left} 分握手言和！真是棋逢对手！`;
+      }
+    }
+
+    showEnergyResultOverlay(scoreToShow, level, customFeedback);
+  }
+  syncToolboxPrimaryButton();
+}
+
+function showEnergyResultOverlay(score, level, customFeedback) {
+  const scoreEl = document.getElementById("energyResultScore");
+  const feedbackEl = document.getElementById("energyResultFeedback");
+  const overlay = document.getElementById("toolboxEnergyResultOverlay");
+  
+  if (scoreEl) scoreEl.textContent = String(score);
+  if (feedbackEl) {
+    if (customFeedback) {
+      feedbackEl.textContent = customFeedback;
+    } else {
+      let feedback = "";
+      if (score >= 95) {
+        feedback = `【${level}】全班星光爆发！本轮声浪活力斩获了不可思议的 ${score} 分！这一下，课堂真的被彻底点燃了！`;
+      } else if (score >= 85) {
+        feedback = `【${level}】全班默契共振！本轮声浪活力获得了极高评价的 ${score} 分，凝聚力十分强大！`;
+      } else if (score >= 70) {
+        feedback = `【${level}】星光能量升起！本轮声浪获得了优秀的 ${score} 分，继续加油，向更高的星光发起挑战！`;
+      } else {
+        feedback = `【${level}】本轮声浪积攒了 ${score} 分，期待下一次更响亮的点亮仪式，让我们一起照亮课堂！`;
+      }
+      feedbackEl.textContent = feedback;
+    }
+  }
+  
+  if (overlay) {
+    overlay.style.display = "flex";
+  }
+}
+
+function closeEnergyResultOverlay(event) {
+  if (event?.target && event.target !== document.getElementById("toolboxEnergyResultOverlay") && event.target.tagName !== "BUTTON") {
+    return;
+  }
+  const overlay = document.getElementById("toolboxEnergyResultOverlay");
+  if (overlay) {
+    overlay.style.display = "none";
+  }
+  resetEnergyTool();
+}
+
+function confirmAndStartToolboxSettings() {
+  const state = toolboxState();
+  const tool = state.activeTool;
+  
+  readToolboxSettings();
+  document.getElementById("toolboxSettingsOverlay")?.classList.remove("active");
+  
+  // 仅保存并更新设置，不直接开始运行，复位并显示最新的参数面板
+  if (tool === "energy") {
+    resetEnergyTool();
+  } else if (tool === "garden") {
+    resetGardenTool();
+  } else if (tool === "lucky") {
+    resetLuckyTool();
+  } else if (tool === "timer") {
+    resetToolboxTimer();
+  }
+}
+
+function resetEnergyTool() {
+  const state = toolboxState();
+  state.energyRunning = false;
+  state.paused = false;
+  state.energyScore = 0;
+  state.energyPeak = 0;
+  state.energyDb = null;
+  state.energyStartedAt = 0;
+  state.energySamples = [];
+  state.energyPkScores.clear();
+  cancelToolboxAudioLoop();
+  renderEnergyToolbox();
+  setToolboxResult("toolboxEnergyResult", "点击开始，让全班一起点亮星光。");
+  syncToolboxPrimaryButton();
+}
+
+function renderEnergyToolbox() {
+  const state = toolboxState();
+  const score = state.energyMode === "cheer" ? Math.min(100, state.energyPeak) : state.energyScore;
+  const target = Math.max(1, Number(state.settings.energyTarget || 90));
+  const completion = Math.max(0, Math.min(100, Math.round((score / target) * 100)));
+  const level = resolveEnergyLevel(score);
+
+  // 1. 动态渲染挑战难度
+  let diffLabel = "高";
+  if (target <= 60) diffLabel = "低";
+  else if (target <= 75) diffLabel = "中";
+  else if (target <= 90) diffLabel = "高";
+  else diffLabel = "极高";
+  setText("toolboxEnergyDifficulty", `挑战：${diffLabel} (${target}dB)`);
+
+  setText("toolboxEnergyScore", `${completion}%`);
+  setText("toolboxEnergyLevel", level);
+  setText("toolboxEnergyDb", state.energyDb == null ? "-- dB" : `${state.energyDb} dB`);
+  setText("toolboxEnergyTime", resolveEnergyTimeLabel());
+  const meter = document.getElementById("toolboxEnergyMeter");
+  if (meter) meter.style.width = `${completion}%`;
+
+  // 2. 动态渲染小组 PK 视图
+  const isPk = state.energyMode === "pk";
+  const pkArea = document.getElementById("toolboxEnergyPkArea");
+  if (pkArea) {
+    pkArea.style.display = isPk && (state.energyRunning || state.paused) ? "flex" : "none";
+    if (isPk) {
+      const leftScore = state.energyPkScoreLeft || 0;
+      const rightScore = state.energyPkScoreRight || 0;
+      setText("toolboxEnergyPkScoreLeft", `${leftScore} 分`);
+      setText("toolboxEnergyPkScoreRight", `${rightScore} 分`);
+      const barLeft = document.getElementById("toolboxEnergyPkBarLeft");
+      const barRight = document.getElementById("toolboxEnergyPkBarRight");
+      if (barLeft) barLeft.style.height = `${leftScore}%`;
+      if (barRight) barRight.style.height = `${rightScore}%`;
+    }
+  }
+
+  const orb = document.getElementById("toolboxEnergyOrb");
+  if (orb) {
+    orb.style.setProperty("--energy", String(Math.max(12, score)));
+    orb.style.setProperty("--is-pk", isPk ? "1" : "0");
+    orb.classList.toggle("celebrate", completion >= 100);
+  }
+  if (completion >= 100 && state.energyRunning) {
+    setToolboxResult("toolboxEnergyResult", `全班点亮成功：${level}。这一下，课堂真的醒了。`);
+  }
+}
+
+function resolveEnergyTimeLabel() {
+  const state = toolboxState();
+  const durationSeconds = Number(state.settings.energyDuration || 0);
+  if (durationSeconds <= 0) return "不限时";
+  if (!state.energyRunning && !state.paused) return `${durationSeconds} 秒挑战`;
+  const elapsed = Math.max(0, performance.now() - (state.energyStartedAt || performance.now()));
+  const remaining = Math.max(0, Math.ceil(durationSeconds - elapsed / 1000));
+  return `剩余 ${remaining} 秒`;
+}
+
+function resolveEnergyLevel(score) {
+  if (score >= 95) return "星光爆发";
+  if (score >= 85) return "全班共振";
+  if (score >= 70) return "能量升起";
+  return score > 0 ? "正在聚光" : "等待点亮";
+}
+
+function buildEnergyResultText() {
+  const state = toolboxState();
+  if (state.energyMode === "cheer") {
+    return `本轮欢呼峰值：${Math.min(100, state.energyPeak)} 分。`;
+  }
+  return `本轮声浪活力：${state.energyScore} 分，${resolveEnergyLevel(state.energyScore)}。`;
+}
+
+async function startGardenTool() {
+  const state = toolboxState();
+  readToolboxSettings();
+  if (state.activeTool !== "garden") {
+    enterToolboxTool("garden", { silent: true });
+  }
+  try {
+    await ensureToolboxAudio();
+    if (!state.paused) {
+      state.gardenQuietSeconds = 0;
+    }
+    state.paused = false;
+    state.gardenRunning = true;
+    state.gardenLastTick = performance.now();
+    setToolboxResult("toolboxGardenResult", "安静会让花园一点点醒来。系统只计算声音能量。");
+    startToolboxAudioLoop((level) => updateGardenSample(level));
+  } catch (error) {
+    state.gardenRunning = false;
+    setToolboxResult("toolboxGardenResult", error.message || "无法启动麦克风", true);
+  }
+  syncToolboxPrimaryButton();
+}
+
+function updateGardenSample(level, now = performance.now()) {
+  const state = toolboxState();
+  if (!state.gardenRunning || state.paused) return;
+  const delta = Math.max(0, (now - (state.gardenLastTick || now)) / 1000);
+  state.gardenLastTick = now;
+  state.gardenDb = Math.round(15 + Math.max(0, Math.min(100, level)) * 0.65);
+  const threshold = Number(state.settings.gardenThreshold || 34);
+  if (state.gardenDb <= threshold) {
+    state.gardenQuietSeconds += delta;
+  }
+  const target = Number(state.settings.gardenTarget ?? 120);
+  const refTarget = target > 0 ? target : 120;
+  const progress = Math.max(
+    0,
+    Math.min(100, (state.gardenQuietSeconds / refTarget) * 100),
+  );
+  if (shouldRenderToolboxAudioFrame(state, now) || (target > 0 && progress >= 100)) {
+    renderGardenToolbox(state.gardenDb > threshold);
+  }
+}
+
+function stopGardenTool(options = {}) {
+  const state = toolboxState();
+  if (!state.gardenRunning && !state.paused && options.silent) return;
+
+  const target = Number(state.settings.gardenTarget ?? 120);
+  const refTarget = target > 0 ? target : 60; // 不限时模式下，满1分钟即得满分，或按已守护时间计算
+  const score = Math.max(0, Math.min(100, Math.round((state.gardenQuietSeconds / refTarget) * 100)));
+  const level = resolveGardenLevel(score);
+
+  state.gardenRunning = false;
+  state.paused = false;
+  cancelToolboxAudioLoop();
+
+  if (!options.silent) {
+    setToolboxResult("toolboxGardenResult", `本次守护得分：${score} 分，${level}。`);
+    stopToolboxAudio();
+    showGardenResultOverlay(score, level);
+  }
+  syncToolboxPrimaryButton();
+}
+
+function resetGardenTool() {
+  const state = toolboxState();
+  state.gardenRunning = false;
+  state.paused = false;
+  state.gardenQuietSeconds = 0;
+  state.gardenLastTick = 0;
+  state.gardenDb = null;
+  cancelToolboxAudioLoop();
+  initGardenFlora();
+  renderGardenToolbox(false);
+  setToolboxResult("toolboxGardenResult", "点击开始，全班一起守护安静花园。");
+  syncToolboxPrimaryButton();
+}
+
+function initGardenFlora() {
+  const container = document.getElementById("toolboxGardenFlora");
+  if (!container) return;
+  container.innerHTML = "";
+  const count = 10;
+  for (let i = 0; i < count; i++) {
+    const el = document.createElement("div");
+    el.className = "flora-item";
+    
+    const left = 5 + Math.random() * 80;
+    const bottom = -5 + Math.random() * 20;
+    const scale = 0.5 + Math.random() * 0.5;
+    const rot = -20 + Math.random() * 40;
+    const hue = Math.floor(Math.random() * 360);
+    const delay = -(Math.random() * 5);
+    const bri = 0.9 + Math.random() * 0.3;
+    
+    el.style.left = `${left}%`;
+    el.style.bottom = `${bottom}%`;
+    el.style.setProperty("--flora-scale", String(scale));
+    el.style.setProperty("--flora-rot", `${rot}deg`);
+    el.style.setProperty("--flora-hue", `${hue}deg`);
+    el.style.setProperty("--flora-bri", String(bri));
+    el.style.setProperty("--flora-delay", `${delay}s`);
+    
+    el.innerHTML = '<img src="images/toolbox/quiet-flower.png" alt="">';
+    container.appendChild(el);
+  }
+}
+
+function renderGardenToolbox(isNoisy = false) {
+  const state = toolboxState();
+  const target = Number(state.settings.gardenTarget ?? 120);
+  
+  // 如果不限时，花朵的生长和进度条以 120秒（2分钟）作为达到 100% 的满载参考，但之后维持在 100% 并不自动结束
+  const refTarget = target > 0 ? target : 120;
+  const progress = Math.max(0, Math.min(100, (state.gardenQuietSeconds / refTarget) * 100));
+
+  setText("toolboxGardenDb", state.gardenDb == null ? "-- dB" : `${state.gardenDb} dB`);
+  const dbEl = document.getElementById("toolboxGardenDb");
+  const threshold = Number(state.settings.gardenThreshold || 34);
+  if (dbEl) {
+    if (state.gardenDb == null) {
+      dbEl.style.color = "";
+    } else if (state.gardenDb > threshold + 8) {
+      dbEl.style.color = "#ff4d4f"; // 严重超过：红色
+    } else if (state.gardenDb > threshold) {
+      dbEl.style.color = "#ffd591"; // 稍微超过：黄色
+    } else {
+      dbEl.style.color = ""; // 正常范围：白色
+    }
+  }
+  const bar = document.getElementById("toolboxGardenProgress");
+  if (bar) bar.style.width = `${progress}%`;
+  const scene = document.getElementById("toolboxGardenScene");
+  if (scene) {
+    scene.style.setProperty("--growth", String(progress));
+    scene.classList.toggle("complete", progress >= 100);
+    scene.classList.toggle("noisy", isNoisy);
+  }
+  
+  const floraContainer = document.getElementById("toolboxGardenFlora");
+  if (floraContainer) {
+    const floras = floraContainer.querySelectorAll(".flora-item");
+    const count = floras.length;
+    // 在 10% ~ 90% 之间按进度依次让子花绽放
+    let targetBloomed = 0;
+    if (progress > 10) {
+      targetBloomed = Math.min(count, Math.floor((progress - 10) / (80 / count)) + 1);
+    }
+    floras.forEach((flora, idx) => {
+      if (idx < targetBloomed) {
+        flora.classList.add("flora-bloomed");
+      } else {
+        flora.classList.remove("flora-bloomed");
+      }
+    });
+  }
+  setText(
+    "toolboxGardenStatus",
+    progress >= 100 && target > 0
+      ? "花园完整点亮"
+      : isNoisy
+        ? "声音有点高，花园先等一等"
+        : state.gardenRunning
+          ? "安静正在生长"
+          : "一起守护安静花园",
+  );
+
+  setText("toolboxGardenProgressText", `${Math.round(progress)}%`);
+
+  const countdownEl = document.getElementById("toolboxGardenCountdown");
+  if (countdownEl) {
+    if (target > 0) {
+      const remaining = Math.max(0, target - state.gardenQuietSeconds);
+      const min = Math.floor(remaining / 60);
+      const sec = Math.floor(remaining % 60);
+      if (state.gardenRunning || state.paused) {
+        countdownEl.textContent = `剩余 ${String(min).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+      } else {
+        const targetMin = Math.floor(target / 60);
+        const targetSec = Math.floor(target % 60);
+        countdownEl.textContent = `限时 ${String(targetMin).padStart(2, "0")}:${String(targetSec).padStart(2, "0")}`;
+      }
+    } else {
+      // 不限时模式下
+      if (state.gardenRunning || state.paused) {
+        const elapsed = state.gardenQuietSeconds;
+        const min = Math.floor(elapsed / 60);
+        const sec = Math.floor(elapsed % 60);
+        countdownEl.textContent = `已守护 ${String(min).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+      } else {
+        countdownEl.textContent = "不限时";
+      }
+    }
+  }
+
+  const thresholdLabel = getGardenThresholdLabel(state.settings.gardenThreshold || 34);
+  setText("toolboxGardenDifficulty", thresholdLabel);
+
+  // 只有在限时模式且进度达到 100% 时，才自动停止
+  if (target > 0 && progress >= 100 && state.gardenRunning) {
+    stopGardenTool();
+    setToolboxResult("toolboxGardenResult", "全班守护成功，花园已经完整开放。");
+  }
+}
+
+function getGardenThresholdLabel(threshold) {
+  const val = Number(threshold);
+  if (val === 45) return "要求：宽松 (45dB)";
+  if (val === 34) return "要求：标准 (34dB)";
+  if (val === 22) return "要求：严格 (22dB)";
+  if (val === 12) return "要求：极严 (12dB)";
+  return `要求：${val}dB`;
+}
+
+function resolveGardenLevel(score) {
+  if (score >= 95) return "完美守护";
+  if (score >= 80) return "静心守望";
+  if (score >= 60) return "渐入佳境";
+  return "等待萌芽";
+}
+
+function showGardenResultOverlay(score, level) {
+  const scoreEl = document.getElementById("gardenResultScore");
+  const feedbackEl = document.getElementById("gardenResultFeedback");
+  const overlay = document.getElementById("toolboxGardenResultOverlay");
+  
+  if (scoreEl) scoreEl.textContent = String(score);
+  if (feedbackEl) {
+    let feedback = "";
+    if (score >= 95) {
+      feedback = `【${level}】太棒了！全班同学以超高的自律达成了 ${score} 分！安静的花园里繁花似锦，美轮美奂！`;
+    } else if (score >= 80) {
+      feedback = `【${level}】真不错！全班同学共同专注，斩获了 ${score} 分，花园里大半的花朵都已绽放！`;
+    } else if (score >= 60) {
+      feedback = `【${level}】初见成效！本轮安静挑战获得了 ${score} 分，部分绿芽已经破土而出，继续加油！`;
+    } else {
+      feedback = `【${level}】本次守护获得 ${score} 分。别气馁，下一次我们一起深呼吸，让安静守护更持久！`;
+    }
+    feedbackEl.textContent = feedback;
+  }
+  if (overlay) {
+    overlay.style.display = "flex";
+  }
+}
+
+function closeGardenResultOverlay(event) {
+  if (event?.target && event.target !== document.getElementById("toolboxGardenResultOverlay") && event.target.tagName !== "BUTTON") {
+    return;
+  }
+  const overlay = document.getElementById("toolboxGardenResultOverlay");
+  if (overlay) {
+    overlay.style.display = "none";
+  }
+  resetGardenTool();
+}
+
+function setLuckyScope(scope) {
+  const state = toolboxState();
+  const next = scope === "group" ? "group" : "class";
+  state.luckyScope = next;
+  state.settings.luckyScope = next;
+  const select = document.getElementById("toolboxLuckyScopeSelect");
+  if (select) select.value = next;
+  const groupSelectContainer = document.getElementById("toolboxLuckyGroupSelectContainer");
+  if (groupSelectContainer) {
+    if (next === "group") {
+      groupSelectContainer.style.setProperty("display", "grid", "important");
+    } else {
+      groupSelectContainer.style.setProperty("display", "none", "important");
+    }
+  }
+  resetLuckyTool();
+  renderLuckyExcludeList();
+}
+
+function setLuckyGroupNo(groupNo) {
+  const state = toolboxState();
+  state.settings.luckyGroupNo = String(groupNo || "");
+  resetLuckyTool();
+  renderLuckyExcludeList();
+}
+
+function getStudentVisualUrl(student) {
+  if (!student) return "";
+  if (student.avatarUrl) return resolveAssetUrl(student.avatarUrl);
+  return petImg(student);
+}
+
+function buildLuckyAvatarMarkup(student, className = "lucky-roll-avatar") {
+  const name = student?.name || "?";
+  const url = student ? petImg(student) : "";
+  if (url) {
+    return `<img class="${className}" src="${escapeHtml(url)}" alt="${escapeHtml(name)}" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'${className} lucky-avatar-fallback',textContent:'${escapeHtml(name.charAt(0) || "?")}' }))">`;
+  }
+  return `<span class="${className} lucky-avatar-fallback">${escapeHtml(name.charAt(0) || "?")}</span>`;
+}
+
+function openLuckyStudentScore(key) {
+  const state = toolboxState();
+  if (state.luckyRolling) return;
+  const safeKey = decodeURIComponent(String(key || ""));
+  const student = students.find((item) => luckyStudentKey(item) === safeKey);
+  if (!student) {
+    showDisplayToast("当前学生不在班级名单中");
+    return;
+  }
+  closeLuckyHistoryModal();
+  openPointModalByName(student.name, null);
+}
+
+function buildLuckyRollCardMarkup(student, isCenter) {
+  if (!student) {
+    return `<span class="lucky-roll-card">
+      <img class="lucky-roll-avatar unknown" src="images/logo.svg" alt="未知">
+    </span>`;
+  }
+  if (isCenter) {
+    const avatarUrl = petImg(student);
+    return `<span class="lucky-roll-card center">
+      <img class="lucky-roll-avatar" src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(student.name)}" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'lucky-roll-avatar lucky-avatar-fallback',textContent:'${escapeHtml(student.name.charAt(0) || "?")}' }))">
+      <b>${escapeHtml(student.name)}</b>
+    </span>`;
+  } else {
+    return `<span class="lucky-roll-card">
+      <img class="lucky-roll-avatar unknown" src="images/logo.svg" alt="未知">
+    </span>`;
+  }
+}
+
+function ensureLuckyRollTrackPlaceholders(track) {
+  if (!track || track.dataset.luckyTrackReady === "1") return;
+  track.innerHTML = Array.from({ length: 18 })
+    .map(
+      () =>
+        `<span class="lucky-roll-card"><img class="lucky-roll-avatar unknown" src="images/logo.svg" alt="未知"></span>`,
+    )
+    .join("");
+  track.dataset.luckyTrackReady = "1";
+}
+
+function renderLuckyCenterCard(student, clickable = false) {
+  const centerCard = document.getElementById("toolboxLuckyCenterCard");
+  if (!centerCard) return;
+  if (student) {
+    const avatarUrl = petImg(student);
+    const key = luckyStudentKey(student);
+    centerCard.classList.toggle("clickable", clickable);
+    centerCard.setAttribute("role", clickable ? "button" : "presentation");
+    centerCard.setAttribute("tabindex", clickable ? "0" : "-1");
+    centerCard.onclick = clickable ? () => openLuckyStudentScore(key) : null;
+    centerCard.onkeydown = clickable
+      ? (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            openLuckyStudentScore(key);
+          }
+        }
+      : null;
+    centerCard.innerHTML = `
+      <img class="lucky-roll-avatar" src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(student.name)}" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'lucky-roll-avatar lucky-avatar-fallback',textContent:'${escapeHtml(student.name.charAt(0) || "?")}' }))">
+      <b>${escapeHtml(student.name)}</b>
+    `;
+  } else {
+    centerCard.classList.remove("clickable");
+    centerCard.setAttribute("role", "presentation");
+    centerCard.setAttribute("tabindex", "-1");
+    centerCard.onclick = null;
+    centerCard.onkeydown = null;
+    centerCard.innerHTML = `
+      <img class="lucky-roll-avatar unknown" src="images/logo.svg" alt="未知">
+      <b>准备抽选</b>
+    `;
+  }
+}
+
+function drawLuckyStudent() {
+  const state = toolboxState();
+  readToolboxSettings();
+  if (state.activeTool !== "lucky") {
+    enterToolboxTool("lucky", { silent: true });
+  }
+  if (state.luckyRolling) return;
+  const repeat = Boolean(state.settings.luckyRepeat);
+  const groupNo = state.settings.luckyGroupNo || document.getElementById("toolboxLuckyGroupSelect")?.value;
+  const scopedPool = getToolboxStudentsByScope(state.settings.luckyScope, groupNo).filter(
+    (student) => !isLuckyStudentExcluded(student),
+  );
+  const pool = scopedPool.filter((student) => {
+    return repeat || !state.luckyDrawnIds.has(luckyStudentKey(student));
+  });
+  if (!pool.length) {
+    if (!scopedPool.length) {
+      setToolboxResult(
+        "toolboxLuckyResult",
+        "当前范围没有可抽学生，请在设置中取消排除或更换范围。",
+        true,
+      );
+    } else {
+      setToolboxResult("toolboxLuckyResult", "这一轮已经抽完。打开设置允许重复，或点击重置名单。", true);
+    }
+    return;
+  }
+  state.luckyRolling = true;
+  state.luckySelected = null;
+  state.luckyRollPool = pool;
+  state.luckyRollStartedAt = performance.now();
+  state.luckyRollLastCenterIndex = -1;
+  document.getElementById("toolboxLuckyWheel")?.classList.add("rolling");
+  setToolboxResult("toolboxLuckyResult", "头像正在翻滚，幸运正在靠近。");
+  runLuckyRollFrame();
+  syncToolboxPrimaryButton();
+}
+
+function runLuckyRollFrame() {
+  const state = toolboxState();
+  const track = document.getElementById("toolboxLuckyTrack");
+  if (!track || !state.luckyRolling) return;
+  const elapsed = performance.now() - state.luckyRollStartedAt;
+  const progress = (elapsed % 80) / 80;
+
+  ensureLuckyRollTrackPlaceholders(track);
+  track.style.setProperty("--roll-progress", String(progress));
+
+  // 中间固定卡片按 100ms 更新，避免每帧重建图片 DOM。
+  const pool = state.luckyRollPool.length ? state.luckyRollPool : students;
+  if (pool.length) {
+    const flashIndex = Math.floor(elapsed / 100) % pool.length;
+    if (flashIndex !== state.luckyRollLastCenterIndex) {
+      state.luckyRollLastCenterIndex = flashIndex;
+      renderLuckyCenterCard(pool[flashIndex]);
+    }
+  }
+
+  state.luckyRollRAF = requestAnimationFrame(runLuckyRollFrame);
+}
+
+function stopLuckyDrawWithWinner() {
+  const state = toolboxState();
+  if (!state.luckyRolling) return;
+  const elapsed = performance.now() - state.luckyRollStartedAt;
+  const pool = state.luckyRollPool.length ? state.luckyRollPool : students;
+  if (!pool.length) {
+    stopLuckyRoll();
+    return;
+  }
+  // 选定点击瞬间在中心闪烁显示的学生
+  const flashIndex = Math.floor(elapsed / 100) % pool.length;
+  const winner = pool[flashIndex];
+  stopLuckyRoll();
+  document.getElementById("toolboxLuckyWheel")?.classList.remove("rolling");
+  if (winner) {
+    state.luckySelected = winner;
+    state.luckyDrawnIds.add(luckyStudentKey(winner));
+    state.luckyHistory.unshift(winner);
+    state.luckyHistory = state.luckyHistory.slice(0, 100);
+    renderLuckyToolbox(winner);
+    setToolboxResult("toolboxLuckyResult", `幸运同学：${winner.name}。把掌声给到 TA。`);
+  } else {
+    renderLuckyToolbox();
+  }
+  syncToolboxPrimaryButton();
+}
+
+function stopLuckyRoll() {
+  const state = toolboxState();
+  if (state.luckyRollRAF) {
+    cancelAnimationFrame(state.luckyRollRAF);
+    state.luckyRollRAF = null;
+  }
+  state.luckyRolling = false;
+  state.luckyRollLastCenterIndex = -1;
+}
+
+function resetLuckyTool() {
+  const state = toolboxState();
+  stopLuckyRoll();
+  state.luckyDrawnIds.clear();
+  state.luckyHistory = [];
+  state.luckySelected = null;
+  renderLuckyToolbox();
+  setToolboxResult("toolboxLuckyResult", "默认全班抽取，点击开始进行随机抽取。");
+  syncToolboxPrimaryButton();
+}
+
+function renderLuckyToolbox(selected) {
+  const state = toolboxState();
+  const target = selected || state.luckySelected;
+  const name = target?.name || "准备抽选";
+  const groupNo =
+    state.settings.luckyGroupNo ||
+    document.getElementById("toolboxLuckyGroupSelect")?.value;
+  const excludeCount = getLuckyExcludedCountInScope(
+    state.settings.luckyScope,
+    groupNo,
+  );
+  const excludeHint = excludeCount ? ` · 已排除 ${excludeCount} 人` : "";
+  const meta = target
+    ? `${target.groupName || (target.group ? `第${target.group}组` : "未分组")} · ${target.petName || "星宠伙伴"}`
+    : state.settings.luckyScope === "group"
+      ? `小组抽选 · 不重复${excludeHint}`
+      : `全班抽选 · 不重复${excludeHint}`;
+  setText("toolboxLuckyName", name);
+  setText("toolboxLuckyMeta", meta);
+  const avatar = document.getElementById("toolboxLuckyAvatar");
+  if (avatar) {
+    avatar.outerHTML = buildLuckyAvatarMarkup(target, "lucky-winner-avatar");
+  }
+  const history = document.getElementById("toolboxLuckyHistory");
+  if (history) {
+    const isOverflow = state.luckyHistory.length > 10;
+    const displayCount = isOverflow ? 9 : 10;
+    const displayItems = state.luckyHistory.slice(0, displayCount);
+    let html = displayItems
+      .map(
+        (student) =>
+          `<button type="button" onclick="openLuckyStudentScore('${luckyStudentKeyForInlineHandler(student)}')">${buildLuckyAvatarMarkup(student, "lucky-history-avatar")}<b>${escapeHtml(student.name)}</b></button>`,
+      )
+      .join("");
+    if (isOverflow) {
+      html += `<button class="lucky-more-btn" onclick="openLuckyHistoryModal()" type="button"><i class="fa-solid fa-ellipsis"></i> 更多</button>`;
+    }
+    history.innerHTML = html;
+  }
+
+  renderLuckyCenterCard(target, Boolean(target && !state.luckyRolling));
+
+  // 静止或重置状态下，轨道纯平铺 18 个全黑未知占位卡片
+  const track = document.getElementById("toolboxLuckyTrack");
+  if (track) {
+    track.dataset.luckyTrackReady = "0";
+    ensureLuckyRollTrackPlaceholders(track);
+    track.style.setProperty("--roll-progress", "0");
+  }
+}
+
+function openLuckyHistoryModal() {
+  const overlay = document.getElementById("luckyAllHistoryModal");
+  if (overlay) {
+    const list = document.getElementById("luckyAllHistoryList");
+    if (list) {
+      list.innerHTML = toolboxState().luckyHistory
+        .map(
+          (student) =>
+            `<button type="button" onclick="event.stopPropagation();openLuckyStudentScore('${luckyStudentKeyForInlineHandler(student)}')" class="lucky-history-modal-card">
+              ${buildLuckyAvatarMarkup(student, "lucky-history-avatar")}
+              <b>${escapeHtml(student.name)}</b>
+              <em>${escapeHtml(student.groupName || (student.group ? `第${student.group}组` : "未分组"))}</em>
+            </button>`,
+        )
+        .join("");
+    }
+    overlay.onclick = (event) => {
+      if (event.target === overlay) {
+        closeLuckyHistoryModal();
+      }
+    };
+    overlay.classList.add("active");
+  }
+}
+
+function closeLuckyHistoryModal() {
+  document.getElementById("luckyAllHistoryModal")?.classList.remove("active");
+}
+
+function setToolboxTimerPreset(seconds) {
+  const state = toolboxState();
+  const duration = Math.max(1, Number(seconds) || 300);
+  state.settings.timerDuration = duration;
+  state.timerDuration = duration;
+  state.timerDurationMs = duration * 1000;
+  state.timerRemainingMs = state.timerDurationMs;
+  document.querySelectorAll(".timer-presets button").forEach((btn) => {
+    btn.classList.toggle("active", Number(btn.textContent?.match(/\d+/)?.[0] || 0) * 60 === duration);
+  });
+  const custom = document.getElementById("toolboxTimerCustom");
+  if (custom) custom.value = "";
+
+  const h = Math.floor(duration / 3600);
+  const m = Math.floor((duration % 3600) / 60);
+  const s = duration % 60;
+  setTimerPickerValues(h, m, s);
+
+  stopToolboxTimerRAF();
+  state.timerRunning = false;
+  state.timerPaused = false;
+  renderToolboxTimer();
+}
+
+function resolveToolboxTimerDuration() {
+  const h = getTimerPickerValue("timerPickerHours");
+  const m = getTimerPickerValue("timerPickerMinutes");
+  const s = getTimerPickerValue("timerPickerSeconds");
+  const duration = h * 3600 + m * 60 + s;
+  if (duration > 0) {
+    return duration;
+  }
+  const custom = Number(document.getElementById("toolboxTimerCustom")?.value || 0);
+  if (Number.isFinite(custom) && custom > 0) {
+    return Math.min(99 * 60, Math.round(custom * 60));
+  }
+  return toolboxState().settings.timerDuration || 300;
+}
+
+function startToolboxTimer() {
+  const state = toolboxState();
+  if (state.activeTool !== "timer") {
+    enterToolboxTool("timer", { silent: true });
+  }
+  if (!state.timerPaused) {
+    state.timerDuration = resolveToolboxTimerDuration();
+    state.settings.timerDuration = state.timerDuration;
+    state.timerDurationMs = state.timerDuration * 1000;
+    state.timerRemainingMs = state.timerDurationMs;
+  }
+  state.timerRunning = true;
+  state.timerPaused = false;
+  state.timerDeadlineAt = performance.now() + state.timerRemainingMs;
+  stopToolboxTimerRAF();
+  tickToolboxTimer();
+  syncToolboxPrimaryButton();
+}
+
+function pauseToolboxTimer() {
+  const state = toolboxState();
+  if (!state.timerRunning) return;
+  state.timerRemainingMs = Math.max(0, state.timerDeadlineAt - performance.now());
+  state.timerRunning = false;
+  state.timerPaused = true;
+  stopToolboxTimerRAF();
+  renderToolboxTimer();
+  syncToolboxPrimaryButton();
+}
+
+function startTimerAlertLoop() {
+  stopTimerAlertLoop();
+  if (typeof playMelodicChime === "function") {
+    playMelodicChime();
+    const state = toolboxState();
+    state.timerAlertInterval = setInterval(playMelodicChime, 3000);
+  }
+}
+
+function stopTimerAlertLoop() {
+  const state = toolboxState();
+  if (state && state.timerAlertInterval) {
+    clearInterval(state.timerAlertInterval);
+    state.timerAlertInterval = null;
+  }
+}
+
+function resetToolboxTimer(options = {}) {
+  const state = toolboxState();
+  stopToolboxTimerRAF();
+  stopTimerAlertLoop();
+  state.timerFinishedAlerting = false;
+  state.timerRunning = false;
+  state.timerPaused = false;
+  state.timerDuration = resolveToolboxTimerDuration();
+  state.settings.timerDuration = state.timerDuration;
+  state.timerDurationMs = state.timerDuration * 1000;
+  state.timerRemainingMs = state.timerDurationMs;
+  renderToolboxTimer();
+  if (!options.silent) {
+    setToolboxResult("toolboxTimerResult", "选择预设后开始，结束时会柔和提醒。");
+  }
+  syncToolboxPrimaryButton();
+}
+
+function stopToolboxTimerRAF() {
+  const state = toolboxState();
+  if (state.timerRAF) {
+    clearTimeout(state.timerRAF);
+    state.timerRAF = null;
+  }
+}
+
+function tickToolboxTimer() {
+  const state = toolboxState();
+  if (!state.timerRunning) return;
+  state.timerRemainingMs = Math.max(0, state.timerDeadlineAt - performance.now());
+  renderToolboxTimer();
+  if (state.timerRemainingMs <= 0) {
+    state.timerRunning = false;
+    state.timerPaused = false;
+    state.timerFinishedAlerting = true;
+    stopToolboxTimerRAF();
+    setToolboxResult("toolboxTimerResult", "时间到，请收尾。");
+    setText("toolboxTimerStatus", "时间到");
+    document.getElementById("toolboxTimerDisplay")?.classList.add("finished");
+    startTimerAlertLoop();
+    syncToolboxPrimaryButton();
+    return;
+  }
+  state.timerRAF = setTimeout(tickToolboxTimer, 250);
+}
+
+function formatTimerMs(ms) {
+  // 以秒为单位向上取整，彻底避免点击开始后由于少许毫秒的流逝立即跳秒，产生“被扣掉一秒”的视觉错觉
+  const totalSeconds = Math.ceil(Math.max(0, ms) / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function renderToolboxTimer() {
+  const state = toolboxState();
+  const remaining = Math.max(0, state.timerRemainingMs ?? state.timerDurationMs ?? 300000);
+  const progress = remaining / Math.max(1, state.timerDurationMs || 300000);
+  const display = document.getElementById("toolboxTimerDisplay");
+  if (display) {
+    display.textContent = formatTimerMs(remaining);
+    display.classList.toggle("finished", remaining === 0 || state.timerFinishedAlerting);
+  }
+  const ring = document.getElementById("toolboxTimerRing");
+  if (ring) {
+    // 进度条缩减设计：从 360deg 顺时针缩短至 0deg (与 iOS 计时器一致)
+    ring.style.setProperty("--timer-progress", `${Math.round(progress * 360)}deg`);
+  }
+  const hourglass = document.getElementById("toolboxTimerHourglass");
+  if (hourglass) {
+    const sandProgress = Math.max(0, Math.min(1, progress));
+    const sandFill = 1 - sandProgress;
+    const streamActive = state.timerRunning && remaining > 0;
+    hourglass.style.setProperty("--timer-sand-progress", sandProgress.toFixed(4));
+    hourglass.style.setProperty("--timer-sand-fill", sandFill.toFixed(4));
+    hourglass.style.setProperty("--timer-sand-stream-opacity", streamActive ? "1" : "0");
+    hourglass.classList.toggle("is-running", streamActive);
+    hourglass.classList.toggle("is-finished", remaining === 0 || state.timerFinishedAlerting);
+  }
+  setText(
+    "toolboxTimerStatus",
+    state.timerFinishedAlerting ? "时间到" : state.timerRunning ? "时间正在流动" : state.timerPaused ? "已暂停" : "时间会被全班看见",
+  );
+
+  const timerScene = document.querySelector('.toolbox-scene[data-toolbox-scene="timer"]');
+  if (timerScene) {
+    const isActive = state.timerRunning || state.timerPaused || state.timerFinishedAlerting;
+    timerScene.setAttribute('data-timer-active', String(isActive));
+  }
+}
+
+function setToolboxResult(id, message, isError = false) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = message || "";
+  el.classList.toggle("error", Boolean(isError));
+}
+
+window.addEventListener("beforeunload", () => {
+  cleanupToolboxRuntime({ keepTimer: false });
+});
 
 document.addEventListener("DOMContentLoaded", () => {
   resolveRuntimeParams();
@@ -13665,4 +15974,103 @@ function spawnCssParticles(cx, cy, petH) {
     container.appendChild(el);
     setTimeout(() => el.remove(), 900);
   }
+}
+
+/* ========== D08 自定义时分秒 Picker 滚轮组件初始化与逻辑 ========== */
+function initTimerPickers() {
+  const hoursWheel = document.querySelector("#timerPickerHours .picker-wheel");
+  const minutesWheel = document.querySelector("#timerPickerMinutes .picker-wheel");
+  const secondsWheel = document.querySelector("#timerPickerSeconds .picker-wheel");
+
+  if (!hoursWheel || hoursWheel.children.length > 0) return;
+
+  let hoursHtml = '<div class="picker-spacer"></div>';
+  for (let i = 0; i < 24; i++) {
+    hoursHtml += `<div class="picker-item" data-value="${i}">${String(i).padStart(2, "0")}</div>`;
+  }
+  hoursHtml += '<div class="picker-spacer"></div>';
+  hoursWheel.innerHTML = hoursHtml;
+
+  let minutesHtml = '<div class="picker-spacer"></div>';
+  for (let i = 0; i < 60; i++) {
+    minutesHtml += `<div class="picker-item" data-value="${i}">${String(i).padStart(2, "0")}</div>`;
+  }
+  minutesHtml += '<div class="picker-spacer"></div>';
+  minutesWheel.innerHTML = minutesHtml;
+
+  let secondsHtml = '<div class="picker-spacer"></div>';
+  for (let i = 0; i < 60; i++) {
+    secondsHtml += `<div class="picker-item" data-value="${i}">${String(i).padStart(2, "0")}</div>`;
+  }
+  secondsHtml += '<div class="picker-spacer"></div>';
+  secondsWheel.innerHTML = secondsHtml;
+
+  const cols = ["timerPickerHours", "timerPickerMinutes", "timerPickerSeconds"];
+  cols.forEach((id) => {
+    const colEl = document.getElementById(id);
+    if (!colEl) return;
+    colEl.addEventListener("scroll", () => {
+      updateTimerPickerSelection(colEl);
+    }, { passive: true });
+  });
+
+  setTimerPickerValues(0, 5, 0);
+}
+
+function updateTimerPickerSelection(colEl) {
+  const wheel = colEl.querySelector(".picker-wheel");
+  if (!wheel) return;
+  const items = wheel.querySelectorAll(".picker-item");
+  const itemHeight = 36;
+  const scrollY = colEl.scrollTop;
+  const selectedIndex = Math.round(scrollY / itemHeight);
+
+  items.forEach((item, idx) => {
+    item.classList.toggle("selected", idx === selectedIndex);
+  });
+
+  const state = toolboxState();
+  if (state && !state.timerRunning && !state.timerPaused) {
+    const h = getTimerPickerValue("timerPickerHours");
+    const m = getTimerPickerValue("timerPickerMinutes");
+    const s = getTimerPickerValue("timerPickerSeconds");
+    
+    const duration = h * 3600 + m * 60 + s;
+    if (duration > 0) {
+      state.settings.timerDuration = duration;
+      state.timerDuration = duration;
+      state.timerDurationMs = duration * 1000;
+      state.timerRemainingMs = state.timerDurationMs;
+      
+      const display = document.getElementById("toolboxTimerDisplay");
+      if (display) {
+        display.textContent = formatTimerMs(state.timerRemainingMs);
+      }
+      
+      document.querySelectorAll(".timer-presets button").forEach((btn) => {
+        btn.classList.remove("active");
+      });
+    }
+  }
+}
+
+function getTimerPickerValue(colId) {
+  const colEl = document.getElementById(colId);
+  if (!colEl) return 0;
+  const itemHeight = 36;
+  const selectedIndex = Math.round(colEl.scrollTop / itemHeight);
+  const items = colEl.querySelectorAll(".picker-item");
+  const target = items[selectedIndex];
+  return target ? Number(target.dataset.value || 0) : 0;
+}
+
+function setTimerPickerValues(h, m, s) {
+  const itemHeight = 36;
+  const hCol = document.getElementById("timerPickerHours");
+  const mCol = document.getElementById("timerPickerMinutes");
+  const sCol = document.getElementById("timerPickerSeconds");
+
+  if (hCol) hCol.scrollTop = h * itemHeight;
+  if (mCol) mCol.scrollTop = m * itemHeight;
+  if (sCol) sCol.scrollTop = s * itemHeight;
 }

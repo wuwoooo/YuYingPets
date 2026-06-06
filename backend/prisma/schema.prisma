@@ -243,6 +243,7 @@ model User {
   teacherScheduleSlots        TeacherScheduleSlot[]
   operationLogs               OperationLog[]
   reversedScoreRecords        ScoreRecord[]            @relation("ScoreRecordReversedBy")
+  reversedClassScoreRecords   ClassScoreRecord[]       @relation("ClassScoreRecordReversedBy")
 
   @@index([schoolId])
   @@index([roleId])
@@ -629,6 +630,9 @@ model ClassScoreRecord {
   sourceRole     String?      @map("source_role") @db.VarChar(32)
   operatorId     BigInt       @map("operator_id")
   operatorName   String?      @map("operator_name") @db.VarChar(64)
+  reversedAt     DateTime?    @map("reversed_at")
+  reversedById   BigInt?      @map("reversed_by_id")
+  reverseRemark  String?      @map("reverse_remark") @db.VarChar(255)
   createdAt      DateTime     @default(now()) @map("created_at")
 
   school    School                 @relation(fields: [schoolId], references: [id])
@@ -637,11 +641,13 @@ model ClassScoreRecord {
   batch     ClassScoreRecordBatch? @relation(fields: [batchId], references: [id])
   rule      ScoreRule              @relation(fields: [ruleId], references: [id])
   operator  User                   @relation(fields: [operatorId], references: [id])
+  reversedBy User?                 @relation("ClassScoreRecordReversedBy", fields: [reversedById], references: [id])
 
   @@index([classId, createdAt])
   @@index([ruleId])
   @@index([schoolId, semesterId])
   @@index([batchId])
+  @@index([reversedAt])
   @@map("class_score_record")
 }
 

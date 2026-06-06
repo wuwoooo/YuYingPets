@@ -8,6 +8,7 @@ import { AuthService } from '../auth/auth.service';
 import { OperationLogService } from '../operation-log/operation-log.service';
 import { RealtimeService } from '../realtime/realtime.service';
 import { ScoreRecordsService } from '../score-records/score-records.service';
+import { ScoreRecordReverseDto } from '../score-records/dto/score-record-reverse.dto';
 import { ClassScoreRecordBatchDto } from './dto/class-score-record-batch.dto';
 import { ClassScoreRecordCreateDto } from './dto/class-score-record-create.dto';
 
@@ -50,15 +51,18 @@ export class ClassScoreRecordsService {
       const classroom = await this.loadClassroom(Number(classId), user.schoolId);
       this.ensureCanViewClassScore(user, classroom);
     }
+    const createdAtFilter = this.buildCreatedAtFilter(query.startDate, query.endDate);
 
     const rows = await this.prisma.classScoreRecord.findMany({
       where: {
         schoolId: user.schoolId,
         classId,
+        createdAt: createdAtFilter,
       },
       include: {
         classroom: { select: { id: true, name: true, gradeCode: true, gradeName: true } },
         rule: { select: { name: true } },
+        reversedBy: { select: { name: true } },
       },
       orderBy: { createdAt: 'desc' },
       take: 100,
@@ -91,6 +95,10 @@ export class ClassScoreRecordsService {
         sourceRole: row.sourceRole,
         operatorId: toNumber(row.operatorId),
         operatorName: row.operatorName,
+        reversedAt: row.reversedAt,
+        reversedById: toNumber(row.reversedById),
+        reversedByName: row.reversedBy?.name ?? null,
+        reverseRemark: row.reverseRemark,
         createdAt: row.createdAt,
       })),
     };
@@ -125,8 +133,63 @@ export class ClassScoreRecordsService {
     });
 
     const visibleRows = classrooms.filter((row) => this.canViewClassScore(user, row));
+    const dateRange = this.resolveDateRange(query.startDate, query.endDate);
+    const periodScoreMap = new Map<string, { currentScore: number; totalScore: number; lastScoreAt: Date | null }>();
+
+    if (dateRange) {
+      const classIds = visibleRows.map((row) => row.id);
+      const [scoreGroups, positiveGroups] = await Promise.all([
+        classIds.length
+          ? this.prisma.classScoreRecord.groupBy({
+              by: ['classId'],
+              where: {
+                schoolId: user.schoolId,
+                classId: { in: classIds },
+                reversedAt: null,
+                createdAt: {
+                  gte: dateRange.start,
+                  lte: dateRange.end,
+                },
+              },
+              _sum: { scoreDelta: true },
+              _max: { createdAt: true },
+            })
+          : Promise.resolve([]),
+        classIds.length
+          ? this.prisma.classScoreRecord.groupBy({
+              by: ['classId'],
+              where: {
+                schoolId: user.schoolId,
+                classId: { in: classIds },
+                reversedAt: null,
+                scoreDelta: { gt: 0 },
+                createdAt: {
+                  gte: dateRange.start,
+                  lte: dateRange.end,
+                },
+              },
+              _sum: { scoreDelta: true },
+            })
+          : Promise.resolve([]),
+      ]);
+      const positiveScoreMap = new Map(positiveGroups.map((item) => [item.classId.toString(), item._sum.scoreDelta ?? 0]));
+      scoreGroups.forEach((item) => {
+        periodScoreMap.set(item.classId.toString(), {
+          currentScore: item._sum.scoreDelta ?? 0,
+          totalScore: positiveScoreMap.get(item.classId.toString()) ?? 0,
+          lastScoreAt: item._max.createdAt ?? null,
+        });
+      });
+    }
+
     const sortedRows = visibleRows.sort((left, right) => {
-      const scoreDiff = (right.classScoreProfile?.currentScore ?? 0) - (left.classScoreProfile?.currentScore ?? 0);
+      const leftScore = dateRange
+        ? periodScoreMap.get(left.id.toString())?.currentScore ?? 0
+        : left.classScoreProfile?.currentScore ?? 0;
+      const rightScore = dateRange
+        ? periodScoreMap.get(right.id.toString())?.currentScore ?? 0
+        : right.classScoreProfile?.currentScore ?? 0;
+      const scoreDiff = rightScore - leftScore;
       if (scoreDiff !== 0) return scoreDiff;
       return (left.sortOrder ?? 999999) - (right.sortOrder ?? 999999) || Number(left.id - right.id);
     });
@@ -141,7 +204,8 @@ export class ClassScoreRecordsService {
         gradeCode: targetGradeCode,
         gradeName: sortedRows[0]?.gradeName ?? null,
         rows: sortedRows.map((row, index) => {
-          const currentScore = row.classScoreProfile?.currentScore ?? 0;
+          const periodScore = periodScoreMap.get(row.id.toString());
+          const currentScore = dateRange ? periodScore?.currentScore ?? 0 : row.classScoreProfile?.currentScore ?? 0;
           if (lastScore === null || currentScore !== lastScore) {
             currentRank = index + 1;
             lastScore = currentScore;
@@ -153,12 +217,113 @@ export class ClassScoreRecordsService {
             gradeCode: row.gradeCode,
             gradeName: row.gradeName,
             currentScore,
-            totalScore: row.classScoreProfile?.totalScore ?? 0,
-            lastScoreAt: row.classScoreProfile?.lastScoreAt ?? null,
+            totalScore: dateRange ? periodScore?.totalScore ?? 0 : row.classScoreProfile?.totalScore ?? 0,
+            lastScoreAt: dateRange ? periodScore?.lastScoreAt ?? null : row.classScoreProfile?.lastScoreAt ?? null,
           };
         }),
       },
     };
+  }
+
+  async reverse(authorization: string | undefined, id: number, body: ScoreRecordReverseDto) {
+    const user = await this.authService.getAuthUserFromAuthorization(authorization);
+    this.ensureCanWriteClassScore(user.roleCode, 'admin');
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const record = await tx.classScoreRecord.findUnique({
+        where: { id: BigInt(id) },
+        include: {
+          classroom: { select: { id: true, gradeCode: true, gradeName: true, name: true } },
+          rule: { select: { name: true } },
+        },
+      });
+      if (!record) {
+        throw new NotFoundException('班级评价记录不存在');
+      }
+      if (record.reversedAt) {
+        throw new BadRequestException('该班级评价记录已撤销');
+      }
+      this.ensureCanOperateClassScore(user, record.classroom);
+
+      const rollbackDelta = -record.scoreDelta;
+      const profile = await tx.classScoreProfile.findUnique({
+        where: { classId: record.classId },
+      });
+      if (!profile) {
+        throw new NotFoundException('班级积分档案不存在');
+      }
+
+      const updatedProfile = await tx.classScoreProfile.update({
+        where: { classId: record.classId },
+        data: {
+          currentScore: profile.currentScore + rollbackDelta,
+          totalScore: Math.max(0, profile.totalScore - Math.max(record.scoreDelta, 0)),
+          positiveCount7d: record.sentiment === 'positive' ? Math.max(0, profile.positiveCount7d - 1) : profile.positiveCount7d,
+          negativeCount7d: record.sentiment === 'negative' ? Math.max(0, profile.negativeCount7d - 1) : profile.negativeCount7d,
+          lastScoreAt: new Date(),
+        },
+      });
+
+      const reversedAt = new Date();
+      await tx.classScoreRecord.update({
+        where: { id: record.id },
+        data: {
+          reversedAt,
+          reversedById: user.id,
+          reverseRemark: body.remark.trim(),
+        },
+      });
+
+      return {
+        classScoreRecordId: Number(record.id),
+        classId: Number(record.classId),
+        gradeCode: record.classroom.gradeCode,
+        gradeName: record.classroom.gradeName,
+        className: record.classroom.name,
+        ruleName: record.rule.name,
+        scoreDelta: record.scoreDelta,
+        rollbackDelta,
+        reversedAt,
+        reverseRemark: body.remark.trim(),
+        classScoreProfile: {
+          classId: Number(record.classId),
+          currentScore: updatedProfile.currentScore,
+          totalScore: updatedProfile.totalScore,
+        },
+      };
+    });
+
+    await this.operationLogService.create({
+      schoolId: user.schoolId,
+      userId: user.id,
+      roleCode: user.roleCode,
+      terminalType: 'admin',
+      module: 'class_score_record',
+      action: 'reverse',
+      targetType: 'class',
+      targetId: BigInt(result.classId),
+      detail: {
+        classScoreRecordId: result.classScoreRecordId,
+        classId: result.classId,
+        scoreDelta: result.scoreDelta,
+        reverseRemark: result.reverseRemark,
+      },
+    });
+
+    this.realtimeService.emitClassScoreChanged(result.classId, {
+      classId: result.classId,
+      gradeCode: result.gradeCode,
+      sourceTerminal: 'admin',
+      classScoreDelta: result.rollbackDelta,
+      classCurrentScore: result.classScoreProfile.currentScore,
+      operatorName: user.name,
+    });
+    this.realtimeService.emitGradeClassRankingChanged(result.gradeCode, {
+      gradeCode: result.gradeCode,
+      classIds: [result.classId],
+    });
+
+    return { code: 0, message: 'ok', data: result };
   }
 
   async create(authorization: string | undefined, body: ClassScoreRecordCreateDto) {
@@ -213,6 +378,7 @@ export class ClassScoreRecordsService {
       classScoreDelta: result.scoreDelta,
       classCurrentScore: result.classScoreProfile.currentScore,
       operatorName: user.name,
+      suppressScoreSound: body.sourceTerminal === 'admin' && result.linkedScoreItems.length > 1,
       studentIds: result.linkedScoreItems.map((item) => item.studentProfile.studentId),
       changes: result.linkedScoreItems.map((item) => ({
         studentId: item.studentProfile.studentId,
@@ -318,6 +484,7 @@ export class ClassScoreRecordsService {
         classScoreDelta: item.scoreDelta,
         classCurrentScore: item.classScoreProfile.currentScore,
         operatorName: user.name,
+        suppressScoreSound: body.sourceTerminal === 'admin' && item.linkedScoreItems.length > 1,
         studentIds: item.linkedScoreItems.map((linked) => linked.studentProfile.studentId),
         changes: item.linkedScoreItems.map((linked) => ({
           studentId: linked.studentProfile.studentId,
@@ -383,6 +550,34 @@ export class ClassScoreRecordsService {
 
   private resolveSignedValue(scoreType: 'add' | 'deduct', value: number) {
     return scoreType === 'deduct' ? -Math.abs(value) : Math.abs(value);
+  }
+
+  private buildCreatedAtFilter(startDate?: string, endDate?: string): Prisma.DateTimeFilter | undefined {
+    const range = this.resolveDateRange(startDate, endDate);
+    if (!range) return undefined;
+    return {
+      gte: range.start,
+      lte: range.end,
+    };
+  }
+
+  private resolveDateRange(startDate?: string, endDate?: string) {
+    const normalizedStart = this.normalizeDateString(startDate);
+    const normalizedEnd = this.normalizeDateString(endDate);
+    if (!normalizedStart && !normalizedEnd) return null;
+
+    const start = new Date(`${normalizedStart ?? normalizedEnd}T00:00:00`);
+    const end = new Date(`${normalizedEnd ?? normalizedStart}T23:59:59.999`);
+    if (start.getTime() <= end.getTime()) {
+      return { start, end };
+    }
+    return { start: end, end: start };
+  }
+
+  private normalizeDateString(value?: string) {
+    if (!value) return null;
+    const normalized = value.trim();
+    return /^\d{4}-\d{2}-\d{2}$/.test(normalized) ? normalized : null;
   }
 
   private async loadClassTarget(

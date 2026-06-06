@@ -666,6 +666,8 @@ export type ScoreRecord = {
   semesterId: number | null;
   classId: number;
   studentId: number;
+  studentName?: string | null;
+  className?: string | null;
   classGroupId: number | null;
   ruleId: number | null;
   subjectCode: string | null;
@@ -745,6 +747,10 @@ export type ClassScoreRecord = {
   sourceRole: string | null;
   operatorId: number;
   operatorName: string | null;
+  reversedAt: string | null;
+  reversedById: number | null;
+  reversedByName: string | null;
+  reverseRemark: string | null;
   createdAt: string;
 };
 
@@ -757,6 +763,24 @@ export type ClassScoreRankingRow = {
   currentScore: number;
   totalScore: number;
   lastScoreAt: string | null;
+};
+
+export type ClassScoreRecordReverseResult = {
+  classScoreRecordId: number;
+  classId: number;
+  gradeCode: string;
+  gradeName: string;
+  className: string;
+  ruleName: string;
+  scoreDelta: number;
+  rollbackDelta: number;
+  reversedAt: string;
+  reverseRemark: string;
+  classScoreProfile: {
+    classId: number;
+    currentScore: number;
+    totalScore: number;
+  };
 };
 
 export type RoleTemplate = {
@@ -1817,16 +1841,20 @@ export const adminApi = {
       body,
     });
   },
-  classScoreRecords(token: string, query?: { classId?: number }) {
+  classScoreRecords(token: string, query?: { classId?: number; startDate?: string; endDate?: string }) {
     const params = new URLSearchParams();
     if (query?.classId) params.set('classId', String(query.classId));
+    if (query?.startDate) params.set('startDate', query.startDate);
+    if (query?.endDate) params.set('endDate', query.endDate);
     const suffix = params.size > 0 ? `?${params.toString()}` : '';
     return request<ApiListResponse<ClassScoreRecord>>(`/class-score-records${suffix}`, { token });
   },
-  classScoreRankings(token: string, query: { gradeCode?: string; classId?: number }) {
+  classScoreRankings(token: string, query: { gradeCode?: string; classId?: number; startDate?: string; endDate?: string }) {
     const params = new URLSearchParams();
     if (query.gradeCode) params.set('gradeCode', query.gradeCode);
     if (query.classId) params.set('classId', String(query.classId));
+    if (query.startDate) params.set('startDate', query.startDate);
+    if (query.endDate) params.set('endDate', query.endDate);
     const suffix = params.size > 0 ? `?${params.toString()}` : '';
     return request<ApiObjectResponse<{ gradeCode: string; gradeName: string | null; rows: ClassScoreRankingRow[] }>>(
       `/class-score-records/rankings${suffix}`,
@@ -1842,6 +1870,13 @@ export const adminApi = {
   },
   createClassScoreRecordBatch(token: string, body: ClassScoreRecordBatchPayload) {
     return request<ApiObjectResponse<{ batchId: number }>>('/class-score-records/batch', {
+      method: 'POST',
+      token,
+      body,
+    });
+  },
+  reverseClassScoreRecord(token: string, id: number, body: { remark: string }) {
+    return request<ApiObjectResponse<ClassScoreRecordReverseResult>>(`/class-score-records/${id}/reverse`, {
       method: 'POST',
       token,
       body,

@@ -130,7 +130,7 @@ export class AdminInsightsService {
     authorization: string | undefined,
     filters?: { gradeName?: string; classId?: number; subjectCode?: string; startDate?: string; endDate?: string },
   ) {
-    return this.analytics(authorization, { ...filters, skipAi: true, skipHeatmap: true });
+    return this.analytics(authorization, { ...filters, skipAi: true });
   }
 
   async analyticsHeatmap(

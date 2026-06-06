@@ -38,6 +38,7 @@ export function PresentationModePage({
 }: PresentationModePageProps) {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<any>(null);
+  const aiSummaryListRef = useRef<HTMLDivElement | null>(null);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [snapshotData] = useState(() => ({
@@ -79,6 +80,8 @@ export function PresentationModePage({
   const gradeFilter = searchParams.get('gradeName') || 'all';
   const classFilter = searchParams.get('classId') || 'all';
   const returnTo = searchParams.get('returnTo');
+  const studentById = useMemo(() => new Map(students.map((item) => [item.id, item])), [students]);
+  const classById = useMemo(() => new Map(classes.map((item) => [item.id, item])), [classes]);
 
   const totalScore = students.reduce((sum, item) => sum + item.currentScore, 0);
   const activeClasses = classes.filter((item) => item.displayStatus === 'enabled').length;
@@ -140,14 +143,24 @@ export function PresentationModePage({
 
   useEffect(() => {
     let active = true;
-    adminApi
-      .analyticsSummary(token, {
-        ...(gradeFilter !== 'all' ? { gradeName: gradeFilter } : {}),
-        ...(classFilter !== 'all' ? { classId: Number(classFilter) } : {}),
-      })
-      .then((response) => {
+    const query = {
+      ...(gradeFilter !== 'all' ? { gradeName: gradeFilter } : {}),
+      ...(classFilter !== 'all' ? { classId: Number(classFilter) } : {}),
+    };
+    Promise.allSettled([
+      adminApi.analyticsSummary(token, query),
+      adminApi.analyticsAi(token, query),
+    ])
+      .then(([summaryResult, aiResult]) => {
         if (!active) return;
-        setAnalytics(response.data);
+        if (summaryResult.status !== 'fulfilled') {
+          setAnalytics(null);
+          return;
+        }
+        setAnalytics({
+          ...summaryResult.value.data,
+          aiInsight: aiResult.status === 'fulfilled' ? aiResult.value.data.aiInsight : undefined,
+        });
       })
       .catch(() => {
         if (!active) return;
@@ -157,6 +170,52 @@ export function PresentationModePage({
       active = false;
     };
   }, [classFilter, gradeFilter, token]);
+
+  useEffect(() => {
+    const node = aiSummaryListRef.current;
+    if (!node) return;
+
+    let dragging = false;
+    let startY = 0;
+    let startScrollTop = 0;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (event.pointerType === 'mouse' && event.button !== 0) return;
+      dragging = true;
+      startY = event.clientY;
+      startScrollTop = node.scrollTop;
+      node.classList.add('is-dragging');
+      node.setPointerCapture?.(event.pointerId);
+    };
+
+    const handlePointerMove = (event: PointerEvent) => {
+      if (!dragging) return;
+      const deltaY = event.clientY - startY;
+      node.scrollTop = startScrollTop - deltaY;
+    };
+
+    const stopDragging = (event?: PointerEvent) => {
+      if (!dragging) return;
+      dragging = false;
+      node.classList.remove('is-dragging');
+      if (event) node.releasePointerCapture?.(event.pointerId);
+    };
+    const handleLostPointerCapture = () => stopDragging();
+
+    node.addEventListener('pointerdown', handlePointerDown);
+    node.addEventListener('pointermove', handlePointerMove);
+    node.addEventListener('pointerup', stopDragging);
+    node.addEventListener('pointercancel', stopDragging);
+    node.addEventListener('lostpointercapture', handleLostPointerCapture);
+
+    return () => {
+      node.removeEventListener('pointerdown', handlePointerDown);
+      node.removeEventListener('pointermove', handlePointerMove);
+      node.removeEventListener('pointerup', stopDragging);
+      node.removeEventListener('pointercancel', stopDragging);
+      node.removeEventListener('lostpointercapture', handleLostPointerCapture);
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -610,8 +669,8 @@ export function PresentationModePage({
         const student = students.find((row) => row.id === item.studentId);
         return {
           id: item.id,
-          className: classInfo ? `${classInfo.gradeName}${classInfo.name}` : `班级#${item.classId}`,
-          studentName: student?.name ?? `学生#${item.studentId}`,
+          className: item.className || (classInfo ? `${classInfo.gradeName}${classInfo.name}` : `班级#${item.classId}`),
+          studentName: item.studentName || student?.name || `学生#${item.studentId}`,
           ruleName: item.ruleName || item.tag || item.dimension || '学生评价',
           scoreDelta: item.scoreDelta,
           createdAt: item.createdAt,
@@ -646,8 +705,19 @@ export function PresentationModePage({
     const rows = analytics?.heatMap?.rows ?? ['早读', '上午', '下午', '课后'];
     const cols = analytics?.heatMap?.cols ?? ['一', '二', '三', '四', '五'];
     const source = analytics?.heatMap?.data ?? [];
-    const matrix = rows.map((rowLabel) => {
-      const found = source.find((item) => item.row === rowLabel);
+    const rowAliases: Record<string, string[]> = {
+      早读: ['早读'],
+      上午: ['上午'],
+      下午: ['下午', '午后'],
+      课后: ['课后', '晚辅'],
+      午后: ['午后', '下午'],
+      晚辅: ['晚辅', '课后'],
+    };
+    const matrix = rows.map((rowLabel, rowIndex) => {
+      const aliases = rowAliases[rowLabel] ?? [rowLabel];
+      const found =
+        source.find((item) => aliases.includes(item.row)) ??
+        source[rowIndex];
       const values = cols.map((_, index) => {
         const raw = found?.values?.[index];
         return Number.isFinite(raw) ? Number(raw) : 0;
@@ -732,12 +802,12 @@ export function PresentationModePage({
     const negativeRecords = scoreRecords.filter((item) => item.scoreDelta < 0);
     const affectedClasses = new Set(negativeRecords.map((item) => item.classId)).size;
     const focusEvents = negativeRecords.slice(0, 4).map((item) => {
-      const classInfo = classes.find((row) => row.id === item.classId);
-      const student = students.find((row) => row.id === item.studentId);
+      const classInfo = classById.get(item.classId);
+      const student = studentById.get(item.studentId);
       return {
         id: item.id,
-        className: classInfo ? `${classInfo.gradeName}${classInfo.name}` : `班级#${item.classId}`,
-        studentName: student?.name ?? `学生#${item.studentId}`,
+        className: item.className || (classInfo ? `${classInfo.gradeName}${classInfo.name}` : `班级#${item.classId}`),
+        studentName: item.studentName || student?.name || `学生#${item.studentId}`,
         label: item.ruleName || item.tag || item.dimension || item.sceneCode || '行为事件',
         scoreDelta: item.scoreDelta,
       };
@@ -750,7 +820,7 @@ export function PresentationModePage({
       affectedClasses,
       focusEvents,
     };
-  }, [analytics?.riskStudentStats, analytics?.riskStudents, classes, scoreRecords, students]);
+  }, [analytics?.riskStudentStats, analytics?.riskStudents, classById, scoreRecords, studentById]);
   const riskShowcase = useMemo(() => {
     const positiveEvents = scoreRecords.filter((item) => item.scoreDelta > 0).length;
     const negativeEvents = scoreRecords.filter((item) => item.scoreDelta < 0).length;
@@ -1746,9 +1816,9 @@ export function PresentationModePage({
           </div>
           <div className="presentation-panel fade-up-panel bottom-panel">
             <div className="presentation-panel-title"><PresentationGlyph name="star" className="presentation-title-icon" />AI 汇报摘要</div>
-            <div className="presentation-summary-list">
+            <div ref={aiSummaryListRef} className="presentation-summary-list presentation-summary-list--ai">
               {presentationSummaryItems.map((item) => (
-                <div key={item} className="presentation-summary-item">{item}</div>
+                <div key={item} className="presentation-summary-item presentation-summary-item--ai">{item}</div>
               ))}
             </div>
             <div className="presentation-progress-card">

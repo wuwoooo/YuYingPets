@@ -53,6 +53,14 @@ export class DisplayController {
     return this.displayService.unlock(authorization, dto);
   }
 
+  @Post('unlock-renew')
+  unlockRenew(
+    @Headers('authorization') authorization: string | undefined,
+    @Body() dto: DisplayUnlockDto,
+  ) {
+    return this.displayService.unlockRenew(authorization, dto);
+  }
+
   @Get('unlock-status')
   unlockStatus(
     @Headers('authorization') authorization: string | undefined,
