@@ -468,9 +468,24 @@ export class StudentsService {
             continue;
           }
 
-          this.authService.ensureCanAccessClass(user, existingStudent.classId);
           if (user.roleCode === 'homeroom_teacher') {
-            await this.authService.ensureIsHomeroomOfClass(user, existingStudent.classId);
+            let isHomeroomOfOld = true;
+            let isHomeroomOfNew = true;
+            try {
+              await this.authService.ensureIsHomeroomOfClass(user, existingStudent.classId);
+            } catch {
+              isHomeroomOfOld = false;
+            }
+            try {
+              await this.authService.ensureIsHomeroomOfClass(user, resolvedClass.id);
+            } catch {
+              isHomeroomOfNew = false;
+            }
+            if (!isHomeroomOfOld && !isHomeroomOfNew) {
+              throw new ForbiddenException(`无权修改学生 ${name} 的信息（仅原班级或目标班级的班主任可操作）`);
+            }
+          } else {
+            this.authService.ensureCanAccessClass(user, existingStudent.classId);
           }
 
           const classChanged = existingStudent.classId !== resolvedClass.id;
@@ -610,11 +625,25 @@ export class StudentsService {
       throw new NotFoundException('学生不存在');
     }
 
-    this.authService.ensureCanAccessClass(user, existing.classId);
-    this.authService.ensureCanAccessClass(user, classId);
     if (user.roleCode === 'homeroom_teacher') {
-      await this.authService.ensureIsHomeroomOfClass(user, existing.classId);
-      await this.authService.ensureIsHomeroomOfClass(user, classId);
+      let isHomeroomOfOld = true;
+      let isHomeroomOfNew = true;
+      try {
+        await this.authService.ensureIsHomeroomOfClass(user, existing.classId);
+      } catch {
+        isHomeroomOfOld = false;
+      }
+      try {
+        await this.authService.ensureIsHomeroomOfClass(user, classId);
+      } catch {
+        isHomeroomOfNew = false;
+      }
+      if (!isHomeroomOfOld && !isHomeroomOfNew) {
+        throw new ForbiddenException('仅学生原班级或目标班级的班主任可执行此操作');
+      }
+    } else {
+      this.authService.ensureCanAccessClass(user, existing.classId);
+      this.authService.ensureCanAccessClass(user, classId);
     }
 
     const targetClass = await this.prisma.classroom.findFirst({

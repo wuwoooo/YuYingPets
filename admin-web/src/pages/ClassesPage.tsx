@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type FormEvent,
+} from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Modal } from "../components/Modal";
 import { PickerInput } from "../components/PickerInput";
@@ -28,7 +34,10 @@ import {
   createClassForm,
   normalizeKeyword,
 } from "../utils/adminForms";
-import { canEditClassSettings, canManageClasses } from "../utils/adminPermissions";
+import {
+  canEditClassSettings,
+  canManageClasses,
+} from "../utils/adminPermissions";
 
 type ClassesPageProps = {
   token: string;
@@ -75,11 +84,15 @@ export function ClassesPage({
   const [showClassHonorGrant, setShowClassHonorGrant] = useState(false);
   const [classHonorRecords, setClassHonorRecords] = useState<HonorRecord[]>([]);
   const [classHonorsLoading, setClassHonorsLoading] = useState(false);
-  const [classHonorGrantSuccess, setClassHonorGrantSuccess] = useState<string | null>(null);
+  const [classHonorGrantSuccess, setClassHonorGrantSuccess] = useState<
+    string | null
+  >(null);
   const { confirm } = useConfirmDialog();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [statsView, setStatsView] = useState<"grade" | "class" | "governance">("grade");
+  const [statsView, setStatsView] = useState<"grade" | "class" | "governance">(
+    "grade",
+  );
   const [editingClass, setEditingClass] = useState<AdminClass | null>(null);
   const [selectedClass, setSelectedClass] = useState<AdminClass | null>(null);
   const [showOverview, setShowOverview] = useState(false);
@@ -94,8 +107,13 @@ export function ClassesPage({
   const [searchKeyword, setSearchKeyword] = useState("");
   const [gradeFilter, setGradeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [focusFilter, setFocusFilter] = useState<"all" | "governance_pending">("all");
-  const [sortConfig, setSortConfig] = useState<{ key: ClassSortKey; direction: SortDirection } | null>(null);
+  const [focusFilter, setFocusFilter] = useState<"all" | "governance_pending">(
+    "all",
+  );
+  const [sortConfig, setSortConfig] = useState<{
+    key: ClassSortKey;
+    direction: SortDirection;
+  } | null>(null);
   const [displaySortConfig, setDisplaySortConfig] = useState<{
     key: DisplayTerminalSortKey;
     direction: SortDirection;
@@ -106,10 +124,16 @@ export function ClassesPage({
   >(null);
   const [gradeConfigs, setGradeConfigs] = useState<GradeConfig[]>([]);
   const [teacherOptions, setTeacherOptions] = useState<PermissionUser[]>([]);
-  const [displayTerminals, setDisplayTerminals] = useState<DisplayTerminal[]>([]);
+  const [displayTerminals, setDisplayTerminals] = useState<DisplayTerminal[]>(
+    [],
+  );
   const [displayTerminalsLoading, setDisplayTerminalsLoading] = useState(false);
-  const [displayTerminalsError, setDisplayTerminalsError] = useState<string | null>(null);
-  const [deletingDisplayTerminalId, setDeletingDisplayTerminalId] = useState<number | null>(null);
+  const [displayTerminalsError, setDisplayTerminalsError] = useState<
+    string | null
+  >(null);
+  const [deletingDisplayTerminalId, setDeletingDisplayTerminalId] = useState<
+    number | null
+  >(null);
   const returnTo = searchParams.get("returnTo");
   const returnLabel = searchParams.get("returnLabel") || "返回来源页面";
 
@@ -162,12 +186,21 @@ export function ClassesPage({
     if (keyword) setSearchKeyword(keyword);
     if (classIds) setSearchKeyword("");
     if (nextGradeName) setGradeFilter(nextGradeName);
-    if (nextStatusFilter === "enabled" || nextStatusFilter === "disabled" || nextStatusFilter === "all") {
+    if (
+      nextStatusFilter === "enabled" ||
+      nextStatusFilter === "disabled" ||
+      nextStatusFilter === "all"
+    ) {
       setStatusFilter(nextStatusFilter);
     }
-    if (nextFocusFilter === "governance_pending") setFocusFilter("governance_pending");
+    if (nextFocusFilter === "governance_pending")
+      setFocusFilter("governance_pending");
     if (teacherStatus === "unassigned") setStatusFilter("all");
-    if (nextStatsView === "grade" || nextStatsView === "class" || nextStatsView === "governance") {
+    if (
+      nextStatsView === "grade" ||
+      nextStatsView === "class" ||
+      nextStatsView === "governance"
+    ) {
       setStatsView(nextStatsView);
     }
     /** 工作台深链：直达编辑表单，避免仅用 classId 先打开班级档案与本弹层并存 */
@@ -272,10 +305,13 @@ export function ClassesPage({
     [
       !row.homeroomTeacher ? "待配班主任" : null,
       row.displayStatus !== "enabled" ? "未开启展示" : null,
-      row.targetScore === null || row.targetScore === undefined ? "未设目标积分" : null,
+      row.targetScore === null || row.targetScore === undefined
+        ? "未设目标积分"
+        : null,
       isCountdownPending(row) ? "倒计时待设置" : null,
     ].filter(Boolean);
-  const getGovernanceRiskScore = (row: AdminClass) => buildGovernanceIssues(row).length;
+  const getGovernanceRiskScore = (row: AdminClass) =>
+    buildGovernanceIssues(row).length;
 
   const filteredClasses = useMemo(() => {
     const keyword = normalizeKeyword(searchKeyword);
@@ -288,7 +324,8 @@ export function ClassesPage({
         .filter((item) => Number.isFinite(item)),
     );
     return classes.filter((row) => {
-      const matchesClassIds = classIdFilter.size === 0 || classIdFilter.has(row.id);
+      const matchesClassIds =
+        classIdFilter.size === 0 || classIdFilter.has(row.id);
       const matchesKeyword =
         !keyword ||
         normalizeKeyword(row.name).includes(keyword) ||
@@ -299,21 +336,39 @@ export function ClassesPage({
       const matchesStatus =
         statusFilter === "all" || row.displayStatus === statusFilter;
       const matchesFocus =
-        focusFilter === "all" ||
-        getGovernanceRiskScore(row) > 0;
+        focusFilter === "all" || getGovernanceRiskScore(row) > 0;
       const matchesTeacherStatus =
-        searchParams.get("teacherStatus") !== "unassigned" || !row.homeroomTeacher;
-      return matchesClassIds && matchesKeyword && matchesGrade && matchesStatus && matchesFocus && matchesTeacherStatus;
+        searchParams.get("teacherStatus") !== "unassigned" ||
+        !row.homeroomTeacher;
+      return (
+        matchesClassIds &&
+        matchesKeyword &&
+        matchesGrade &&
+        matchesStatus &&
+        matchesFocus &&
+        matchesTeacherStatus
+      );
     });
-  }, [classes, focusFilter, gradeFilter, searchKeyword, statusFilter, searchParams]);
+  }, [
+    classes,
+    focusFilter,
+    gradeFilter,
+    searchKeyword,
+    statusFilter,
+    searchParams,
+  ]);
   const sortedClasses = useMemo(() => {
     if (!sortConfig) return filteredClasses;
 
     const directionFactor = sortConfig.direction === "asc" ? 1 : -1;
     const compareText = (left: string, right: string) =>
       left.localeCompare(right, "zh-CN", { numeric: true }) * directionFactor;
-    const compareNumber = (left: number, right: number) => (left - right) * directionFactor;
-    const compareOptionalNumber = (left: number | null | undefined, right: number | null | undefined) => {
+    const compareNumber = (left: number, right: number) =>
+      (left - right) * directionFactor;
+    const compareOptionalNumber = (
+      left: number | null | undefined,
+      right: number | null | undefined,
+    ) => {
       const leftMissing = left === null || left === undefined;
       const rightMissing = right === null || right === undefined;
       if (leftMissing && rightMissing) return 0;
@@ -325,17 +380,39 @@ export function ClassesPage({
     return [...filteredClasses].sort((left, right) => {
       switch (sortConfig.key) {
         case "name":
-          return compareText(left.name, right.name) || compareText(left.gradeName, right.gradeName);
+          return (
+            compareText(left.name, right.name) ||
+            compareText(left.gradeName, right.gradeName)
+          );
         case "gradeName":
-          return compareText(left.gradeName, right.gradeName) || compareText(left.name, right.name);
+          return (
+            compareText(left.gradeName, right.gradeName) ||
+            compareText(left.name, right.name)
+          );
         case "homeroomTeacher":
-          return compareText(left.homeroomTeacher?.name ?? "", right.homeroomTeacher?.name ?? "") || compareText(left.name, right.name);
+          return (
+            compareText(
+              left.homeroomTeacher?.name ?? "",
+              right.homeroomTeacher?.name ?? "",
+            ) || compareText(left.name, right.name)
+          );
         case "studentCount":
-          return compareNumber(left.studentCount, right.studentCount) || compareText(left.name, right.name);
+          return (
+            compareNumber(left.studentCount, right.studentCount) ||
+            compareText(left.name, right.name)
+          );
         case "targetScore":
-          return compareOptionalNumber(left.targetScore, right.targetScore) || compareText(left.name, right.name);
+          return (
+            compareOptionalNumber(left.targetScore, right.targetScore) ||
+            compareText(left.name, right.name)
+          );
         case "displayStatus":
-          return compareText(left.displayStatus === "enabled" ? "展示中" : "未展示", right.displayStatus === "enabled" ? "展示中" : "未展示") || compareText(left.name, right.name);
+          return (
+            compareText(
+              left.displayStatus === "enabled" ? "展示中" : "未展示",
+              right.displayStatus === "enabled" ? "展示中" : "未展示",
+            ) || compareText(left.name, right.name)
+          );
         default:
           return 0;
       }
@@ -378,7 +455,9 @@ export function ClassesPage({
   );
   const sortedDisplayTerminals = useMemo(() => {
     const getBoundClassLabel = (row: DisplayTerminal) =>
-      row.classInfo ? `${row.classInfo.gradeName}${row.classInfo.className}` : "";
+      row.classInfo
+        ? `${row.classInfo.gradeName}${row.classInfo.className}`
+        : "";
     const getDisplayStatusLabel = (row: DisplayTerminal) => {
       if (!row.classInfo) return "未绑定";
       return row.classInfo.displayStatus === "enabled" ? "展示中" : "未展示";
@@ -404,7 +483,10 @@ export function ClassesPage({
     const directionFactor = displaySortConfig.direction === "asc" ? 1 : -1;
     const compareText = (left: string, right: string) =>
       left.localeCompare(right, "zh-CN", { numeric: true }) * directionFactor;
-    const compareOptionalTimestamp = (left: number | null, right: number | null) => {
+    const compareOptionalTimestamp = (
+      left: number | null,
+      right: number | null,
+    ) => {
       const leftMissing = left === null;
       const rightMissing = right === null;
       if (leftMissing && rightMissing) return 0;
@@ -432,7 +514,10 @@ export function ClassesPage({
           );
         case "displayStatus":
           return (
-            compareText(getDisplayStatusLabel(left), getDisplayStatusLabel(right)) ||
+            compareText(
+              getDisplayStatusLabel(left),
+              getDisplayStatusLabel(right),
+            ) ||
             compareText(getBoundClassLabel(left), getBoundClassLabel(right))
           );
         case "onlineStatus":
@@ -444,8 +529,10 @@ export function ClassesPage({
           );
         case "lastOnlineAt":
           return (
-            compareOptionalTimestamp(getLastOnlineTime(left), getLastOnlineTime(right)) ||
-            compareText(left.terminalName, right.terminalName)
+            compareOptionalTimestamp(
+              getLastOnlineTime(left),
+              getLastOnlineTime(right),
+            ) || compareText(left.terminalName, right.terminalName)
           );
         default:
           return 0;
@@ -459,14 +546,29 @@ export function ClassesPage({
   const hasActiveListFilters =
     searchKeyword.trim() || gradeFilter !== "all" || statusFilter !== "all";
   const hasActiveClassFilters = hasActiveListFilters || focusFilter !== "all";
-  const enabledClassCount = classes.filter((row) => row.displayStatus === "enabled").length;
-  const disabledClassCount = classes.filter((row) => row.displayStatus !== "enabled").length;
-  const assignedTeacherCount = classes.filter((row) => row.homeroomTeacher?.id).length;
-  const targetConfiguredCount = classes.filter((row) => row.targetScore !== null && row.targetScore !== undefined).length;
-  const countdownReadyCount = classes.filter((row) => !isCountdownPending(row)).length;
-  const governancePendingCount = classes.filter((row) => getGovernanceRiskScore(row) > 0).length;
+  const enabledClassCount = classes.filter(
+    (row) => row.displayStatus === "enabled",
+  ).length;
+  const disabledClassCount = classes.filter(
+    (row) => row.displayStatus !== "enabled",
+  ).length;
+  const assignedTeacherCount = classes.filter(
+    (row) => row.homeroomTeacher?.id,
+  ).length;
+  const targetConfiguredCount = classes.filter(
+    (row) => row.targetScore !== null && row.targetScore !== undefined,
+  ).length;
+  const countdownReadyCount = classes.filter(
+    (row) => !isCountdownPending(row),
+  ).length;
+  const governancePendingCount = classes.filter(
+    (row) => getGovernanceRiskScore(row) > 0,
+  ).length;
   const averageStudentCount = classes.length
-    ? Math.round(classes.reduce((sum, row) => sum + row.studentCount, 0) / classes.length)
+    ? Math.round(
+        classes.reduce((sum, row) => sum + row.studentCount, 0) /
+          classes.length,
+      )
     : 0;
 
   function formatDateTime(value: string | null) {
@@ -491,7 +593,10 @@ export function ClassesPage({
       map.set(row.gradeName, current);
       return map;
     }, new Map<string, { gradeName: string; classCount: number; studentCount: number; enabledCount: number; assignedTeacherCount: number }>()),
-  ).sort((a, b) => b[1].classCount - a[1].classCount || a[0].localeCompare(b[0], "zh-CN"));
+  ).sort(
+    (a, b) =>
+      b[1].classCount - a[1].classCount || a[0].localeCompare(b[0], "zh-CN"),
+  );
   const governanceWatchList = [...classes]
     .filter((row) => getGovernanceRiskScore(row) > 0)
     .sort((a, b) => {
@@ -522,9 +627,13 @@ export function ClassesPage({
   )
     .map(([, item]) => ({
       ...item,
-      averageClassScore: item.classCount ? Math.round(item.currentScoreTotal / item.classCount) : 0,
+      averageClassScore: item.classCount
+        ? Math.round(item.currentScoreTotal / item.classCount)
+        : 0,
     }))
-    .sort((a, b) => b.classCount - a.classCount || b.studentCount - a.studentCount);
+    .sort(
+      (a, b) => b.classCount - a.classCount || b.studentCount - a.studentCount,
+    );
   const scopedClassStats = [...scopedClasses]
     .map((row) => ({
       id: row.id,
@@ -539,7 +648,11 @@ export function ClassesPage({
           ? "未设置"
           : `${Math.max(row.targetScore - row.currentScoreTotal, 0)}`,
     }))
-    .sort((a, b) => b.studentCount - a.studentCount || b.currentScoreTotal - a.currentScoreTotal);
+    .sort(
+      (a, b) =>
+        b.studentCount - a.studentCount ||
+        b.currentScoreTotal - a.currentScoreTotal,
+    );
   const scopedGovernanceStats = [...scopedClasses]
     .map((row) => ({
       id: row.id,
@@ -556,7 +669,10 @@ export function ClassesPage({
     .sort((a, b) => {
       const aRisk = Number(a.governanceStatus !== "配置完整");
       const bRisk = Number(b.governanceStatus !== "配置完整");
-      return bRisk - aRisk || a.governanceStatus.localeCompare(b.governanceStatus, "zh-CN");
+      return (
+        bRisk - aRisk ||
+        a.governanceStatus.localeCompare(b.governanceStatus, "zh-CN")
+      );
     });
 
   function openCreate() {
@@ -599,24 +715,29 @@ export function ClassesPage({
     openDetail(matched);
   }
 
-  const reloadClassHonorRecords = useCallback(async (classId: number) => {
-    setClassHonorsLoading(true);
-    try {
-      const response = await adminApi.honorRecords(token, {
-        targetType: "class",
-        classId,
-      });
-      setClassHonorRecords(
-        [...response.data].sort(
-          (left, right) => new Date(right.grantedAt).getTime() - new Date(left.grantedAt).getTime(),
-        ),
-      );
-    } catch {
-      setClassHonorRecords([]);
-    } finally {
-      setClassHonorsLoading(false);
-    }
-  }, [token]);
+  const reloadClassHonorRecords = useCallback(
+    async (classId: number) => {
+      setClassHonorsLoading(true);
+      try {
+        const response = await adminApi.honorRecords(token, {
+          targetType: "class",
+          classId,
+        });
+        setClassHonorRecords(
+          [...response.data].sort(
+            (left, right) =>
+              new Date(right.grantedAt).getTime() -
+              new Date(left.grantedAt).getTime(),
+          ),
+        );
+      } catch {
+        setClassHonorRecords([]);
+      } finally {
+        setClassHonorsLoading(false);
+      }
+    },
+    [token],
+  );
 
   useEffect(() => {
     if (!selectedClass) {
@@ -648,7 +769,8 @@ export function ClassesPage({
     if (searchKeyword.trim()) params.set("keyword", searchKeyword.trim());
     const classIds = searchParams.get("classIds");
     if (classIds) params.set("classIds", classIds);
-    if (searchParams.get("teacherStatus") === "unassigned") params.set("teacherStatus", "unassigned");
+    if (searchParams.get("teacherStatus") === "unassigned")
+      params.set("teacherStatus", "unassigned");
     if (gradeFilter !== "all") params.set("gradeName", gradeFilter);
     if (statusFilter !== "all") params.set("statusFilter", statusFilter);
     if (focusFilter !== "all") params.set("focusFilter", focusFilter);
@@ -657,7 +779,10 @@ export function ClassesPage({
     return params.size > 0 ? `/classes?${params.toString()}` : "/classes";
   }
 
-  function navigateWithQuery(path: string, query: Record<string, string | number | null | undefined>) {
+  function navigateWithQuery(
+    path: string,
+    query: Record<string, string | number | null | undefined>,
+  ) {
     const params = new URLSearchParams();
     Object.entries(query).forEach(([key, value]) => {
       if (value === undefined || value === null || value === "") return;
@@ -691,7 +816,11 @@ export function ClassesPage({
 
   function renderSortHeader(label: string, key: ClassSortKey) {
     const active = sortConfig?.key === key;
-    const indicator = active ? (sortConfig.direction === "asc" ? "↑" : "↓") : "↕";
+    const indicator = active
+      ? sortConfig.direction === "asc"
+        ? "↑"
+        : "↓"
+      : "↕";
     return (
       <button
         className={`table-sort-button${active ? " active" : ""}`}
@@ -715,7 +844,11 @@ export function ClassesPage({
 
   function renderDisplaySortHeader(label: string, key: DisplayTerminalSortKey) {
     const active = displaySortConfig?.key === key;
-    const indicator = active ? (displaySortConfig.direction === "asc" ? "↑" : "↓") : "↕";
+    const indicator = active
+      ? displaySortConfig.direction === "asc"
+        ? "↑"
+        : "↓"
+      : "↕";
     return (
       <button
         className={`table-sort-button${active ? " active" : ""}`}
@@ -728,7 +861,11 @@ export function ClassesPage({
     );
   }
 
-  function goToStudentsManagement(rowId: number, gradeName: string, label: string) {
+  function goToStudentsManagement(
+    rowId: number,
+    gradeName: string,
+    label: string,
+  ) {
     navigateWithQuery("/students", {
       classId: rowId,
       gradeName,
@@ -746,7 +883,13 @@ export function ClassesPage({
     setSubmitSuccess(null);
 
     try {
-      const semesterId = form.semesterId || (editingClass?.semesterId ? String(editingClass.semesterId) : currentSemester?.id ? String(currentSemester.id) : "");
+      const semesterId =
+        form.semesterId ||
+        (editingClass?.semesterId
+          ? String(editingClass.semesterId)
+          : currentSemester?.id
+            ? String(currentSemester.id)
+            : "");
       const gradeName = form.gradeName.trim();
       const className = form.name.trim();
       const targetScoreText = form.targetScore.trim();
@@ -758,11 +901,17 @@ export function ClassesPage({
         throw new Error("请填写完整的班级基础信息");
       }
 
-      if (targetScoreText && (!/^\d+$/.test(targetScoreText) || Number(targetScoreText) < 0)) {
+      if (
+        targetScoreText &&
+        (!/^\d+$/.test(targetScoreText) || Number(targetScoreText) < 0)
+      ) {
         throw new Error("班级目标积分必须是大于等于 0 的整数");
       }
 
-      let countdownPayload: Pick<ClassUpsertPayload, "countdownTitle" | "countdownDeadlineAt"> = {
+      let countdownPayload: Pick<
+        ClassUpsertPayload,
+        "countdownTitle" | "countdownDeadlineAt"
+      > = {
         countdownTitle: null,
         countdownDeadlineAt: null,
       };
@@ -781,12 +930,15 @@ export function ClassesPage({
         if (item.id === editingClass?.id) return false;
         return (
           item.semesterId === semesterIdNumber &&
-          normalizeClassText(item.gradeName) === normalizeClassText(gradeName) &&
+          normalizeClassText(item.gradeName) ===
+            normalizeClassText(gradeName) &&
           normalizeClassText(item.name) === normalizeClassText(className)
         );
       });
       if (duplicatedClass) {
-        throw new Error(`班级重复：${duplicatedClass.gradeName} ${duplicatedClass.name} 已存在`);
+        throw new Error(
+          `班级重复：${duplicatedClass.gradeName} ${duplicatedClass.name} 已存在`,
+        );
       }
 
       if (editingClass) {
@@ -841,7 +993,9 @@ export function ClassesPage({
                   editingClass?.gradeCode || form.gradeCode,
                 ),
                 classes,
-                editingClass?.sortOrder ? String(editingClass.sortOrder) : form.sortOrder,
+                editingClass?.sortOrder
+                  ? String(editingClass.sortOrder)
+                  : form.sortOrder,
               ),
             };
         await adminApi.updateClass(token, editingClass.id, payload);
@@ -854,7 +1008,13 @@ export function ClassesPage({
         );
         const payload: ClassUpsertPayload = {
           semesterId: Number(semesterId),
-          code: buildClassCode(semesterId, gradeCode, className, classes, form.code),
+          code: buildClassCode(
+            semesterId,
+            gradeCode,
+            className,
+            classes,
+            form.code,
+          ),
           gradeCode,
           gradeName,
           name: className,
@@ -896,7 +1056,9 @@ export function ClassesPage({
       setSubmitSuccess(null);
       setDeletingDisplayTerminalId(row.id);
       await adminApi.deleteDisplayTerminal(token, row.id);
-      setDisplayTerminals((current) => current.filter((item) => item.id !== row.id));
+      setDisplayTerminals((current) =>
+        current.filter((item) => item.id !== row.id),
+      );
       setSubmitSuccess(`终端「${row.terminalName}」已删除`);
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : "大屏终端删除失败");
@@ -924,804 +1086,984 @@ export function ClassesPage({
       }
     >
       <div className="admin-list-desk">
-      <div className="page-header admin-list-page-header">
-        <div>
-          <h2>{pageTitle}</h2>
-          <p className="page-desc">
-            {isHomeroomTeacher
-              ? "班主任可在这里维护本班口号、目标积分，并进入学生管理和学生评价。"
-              : user?.roleCode === "subject_teacher"
-                ? "任课教师在这里查看自己的授课班级，并进入学生查看与学科评价。"
-                : "聚合查看全校班级规模、展示状态和班主任配置覆盖情况。"}
-          </p>
-        </div>
-        <div className="page-actions">
-          {returnTo ? (
-            <button className="ghost-button" type="button" onClick={() => navigate(returnTo)}>
-              {returnLabel}
-            </button>
-          ) : null}
-          <div className="search-box">
-            <span className="s-icon">⌕</span>
-            <input
-              placeholder={
-                listTab === "display"
-                  ? "搜索终端名称、编码、绑定班级或在线状态..."
-                  : "搜索班级名称..."
-              }
-              value={searchKeyword}
-              onChange={(event) => setSearchKeyword(event.target.value)}
-            />
+        <div className="page-header admin-list-page-header">
+          <div>
+            <h2>{pageTitle}</h2>
+            <p className="page-desc">
+              {isHomeroomTeacher
+                ? "班主任可在这里维护本班口号、目标积分，并进入学生管理和学生评价。"
+                : user?.roleCode === "subject_teacher"
+                  ? "任课教师在这里查看自己的授课班级，并进入学生查看与学科评价。"
+                  : "聚合查看全校班级规模、展示状态和班主任配置覆盖情况。"}
+            </p>
           </div>
-          <select
-            className="filter-select"
-            value={gradeFilter}
-            onChange={(event) => setGradeFilter(event.target.value)}
-          >
-            <option>全部年级</option>
-            {gradeOptions.map((item) => (
-              <option key={item} value={item}>
-                {item}
+          <div className="page-actions">
+            {returnTo ? (
+              <button
+                className="ghost-button"
+                type="button"
+                onClick={() => navigate(returnTo)}
+              >
+                {returnLabel}
+              </button>
+            ) : null}
+            <div className="search-box">
+              <span className="s-icon">⌕</span>
+              <input
+                placeholder={
+                  listTab === "display"
+                    ? "搜索终端名称、编码、绑定班级或在线状态..."
+                    : "搜索班级名称..."
+                }
+                value={searchKeyword}
+                onChange={(event) => setSearchKeyword(event.target.value)}
+              />
+            </div>
+            <select
+              className="filter-select"
+              value={gradeFilter}
+              onChange={(event) => setGradeFilter(event.target.value)}
+            >
+              <option>全部年级</option>
+              {gradeOptions.map((item) => (
+                <option key={item} value={item}>
+                  {item}
+                </option>
+              ))}
+            </select>
+            <select
+              className="filter-select"
+              value={statusFilter}
+              onChange={(event) => setStatusFilter(event.target.value)}
+            >
+              <option value="all">全部状态</option>
+              <option value="enabled">
+                {listTab === "display" ? "在线" : "展示中"}
               </option>
-            ))}
-          </select>
-          <select
-            className="filter-select"
-            value={statusFilter}
-            onChange={(event) => setStatusFilter(event.target.value)}
-          >
-            <option value="all">全部状态</option>
-            <option value="enabled">{listTab === "display" ? "在线" : "展示中"}</option>
-            <option value="disabled">{listTab === "display" ? "离线" : "未展示"}</option>
-          </select>
-          {allowCreate ? (
-            <button className="btn btn-primary" onClick={openCreate}>
-              + 新建班级
+              <option value="disabled">
+                {listTab === "display" ? "离线" : "未展示"}
+              </option>
+            </select>
+            {allowCreate ? (
+              <button className="btn btn-primary" onClick={openCreate}>
+                + 新建班级
+              </button>
+            ) : null}
+          </div>
+        </div>
+
+        {!isHomeroomTeacher ? (
+          <div className="std-metric-grid std-metric-grid--4">
+            <button
+              type="button"
+              className="std-metric-card std-metric-card--blue std-metric-card--action"
+              onClick={resetListFilters}
+            >
+              <div className="std-metric-card__top">
+                <div className="std-metric-card__icon">
+                  <span className="sec-metric-glyph">总</span>
+                </div>
+                <span className="std-metric-card__label">班级总数</span>
+              </div>
+              <div className="std-metric-card__value">{classes.length}</div>
+              <div className="std-metric-card__hint">
+                当前纳入系统管理的班级数量
+              </div>
             </button>
-          ) : null}
-        </div>
-      </div>
+            <button
+              type="button"
+              className="std-metric-card std-metric-card--green std-metric-card--action"
+              onClick={() => {
+                setStatusFilter("enabled");
+                setFocusFilter("all");
+              }}
+            >
+              <div className="std-metric-card__top">
+                <div className="std-metric-card__icon">
+                  <span className="sec-metric-glyph">展</span>
+                </div>
+                <span className="std-metric-card__label">展示中班级</span>
+              </div>
+              <div className="std-metric-card__value">{enabledClassCount}</div>
+              <div className="std-metric-card__hint">
+                已接入展示端的大屏班级数量
+              </div>
+            </button>
+            <button
+              type="button"
+              className="std-metric-card std-metric-card--purple std-metric-card--action"
+              onClick={() => {
+                setStatusFilter("all");
+                setFocusFilter("governance_pending");
+              }}
+            >
+              <div className="std-metric-card__top">
+                <div className="std-metric-card__icon">
+                  <span className="sec-metric-glyph">治</span>
+                </div>
+                <span className="std-metric-card__label">待治理班级</span>
+              </div>
+              <div className="std-metric-card__value">
+                {governancePendingCount}
+              </div>
+              <div className="std-metric-card__hint">
+                待补齐展示、班主任或运营配置
+              </div>
+            </button>
+            <button
+              type="button"
+              className={`std-metric-card std-metric-card--amber std-metric-card--action${showOverview ? " active" : ""}`}
+              onClick={() => setShowOverview((prev) => !prev)}
+            >
+              <div className="std-metric-card__top">
+                <div className="std-metric-card__icon">
+                  <span className="sec-metric-glyph">析</span>
+                </div>
+                <span className="std-metric-card__label">
+                  {showOverview ? "收起分析" : "更多分析"}
+                </span>
+              </div>
+              <div className="std-metric-card__value std-metric-card__value--text">
+                {classes.length - assignedTeacherCount} 班待配班主任
+              </div>
+              <div className="std-metric-card__hint">
+                展开查看年级分布与治理待办
+              </div>
+            </button>
+          </div>
+        ) : null}
 
-      {!isHomeroomTeacher ? (
-      <div className="std-metric-grid std-metric-grid--4">
-        <button type="button" className="std-metric-card std-metric-card--blue std-metric-card--action" onClick={resetListFilters}>
-          <div className="std-metric-card__top">
-            <div className="std-metric-card__icon"><span className="sec-metric-glyph">总</span></div>
-            <span className="std-metric-card__label">班级总数</span>
-          </div>
-          <div className="std-metric-card__value">{classes.length}</div>
-          <div className="std-metric-card__hint">当前纳入系统管理的班级数量</div>
-        </button>
-        <button
-          type="button"
-          className="std-metric-card std-metric-card--green std-metric-card--action"
-          onClick={() => {
-            setStatusFilter("enabled");
-            setFocusFilter("all");
-          }}
-        >
-          <div className="std-metric-card__top">
-            <div className="std-metric-card__icon"><span className="sec-metric-glyph">展</span></div>
-            <span className="std-metric-card__label">展示中班级</span>
-          </div>
-          <div className="std-metric-card__value">{enabledClassCount}</div>
-          <div className="std-metric-card__hint">已接入展示端的大屏班级数量</div>
-        </button>
-        <button
-          type="button"
-          className="std-metric-card std-metric-card--purple std-metric-card--action"
-          onClick={() => {
-            setStatusFilter("all");
-            setFocusFilter("governance_pending");
-          }}
-        >
-          <div className="std-metric-card__top">
-            <div className="std-metric-card__icon"><span className="sec-metric-glyph">治</span></div>
-            <span className="std-metric-card__label">待治理班级</span>
-          </div>
-          <div className="std-metric-card__value">{governancePendingCount}</div>
-          <div className="std-metric-card__hint">待补齐展示、班主任或运营配置</div>
-        </button>
-        <button
-          type="button"
-          className={`std-metric-card std-metric-card--amber std-metric-card--action${showOverview ? " active" : ""}`}
-          onClick={() => setShowOverview((prev) => !prev)}
-        >
-          <div className="std-metric-card__top">
-            <div className="std-metric-card__icon"><span className="sec-metric-glyph">析</span></div>
-            <span className="std-metric-card__label">{showOverview ? "收起分析" : "更多分析"}</span>
-          </div>
-          <div className="std-metric-card__value std-metric-card__value--text">
-            {classes.length - assignedTeacherCount} 班待配班主任
-          </div>
-          <div className="std-metric-card__hint">展开查看年级分布与治理待办</div>
-        </button>
-      </div>
-      ) : null}
-
-      {!isHomeroomTeacher && showOverview ? (
-        <div className="panel summary-panel">
-          {hasActiveClassFilters ? (
-            <div className="summary-panel-actions">
-              <button className="ghost-button" type="button" onClick={resetListFilters}>
-                查看全部班级
-              </button>
-            </div>
-          ) : null}
-          <div className="detail-grid">
-            <div className="detail-card">
-              <h4>班级规模</h4>
-              <div className="detail-list">
-                <div><span>班级总数</span><strong>{classes.length} 个</strong></div>
-                <div><span>学生总数</span><strong>{classes.reduce((sum, row) => sum + row.studentCount, 0)} 人</strong></div>
-                <div><span>平均班额</span><strong>{averageStudentCount} 人</strong></div>
-                <div><span>停用展示班级</span><strong>{disabledClassCount} 个</strong></div>
+        {!isHomeroomTeacher && showOverview ? (
+          <div className="panel summary-panel">
+            {hasActiveClassFilters ? (
+              <div className="summary-panel-actions">
+                <button
+                  className="ghost-button"
+                  type="button"
+                  onClick={resetListFilters}
+                >
+                  查看全部班级
+                </button>
               </div>
-            </div>
-            <div className="detail-card">
-              <h4>治理覆盖</h4>
-              <div className="detail-list">
-                <div><span>已配班主任</span><strong>{assignedTeacherCount} 个</strong></div>
-                <div><span>待配班主任</span><strong>{classes.length - assignedTeacherCount} 个</strong></div>
-                <div><span>已设目标积分</span><strong>{targetConfiguredCount} 个</strong></div>
-                <div><span>待补运营目标</span><strong>{classes.length - targetConfiguredCount} 个</strong></div>
-                <div><span>有效倒计时</span><strong>{countdownReadyCount} 个</strong></div>
-                <div><span>倒计时待设置</span><strong>{classes.length - countdownReadyCount} 个</strong></div>
-              </div>
-            </div>
-            <div className="detail-card">
-              <h4>年级分布</h4>
-              <div className="mini-list">
-                {gradeOverview.slice(0, 4).map(([gradeName, item]) => (
-                  <div className="mini-list-item" key={gradeName}>
-                    <div>
-                      <strong>{gradeName}</strong>
-                      <span>{item.classCount} 个班，{item.studentCount} 名学生</span>
-                    </div>
-                    <b>{item.enabledCount}/{item.classCount} 展示</b>
+            ) : null}
+            <div className="detail-grid">
+              <div className="detail-card">
+                <h4>班级规模</h4>
+                <div className="detail-list">
+                  <div>
+                    <span>班级总数</span>
+                    <strong>{classes.length} 个</strong>
                   </div>
-                ))}
-                {gradeOverview.length === 0 ? (
-                  <div className="mini-list-item">
-                    <div>
-                      <strong>暂无班级数据</strong>
-                      <span>创建班级后，这里会展示年级层面的组织分布。</span>
-                    </div>
-                    <b>待建立</b>
+                  <div>
+                    <span>学生总数</span>
+                    <strong>
+                      {classes.reduce((sum, row) => sum + row.studentCount, 0)}{" "}
+                      人
+                    </strong>
                   </div>
-                ) : null}
+                  <div>
+                    <span>平均班额</span>
+                    <strong>{averageStudentCount} 人</strong>
+                  </div>
+                  <div>
+                    <span>停用展示班级</span>
+                    <strong>{disabledClassCount} 个</strong>
+                  </div>
+                </div>
               </div>
-            </div>
-            <div className="detail-card">
-              <h4>治理待办</h4>
-              <div className="mini-list">
-                {governanceWatchList.map((item) => {
-                  const issues = buildGovernanceIssues(item).join(" · ");
-                  return (
-                    <div className="mini-list-item" key={item.id}>
+              <div className="detail-card">
+                <h4>治理覆盖</h4>
+                <div className="detail-list">
+                  <div>
+                    <span>已配班主任</span>
+                    <strong>{assignedTeacherCount} 个</strong>
+                  </div>
+                  <div>
+                    <span>待配班主任</span>
+                    <strong>{classes.length - assignedTeacherCount} 个</strong>
+                  </div>
+                  <div>
+                    <span>已设目标积分</span>
+                    <strong>{targetConfiguredCount} 个</strong>
+                  </div>
+                  <div>
+                    <span>待补运营目标</span>
+                    <strong>{classes.length - targetConfiguredCount} 个</strong>
+                  </div>
+                  <div>
+                    <span>有效倒计时</span>
+                    <strong>{countdownReadyCount} 个</strong>
+                  </div>
+                  <div>
+                    <span>倒计时待设置</span>
+                    <strong>{classes.length - countdownReadyCount} 个</strong>
+                  </div>
+                </div>
+              </div>
+              <div className="detail-card">
+                <h4>年级分布</h4>
+                <div className="mini-list">
+                  {gradeOverview.slice(0, 4).map(([gradeName, item]) => (
+                    <div className="mini-list-item" key={gradeName}>
                       <div>
-                        <strong>{item.gradeName} {item.name}</strong>
-                        <span>{issues || "治理状态正常"}</span>
+                        <strong>{gradeName}</strong>
+                        <span>
+                          {item.classCount} 个班，{item.studentCount} 名学生
+                        </span>
                       </div>
-                      <b>{item.studentCount} 人</b>
+                      <b>
+                        {item.enabledCount}/{item.classCount} 展示
+                      </b>
                     </div>
-                  );
-                })}
-                {governanceWatchList.length === 0 ? (
-                  <div className="mini-list-item">
-                    <div>
-                      <strong>当前治理状态完整</strong>
-                      <span>所有班级都已完成展示、班主任、目标积分和有效倒计时配置。</span>
+                  ))}
+                  {gradeOverview.length === 0 ? (
+                    <div className="mini-list-item">
+                      <div>
+                        <strong>暂无班级数据</strong>
+                        <span>创建班级后，这里会展示年级层面的组织分布。</span>
+                      </div>
+                      <b>待建立</b>
                     </div>
-                    <b>已完成</b>
-                  </div>
-                ) : null}
+                  ) : null}
+                </div>
+              </div>
+              <div className="detail-card">
+                <h4>治理待办</h4>
+                <div className="mini-list">
+                  {governanceWatchList.map((item) => {
+                    const issues = buildGovernanceIssues(item).join(" · ");
+                    return (
+                      <div className="mini-list-item" key={item.id}>
+                        <div>
+                          <strong>
+                            {item.gradeName} {item.name}
+                          </strong>
+                          <span>{issues || "治理状态正常"}</span>
+                        </div>
+                        <b>{item.studentCount} 人</b>
+                      </div>
+                    );
+                  })}
+                  {governanceWatchList.length === 0 ? (
+                    <div className="mini-list-item">
+                      <div>
+                        <strong>当前治理状态完整</strong>
+                        <span>
+                          所有班级都已完成展示、班主任、目标积分和有效倒计时配置。
+                        </span>
+                      </div>
+                      <b>已完成</b>
+                    </div>
+                  ) : null}
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      ) : null}
+        ) : null}
 
-      <div className="panel admin-list-panel security-accounts-panel">
-        <div className="security-panel-head">
-          {allowViewDisplayTerminals ? (
-            <div className="sec-nav-tabs">
-              <button
-                className={`sec-nav-tab${listTab === "class" ? " active" : ""}`}
-                type="button"
-                onClick={() => setListTab("class")}
-              >
-                班级列表
-              </button>
-              <button
-                className={`sec-nav-tab${listTab === "display" ? " active" : ""}`}
-                type="button"
-                onClick={() => setListTab("display")}
-              >
-                大屏列表
-              </button>
-            </div>
-          ) : (
-            <div className="panel-title">班级列表</div>
-          )}
-          <p className="page-desc">
-            {listTab === "class"
-              ? "查看班级基础信息、展示状态与班主任配置。"
-              : "展示每个大屏终端绑定到的班级，以及当前 websocket 在线状态。"}
-          </p>
-        </div>
+        <div className="panel admin-list-panel security-accounts-panel">
+          <div className="security-panel-head">
+            {allowViewDisplayTerminals ? (
+              <div className="sec-nav-tabs">
+                <button
+                  className={`sec-nav-tab${listTab === "class" ? " active" : ""}`}
+                  type="button"
+                  onClick={() => setListTab("class")}
+                >
+                  班级列表
+                </button>
+                <button
+                  className={`sec-nav-tab${listTab === "display" ? " active" : ""}`}
+                  type="button"
+                  onClick={() => setListTab("display")}
+                >
+                  大屏列表
+                </button>
+              </div>
+            ) : (
+              <div className="panel-title">班级列表</div>
+            )}
+            <p className="page-desc">
+              {listTab === "class"
+                ? "查看班级基础信息、展示状态与班主任配置。"
+                : "展示每个大屏终端绑定到的班级，以及当前 websocket 在线状态。"}
+            </p>
+          </div>
 
-        {listTab === "class" ? (
-          <>
-            <div className="data-table-wrap security-table-wrap">
-              <table className="data-table security-table">
-                <thead>
-                  <tr>
-                    <th>{renderSortHeader("班级", "name")}</th>
-                    <th>{renderSortHeader("年级", "gradeName")}</th>
-                    <th>{renderSortHeader("班主任", "homeroomTeacher")}</th>
-                    <th>{renderSortHeader("人数", "studentCount")}</th>
-                    <th>{renderSortHeader("目标积分", "targetScore")}</th>
-                    <th>{renderSortHeader("状态", "displayStatus")}</th>
-                    <th>操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {classPagination.pagedItems.map((row) => (
-                    <tr key={row.id}>
-                      <td className="security-name-cell">{row.name}</td>
-                      <td>{row.gradeName}</td>
-                      <td>{row.homeroomTeacher?.name ?? "-"}</td>
-                      <td>{row.studentCount}</td>
-                      <td>
-                        {row.targetScore === null || row.targetScore === undefined
-                          ? "未设置"
-                          : `${row.targetScore} 分`}
-                      </td>
-                      <td>
-                        <span
-                          className={
-                            row.displayStatus === "enabled"
-                              ? "status-on"
-                              : "status-off"
-                          }
-                        >
-                          {row.displayStatus === "enabled" ? "展示中" : "未展示"}
-                        </span>
-                      </td>
-                      <td>
-                        <button
-                          className="op-btn"
-                          type="button"
-                          onClick={() => openDetail(row)}
-                        >
-                          详情
-                        </button>
-                        {allowEdit ? (
-                          <button
-                            className="op-btn"
-                            type="button"
-                            onClick={() => openEdit(row)}
-                          >
-                            编辑
-                          </button>
-                        ) : null}
-                      </td>
-                    </tr>
-                  ))}
-                  {filteredClasses.length === 0 ? (
+          {listTab === "class" ? (
+            <>
+              <div className="data-table-wrap security-table-wrap">
+                <table className="data-table security-table">
+                  <thead>
                     <tr>
-                      <td colSpan={7} className="table-empty">
-                        当前筛选条件下没有班级数据
-                      </td>
+                      <th>{renderSortHeader("班级", "name")}</th>
+                      <th>{renderSortHeader("年级", "gradeName")}</th>
+                      <th>{renderSortHeader("班主任", "homeroomTeacher")}</th>
+                      <th>{renderSortHeader("人数", "studentCount")}</th>
+                      <th>{renderSortHeader("目标积分", "targetScore")}</th>
+                      <th>{renderSortHeader("状态", "displayStatus")}</th>
+                      <th>操作</th>
                     </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
-            <TablePagination
-              currentPage={classPagination.currentPage}
-              pageSize={classPagination.pageSize}
-              totalItems={classPagination.totalItems}
-              totalPages={classPagination.totalPages}
-              onPageChange={classPagination.setCurrentPage}
-              onPageSizeChange={classPagination.setPageSize}
-            />
-          </>
-        ) : (
-          <>
-            {displayTerminalsLoading ? (
-              <div className="status-card">大屏列表加载中...</div>
-            ) : null}
-            {displayTerminalsError ? (
-              <div className="status-card error">{displayTerminalsError}</div>
-            ) : null}
-            <div className="data-table-wrap security-table-wrap">
-              <table className="data-table security-table">
-                <thead>
-                  <tr>
-                    <th>{renderDisplaySortHeader("终端名称", "terminalName")}</th>
-                    <th>{renderDisplaySortHeader("终端编码", "terminalCode")}</th>
-                    <th>{renderDisplaySortHeader("绑定班级", "boundClass")}</th>
-                    <th>{renderDisplaySortHeader("班级展示状态", "displayStatus")}</th>
-                    <th>{renderDisplaySortHeader("在线状态", "onlineStatus")}</th>
-                    <th>{renderDisplaySortHeader("最近在线", "lastOnlineAt")}</th>
-                    <th>操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {displayTerminalPagination.pagedItems.map((row) => (
-                    <tr key={row.id}>
-                      <td>{row.terminalName}</td>
-                      <td>{row.terminalCode}</td>
-                      <td>
-                        {row.classInfo
-                          ? `${row.classInfo.gradeName} ${row.classInfo.className}`
-                          : "未绑定班级"}
-                      </td>
-                      <td>
-                        {row.classInfo ? (
+                  </thead>
+                  <tbody>
+                    {classPagination.pagedItems.map((row) => (
+                      <tr key={row.id}>
+                        <td className="security-name-cell">{row.name}</td>
+                        <td>{row.gradeName}</td>
+                        <td>{row.homeroomTeacher?.name ?? "-"}</td>
+                        <td>{row.studentCount}</td>
+                        <td>
+                          {row.targetScore === null ||
+                          row.targetScore === undefined
+                            ? "未设置"
+                            : `${row.targetScore} 分`}
+                        </td>
+                        <td>
                           <span
                             className={
-                              row.classInfo.displayStatus === "enabled"
+                              row.displayStatus === "enabled"
                                 ? "status-on"
                                 : "status-off"
                             }
                           >
-                            {row.classInfo.displayStatus === "enabled"
+                            {row.displayStatus === "enabled"
                               ? "展示中"
                               : "未展示"}
                           </span>
-                        ) : (
-                          "-"
+                        </td>
+                        <td>
+                          <button
+                            className="op-btn"
+                            type="button"
+                            onClick={() => openDetail(row)}
+                          >
+                            详情
+                          </button>
+                          {allowEdit ? (
+                            <button
+                              className="op-btn"
+                              type="button"
+                              onClick={() => openEdit(row)}
+                            >
+                              编辑
+                            </button>
+                          ) : null}
+                        </td>
+                      </tr>
+                    ))}
+                    {filteredClasses.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="table-empty">
+                          当前筛选条件下没有班级数据
+                        </td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+              <TablePagination
+                currentPage={classPagination.currentPage}
+                pageSize={classPagination.pageSize}
+                totalItems={classPagination.totalItems}
+                totalPages={classPagination.totalPages}
+                onPageChange={classPagination.setCurrentPage}
+                onPageSizeChange={classPagination.setPageSize}
+              />
+            </>
+          ) : (
+            <>
+              {displayTerminalsLoading ? (
+                <div className="status-card">大屏列表加载中...</div>
+              ) : null}
+              {displayTerminalsError ? (
+                <div className="status-card error">{displayTerminalsError}</div>
+              ) : null}
+              <div className="data-table-wrap security-table-wrap">
+                <table className="data-table security-table">
+                  <thead>
+                    <tr>
+                      <th>
+                        {renderDisplaySortHeader("终端名称", "terminalName")}
+                      </th>
+                      <th>
+                        {renderDisplaySortHeader("终端编码", "terminalCode")}
+                      </th>
+                      <th>
+                        {renderDisplaySortHeader("绑定班级", "boundClass")}
+                      </th>
+                      <th>
+                        {renderDisplaySortHeader(
+                          "班级展示状态",
+                          "displayStatus",
                         )}
-                      </td>
-                      <td>
-                        <span
-                          className={
-                            row.onlineStatus === "online" ? "status-on" : "status-off"
+                      </th>
+                      <th>
+                        {renderDisplaySortHeader("在线状态", "onlineStatus")}
+                      </th>
+                      <th>
+                        {renderDisplaySortHeader("最近在线", "lastOnlineAt")}
+                      </th>
+                      <th>操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {displayTerminalPagination.pagedItems.map((row) => (
+                      <tr key={row.id}>
+                        <td>{row.terminalName}</td>
+                        <td>{row.terminalCode}</td>
+                        <td>
+                          {row.classInfo
+                            ? `${row.classInfo.gradeName} ${row.classInfo.className}`
+                            : "未绑定班级"}
+                        </td>
+                        <td>
+                          {row.classInfo ? (
+                            <span
+                              className={
+                                row.classInfo.displayStatus === "enabled"
+                                  ? "status-on"
+                                  : "status-off"
+                              }
+                            >
+                              {row.classInfo.displayStatus === "enabled"
+                                ? "展示中"
+                                : "未展示"}
+                            </span>
+                          ) : (
+                            "-"
+                          )}
+                        </td>
+                        <td>
+                          <span
+                            className={
+                              row.onlineStatus === "online"
+                                ? "status-on"
+                                : "status-off"
+                            }
+                          >
+                            {row.onlineStatus === "online" ? "在线" : "离线"}
+                          </span>
+                        </td>
+                        <td>{formatDateTime(row.lastOnlineAt)}</td>
+                        <td>
+                          <button
+                            type="button"
+                            className="op-btn op-btn--danger"
+                            onClick={() => void deleteDisplayTerminal(row)}
+                            disabled={deletingDisplayTerminalId === row.id}
+                          >
+                            {deletingDisplayTerminalId === row.id
+                              ? "删除中..."
+                              : "删除"}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    {!displayTerminalsLoading &&
+                    displayTerminalPagination.totalItems === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="table-empty">
+                          {hasActiveListFilters
+                            ? "当前筛选条件下没有大屏终端"
+                            : "当前没有可展示的大屏终端"}
+                        </td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+              <TablePagination
+                currentPage={displayTerminalPagination.currentPage}
+                pageSize={displayTerminalPagination.pageSize}
+                totalItems={displayTerminalPagination.totalItems}
+                totalPages={displayTerminalPagination.totalPages}
+                onPageChange={displayTerminalPagination.setCurrentPage}
+                onPageSizeChange={displayTerminalPagination.setPageSize}
+              />
+            </>
+          )}
+        </div>
+
+        {allowEdit && (showCreate || editingClass) ? (
+          <Modal
+            title={
+              editingClass
+                ? isHomeroomTeacher
+                  ? "编辑本班运营信息"
+                  : "编辑班级"
+                : "新建班级"
+            }
+            subtitle=""
+            onClose={closeModal}
+          >
+            <form className="form-grid" onSubmit={handleSubmit}>
+              <label className="span-2">
+                <span>班级名称</span>
+                <input
+                  value={form.name}
+                  disabled={isHomeroomTeacher}
+                  onChange={(event) =>
+                    setForm((prev) => ({ ...prev, name: event.target.value }))
+                  }
+                />
+              </label>
+              <label>
+                <span>所属年级</span>
+                <select
+                  value={form.gradeName}
+                  disabled={isHomeroomTeacher}
+                  onChange={(event) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      gradeName: event.target.value,
+                    }))
+                  }
+                >
+                  <option value="">请选择年级</option>
+                  {formGradeOptions.map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>展示状态</span>
+                <select
+                  value={form.displayStatus}
+                  onChange={(event) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      displayStatus: event.target.value,
+                    }))
+                  }
+                >
+                  <option value="enabled">开启班级展示</option>
+                  <option value="disabled">暂不在大屏展示</option>
+                </select>
+              </label>
+              <label>
+                <span>所属学期</span>
+                <input
+                  value={
+                    editingClass
+                      ? `${editingClass.semesterId} 学期`
+                      : (currentSemester?.name ??
+                        "请先到系统设置中配置当前学期")
+                  }
+                  readOnly
+                />
+              </label>
+              <label>
+                <span>班主任</span>
+                <select
+                  value={form.homeroomTeacherId}
+                  disabled={isHomeroomTeacher}
+                  onChange={(event) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      homeroomTeacherId: event.target.value,
+                    }))
+                  }
+                >
+                  <option value="">暂不指定</option>
+                  {teacherOptions.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}（{item.username}）
+                    </option>
+                  ))}
+                </select>
+                <small className="field-hint">
+                  {isHomeroomTeacher
+                    ? "班主任账号由学校管理员统一分配，这里只保留查看。"
+                    : teacherOptions.length > 0
+                      ? "可直接选择已创建的班主任账号。"
+                      : "暂无可选班主任，请先到账号管理中创建教师账号。"}
+                </small>
+              </label>
+              <label>
+                <span>班级目标积分</span>
+                <input
+                  value={form.targetScore}
+                  onChange={(event) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      targetScore: event.target.value,
+                    }))
+                  }
+                />
+                <small className="field-hint">
+                  用于展示这个班级本学期想达到的积分目标，不填也可以。
+                </small>
+              </label>
+              <label className="span-2">
+                <span>班级口号</span>
+                <input
+                  value={form.slogan}
+                  onChange={(event) =>
+                    setForm((prev) => ({ ...prev, slogan: event.target.value }))
+                  }
+                />
+              </label>
+              <label>
+                <span>倒计时标题</span>
+                <input
+                  value={form.countdownTitle}
+                  placeholder="例如：距离期末表彰"
+                  onChange={(event) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      countdownTitle: event.target.value,
+                    }))
+                  }
+                />
+                <small className="field-hint">
+                  标题和截止时间都填写后，班级大屏才会显示倒计时。
+                </small>
+              </label>
+              <label>
+                <span>倒计时截止时间</span>
+                <PickerInput
+                  type="datetime-local"
+                  value={form.countdownDeadlineAt}
+                  onChange={(event) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      countdownDeadlineAt: event.target.value,
+                    }))
+                  }
+                />
+                <small className="field-hint">
+                  清空标题或时间即可关闭该班倒计时。
+                </small>
+              </label>
+              {submitError ? (
+                <div className="status-card error span-2">{submitError}</div>
+              ) : null}
+              <div className="form-actions span-2">
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={() => closeModal()}
+                  disabled={submitting}
+                >
+                  取消
+                </button>
+                <button
+                  type="submit"
+                  className="toolbar-button"
+                  disabled={submitting}
+                >
+                  {submitting
+                    ? "提交中..."
+                    : editingClass
+                      ? "保存修改"
+                      : "创建班级"}
+                </button>
+              </div>
+            </form>
+          </Modal>
+        ) : null}
+
+        {selectedClass ? (
+          <Modal
+            title={`${selectedClass.gradeName}${selectedClass.name}`}
+            subtitle="班级档案"
+            onClose={closeModal}
+          >
+            {(() => {
+              const targetScore = selectedClass.targetScore ?? 0;
+              const targetProgress =
+                targetScore > 0
+                  ? Math.min(
+                      100,
+                      Math.round(
+                        (selectedClass.currentScoreTotal / targetScore) * 100,
+                      ),
+                    )
+                  : null;
+              const scoreGap =
+                targetScore > 0
+                  ? Math.max(targetScore - selectedClass.currentScoreTotal, 0)
+                  : null;
+              const displayEnabled = selectedClass.displayStatus === "enabled";
+
+              return (
+                <div className="class-archive">
+                  {classHonorGrantSuccess ? (
+                    <div className="class-archive-alert success">
+                      {classHonorGrantSuccess}
+                    </div>
+                  ) : null}
+
+                  <section
+                    className="class-archive-metrics"
+                    aria-label="班级关键指标"
+                  >
+                    <div className="class-archive-metric">
+                      <span>学生人数</span>
+                      <strong>{selectedClass.studentCount}</strong>
+                    </div>
+                    <div className="class-archive-metric">
+                      <span>当前积分</span>
+                      <strong>
+                        {selectedClass.currentScoreTotal.toLocaleString(
+                          "zh-CN",
+                        )}
+                      </strong>
+                    </div>
+                    <div className="class-archive-metric">
+                      <span>目标完成</span>
+                      <strong>
+                        {targetProgress !== null
+                          ? `${targetProgress}%`
+                          : "未设置"}
+                      </strong>
+                    </div>
+                    <div className="class-archive-metric accent">
+                      <span>集体荣誉</span>
+                      <strong>
+                        {classHonorsLoading ? "…" : classHonorRecords.length}
+                      </strong>
+                    </div>
+                  </section>
+
+                  <section className="class-archive-columns">
+                    <div className="class-archive-panel">
+                      <h4>档案信息</h4>
+                      <dl className="class-archive-facts">
+                        <div>
+                          <dt>班级</dt>
+                          <dd>{selectedClass.name}</dd>
+                        </div>
+                        <div>
+                          <dt>年级</dt>
+                          <dd>{selectedClass.gradeName}</dd>
+                        </div>
+                        <div>
+                          <dt>学期</dt>
+                          <dd>{currentSemester?.name ?? "当前学期"}</dd>
+                        </div>
+                        <div>
+                          <dt>班主任</dt>
+                          <dd>
+                            {selectedClass.homeroomTeacher?.name ?? "待配置"}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>展示状态</dt>
+                          <dd>
+                            <span
+                              className={`class-archive-tag${displayEnabled ? " on" : ""}`}
+                            >
+                              {displayEnabled ? "大屏展示中" : "暂未展示"}
+                            </span>
+                          </dd>
+                        </div>
+                        <div className="span-2">
+                          <dt>班级口号</dt>
+                          <dd>{selectedClass.slogan?.trim() || "待补充"}</dd>
+                        </div>
+                      </dl>
+                    </div>
+
+                    <div className="class-archive-panel">
+                      <h4>积分成长</h4>
+                      {targetProgress !== null ? (
+                        <div className="class-archive-progress">
+                          <div className="class-archive-progress-head">
+                            <span>
+                              目标 {targetScore.toLocaleString("zh-CN")} 分
+                            </span>
+                            <strong>{targetProgress}%</strong>
+                          </div>
+                          <div className="class-archive-progress-track">
+                            <i style={{ width: `${targetProgress}%` }} />
+                          </div>
+                          <p>
+                            距目标还差 {scoreGap?.toLocaleString("zh-CN")} 分
+                          </p>
+                        </div>
+                      ) : (
+                        <p className="class-archive-muted">
+                          尚未设置班级目标积分
+                        </p>
+                      )}
+                      <dl className="class-archive-facts compact">
+                        <div>
+                          <dt>累计积分</dt>
+                          <dd>
+                            {selectedClass.totalScoreTotal.toLocaleString(
+                              "zh-CN",
+                            )}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>当前积分</dt>
+                          <dd>
+                            {selectedClass.currentScoreTotal.toLocaleString(
+                              "zh-CN",
+                            )}
+                          </dd>
+                        </div>
+                      </dl>
+                    </div>
+                  </section>
+
+                  <section className="class-archive-panel class-archive-panel--honors">
+                    <div className="class-archive-panel-head">
+                      <div>
+                        <h4>集体荣誉</h4>
+                        <p>
+                          {classHonorsLoading
+                            ? "加载中…"
+                            : `共 ${classHonorRecords.length} 项记录`}
+                        </p>
+                      </div>
+                      {allowGrantClassHonors ? (
+                        <button
+                          className="toolbar-button"
+                          type="button"
+                          onClick={() => setShowClassHonorGrant(true)}
+                        >
+                          颁发集体荣誉
+                        </button>
+                      ) : null}
+                    </div>
+                    {classHonorsLoading ? (
+                      <div className="class-archive-honors-empty">
+                        荣誉记录加载中…
+                      </div>
+                    ) : classHonorRecords.length > 0 ? (
+                      <ul className="class-archive-honor-list">
+                        {classHonorRecords.map((item) => (
+                          <li
+                            key={item.id}
+                            className="class-archive-honor-item"
+                          >
+                            <div className="class-archive-honor-main">
+                              <strong>{item.honorName}</strong>
+                              <span>
+                                {new Date(item.grantedAt).toLocaleString(
+                                  "zh-CN",
+                                  {
+                                    year: "numeric",
+                                    month: "2-digit",
+                                    day: "2-digit",
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  },
+                                )}
+                                {item.grantedByName
+                                  ? ` · ${item.grantedByName}`
+                                  : ""}
+                              </span>
+                            </div>
+                            {item.remark ? <p>{item.remark}</p> : null}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <div className="class-archive-honors-empty">
+                        暂无集体荣誉，可点击右上角颁发
+                      </div>
+                    )}
+                  </section>
+
+                  <section
+                    className="class-archive-actions"
+                    aria-label="高频场景"
+                  >
+                    <span className="class-archive-actions-label">
+                      高频场景
+                    </span>
+                    <div className="class-archive-actions-group">
+                      {selectedClass.homeroomTeacher ? (
+                        <button
+                          className="ghost-button"
+                          type="button"
+                          onClick={() =>
+                            navigateWithQuery("/teachers", {
+                              userId: selectedClass.homeroomTeacher?.id,
+                              returnTo: buildClassesLocation(selectedClass.id),
+                              returnLabel: "返回班级管理",
+                            })
                           }
                         >
-                          {row.onlineStatus === "online" ? "在线" : "离线"}
-                        </span>
-                      </td>
-                      <td>{formatDateTime(row.lastOnlineAt)}</td>
-                      <td>
-                        <button
-                          type="button"
-                          className="op-btn op-btn--danger"
-                          onClick={() => void deleteDisplayTerminal(row)}
-                          disabled={deletingDisplayTerminalId === row.id}
-                        >
-                          {deletingDisplayTerminalId === row.id ? "删除中..." : "删除"}
+                          班主任详情
                         </button>
-                      </td>
-                    </tr>
-                  ))}
-                  {!displayTerminalsLoading && displayTerminalPagination.totalItems === 0 ? (
-                    <tr>
-                      <td colSpan={7} className="table-empty">
-                        {hasActiveListFilters
-                          ? "当前筛选条件下没有大屏终端"
-                          : "当前没有可展示的大屏终端"}
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
-            <TablePagination
-              currentPage={displayTerminalPagination.currentPage}
-              pageSize={displayTerminalPagination.pageSize}
-              totalItems={displayTerminalPagination.totalItems}
-              totalPages={displayTerminalPagination.totalPages}
-              onPageChange={displayTerminalPagination.setCurrentPage}
-              onPageSizeChange={displayTerminalPagination.setPageSize}
-            />
-          </>
-        )}
-      </div>
-
-      {allowEdit && (showCreate || editingClass) ? (
-        <Modal
-          title={editingClass ? (isHomeroomTeacher ? "编辑本班运营信息" : "编辑班级") : "新建班级"}
-          subtitle=""
-          onClose={closeModal}
-        >
-          <form className="form-grid" onSubmit={handleSubmit}>
-            <label className="span-2">
-              <span>班级名称</span>
-              <input
-                value={form.name}
-                disabled={isHomeroomTeacher}
-                onChange={(event) =>
-                  setForm((prev) => ({ ...prev, name: event.target.value }))
-                }
-              />
-            </label>
-            <label>
-              <span>所属年级</span>
-              <select
-                value={form.gradeName}
-                disabled={isHomeroomTeacher}
-                onChange={(event) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    gradeName: event.target.value,
-                  }))
-                }
-              >
-                <option value="">请选择年级</option>
-                {formGradeOptions.map((item) => (
-                  <option key={item} value={item}>
-                    {item}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span>展示状态</span>
-              <select
-                value={form.displayStatus}
-                onChange={(event) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    displayStatus: event.target.value,
-                  }))
-                }
-              >
-                <option value="enabled">开启班级展示</option>
-                <option value="disabled">暂不在大屏展示</option>
-              </select>
-            </label>
-            <label>
-              <span>所属学期</span>
-              <input
-                value={editingClass ? `${editingClass.semesterId} 学期` : currentSemester?.name ?? "请先到系统设置中配置当前学期"}
-                readOnly
-              />
-            </label>
-            <label>
-              <span>班主任</span>
-              <select
-                value={form.homeroomTeacherId}
-                disabled={isHomeroomTeacher}
-                onChange={(event) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    homeroomTeacherId: event.target.value,
-                  }))
-                }
-              >
-                <option value="">暂不指定</option>
-                {teacherOptions.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}（{item.username}）
-                  </option>
-                ))}
-              </select>
-              <small className="field-hint">
-                {isHomeroomTeacher
-                  ? "班主任账号由学校管理员统一分配，这里只保留查看。"
-                  : teacherOptions.length > 0
-                  ? "可直接选择已创建的班主任账号。"
-                  : "暂无可选班主任，请先到账号管理中创建教师账号。"}
-              </small>
-            </label>
-            <label>
-              <span>班级目标积分</span>
-              <input
-                value={form.targetScore}
-                onChange={(event) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    targetScore: event.target.value,
-                  }))
-                }
-              />
-              <small className="field-hint">
-                用于展示这个班级本学期想达到的积分目标，不填也可以。
-              </small>
-            </label>
-            <label className="span-2">
-              <span>班级口号</span>
-              <input
-                value={form.slogan}
-                onChange={(event) =>
-                  setForm((prev) => ({ ...prev, slogan: event.target.value }))
-                }
-              />
-            </label>
-            <label>
-              <span>倒计时标题</span>
-              <input
-                value={form.countdownTitle}
-                placeholder="例如：距离期末表彰"
-                onChange={(event) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    countdownTitle: event.target.value,
-                  }))
-                }
-              />
-              <small className="field-hint">
-                标题和截止时间都填写后，班级大屏才会显示倒计时。
-              </small>
-            </label>
-            <label>
-              <span>倒计时截止时间</span>
-              <PickerInput
-                type="datetime-local"
-                value={form.countdownDeadlineAt}
-                onChange={(event) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    countdownDeadlineAt: event.target.value,
-                  }))
-                }
-              />
-              <small className="field-hint">
-                清空标题或时间即可关闭该班倒计时。
-              </small>
-            </label>
-            {submitError ? (
-              <div className="status-card error span-2">{submitError}</div>
-            ) : null}
-            <div className="form-actions span-2">
-              <button
-                type="button"
-                className="ghost-button"
-                onClick={() => closeModal()}
-                disabled={submitting}
-              >
-                取消
-              </button>
-              <button
-                type="submit"
-                className="toolbar-button"
-                disabled={submitting}
-              >
-                {submitting
-                  ? "提交中..."
-                  : editingClass
-                    ? "保存修改"
-                    : "创建班级"}
-              </button>
-            </div>
-          </form>
-        </Modal>
-      ) : null}
-
-      {selectedClass ? (
-        <Modal
-          title={`${selectedClass.gradeName}${selectedClass.name}`}
-          subtitle="班级档案"
-          onClose={closeModal}
-        >
-          {(() => {
-            const targetScore = selectedClass.targetScore ?? 0;
-            const targetProgress =
-              targetScore > 0
-                ? Math.min(100, Math.round((selectedClass.currentScoreTotal / targetScore) * 100))
-                : null;
-            const scoreGap =
-              targetScore > 0 ? Math.max(targetScore - selectedClass.currentScoreTotal, 0) : null;
-            const displayEnabled = selectedClass.displayStatus === "enabled";
-
-            return (
-              <div className="class-archive">
-                {classHonorGrantSuccess ? (
-                  <div className="class-archive-alert success">{classHonorGrantSuccess}</div>
-                ) : null}
-
-                <section className="class-archive-metrics" aria-label="班级关键指标">
-                  <div className="class-archive-metric">
-                    <span>学生人数</span>
-                    <strong>{selectedClass.studentCount}</strong>
-                  </div>
-                  <div className="class-archive-metric">
-                    <span>当前积分</span>
-                    <strong>{selectedClass.currentScoreTotal.toLocaleString("zh-CN")}</strong>
-                  </div>
-                  <div className="class-archive-metric">
-                    <span>目标完成</span>
-                    <strong>{targetProgress !== null ? `${targetProgress}%` : "未设置"}</strong>
-                  </div>
-                  <div className="class-archive-metric accent">
-                    <span>集体荣誉</span>
-                    <strong>{classHonorsLoading ? "…" : classHonorRecords.length}</strong>
-                  </div>
-                </section>
-
-                <section className="class-archive-columns">
-                  <div className="class-archive-panel">
-                    <h4>档案信息</h4>
-                    <dl className="class-archive-facts">
-                      <div>
-                        <dt>班级</dt>
-                        <dd>{selectedClass.name}</dd>
-                      </div>
-                      <div>
-                        <dt>年级</dt>
-                        <dd>{selectedClass.gradeName}</dd>
-                      </div>
-                      <div>
-                        <dt>学期</dt>
-                        <dd>{currentSemester?.name ?? "当前学期"}</dd>
-                      </div>
-                      <div>
-                        <dt>班主任</dt>
-                        <dd>{selectedClass.homeroomTeacher?.name ?? "待配置"}</dd>
-                      </div>
-                      <div>
-                        <dt>展示状态</dt>
-                        <dd>
-                          <span className={`class-archive-tag${displayEnabled ? " on" : ""}`}>
-                            {displayEnabled ? "大屏展示中" : "暂未展示"}
-                          </span>
-                        </dd>
-                      </div>
-                      <div className="span-2">
-                        <dt>班级口号</dt>
-                        <dd>{selectedClass.slogan?.trim() || "待补充"}</dd>
-                      </div>
-                    </dl>
-                  </div>
-
-                  <div className="class-archive-panel">
-                    <h4>积分成长</h4>
-                    {targetProgress !== null ? (
-                      <div className="class-archive-progress">
-                        <div className="class-archive-progress-head">
-                          <span>目标 {targetScore.toLocaleString("zh-CN")} 分</span>
-                          <strong>{targetProgress}%</strong>
-                        </div>
-                        <div className="class-archive-progress-track">
-                          <i style={{ width: `${targetProgress}%` }} />
-                        </div>
-                        <p>距目标还差 {scoreGap?.toLocaleString("zh-CN")} 分</p>
-                      </div>
-                    ) : (
-                      <p className="class-archive-muted">尚未设置班级目标积分</p>
-                    )}
-                    <dl className="class-archive-facts compact">
-                      <div>
-                        <dt>累计积分</dt>
-                        <dd>{selectedClass.totalScoreTotal.toLocaleString("zh-CN")}</dd>
-                      </div>
-                      <div>
-                        <dt>当前积分</dt>
-                        <dd>{selectedClass.currentScoreTotal.toLocaleString("zh-CN")}</dd>
-                      </div>
-                    </dl>
-                  </div>
-                </section>
-
-                <section className="class-archive-panel class-archive-panel--honors">
-                  <div className="class-archive-panel-head">
-                    <div>
-                      <h4>集体荣誉</h4>
-                      <p>{classHonorsLoading ? "加载中…" : `共 ${classHonorRecords.length} 项记录`}</p>
-                    </div>
-                    {allowGrantClassHonors ? (
-                      <button
-                        className="toolbar-button"
-                        type="button"
-                        onClick={() => setShowClassHonorGrant(true)}
-                      >
-                        颁发集体荣誉
-                      </button>
-                    ) : null}
-                  </div>
-                  {classHonorsLoading ? (
-                    <div className="class-archive-honors-empty">荣誉记录加载中…</div>
-                  ) : classHonorRecords.length > 0 ? (
-                    <ul className="class-archive-honor-list">
-                      {classHonorRecords.map((item) => (
-                        <li key={item.id} className="class-archive-honor-item">
-                          <div className="class-archive-honor-main">
-                            <strong>{item.honorName}</strong>
-                            <span>
-                              {new Date(item.grantedAt).toLocaleString("zh-CN", {
-                                year: "numeric",
-                                month: "2-digit",
-                                day: "2-digit",
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              })}
-                              {item.grantedByName ? ` · ${item.grantedByName}` : ""}
-                            </span>
-                          </div>
-                          {item.remark ? <p>{item.remark}</p> : null}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <div className="class-archive-honors-empty">暂无集体荣誉，可点击右上角颁发</div>
-                  )}
-                </section>
-
-                <section className="class-archive-actions" aria-label="快捷操作">
-                  <span className="class-archive-actions-label">快捷操作</span>
-                  <div className="class-archive-actions-group">
-                    {selectedClass.homeroomTeacher ? (
+                      ) : null}
+                      {selectedClass.homeroomTeacher ? (
+                        <button
+                          className="ghost-button"
+                          type="button"
+                          onClick={() =>
+                            navigateWithQuery("/organization", {
+                              activeTab: "accounts",
+                              userId: selectedClass.homeroomTeacher?.id,
+                              returnTo: buildClassesLocation(selectedClass.id),
+                              returnLabel: "返回班级管理",
+                            })
+                          }
+                        >
+                          班主任账号
+                        </button>
+                      ) : null}
                       <button
                         className="ghost-button"
                         type="button"
                         onClick={() =>
                           navigateWithQuery("/teachers", {
-                            userId: selectedClass.homeroomTeacher?.id,
+                            keyword: selectedClass.name,
                             returnTo: buildClassesLocation(selectedClass.id),
                             returnLabel: "返回班级管理",
                           })
                         }
                       >
-                        班主任详情
+                        相关教师
                       </button>
-                    ) : null}
-                    {selectedClass.homeroomTeacher ? (
-                      <button
-                        className="ghost-button"
-                        type="button"
-                        onClick={() =>
-                          navigateWithQuery("/organization", {
-                            activeTab: "accounts",
-                            userId: selectedClass.homeroomTeacher?.id,
-                            returnTo: buildClassesLocation(selectedClass.id),
-                            returnLabel: "返回班级管理",
-                          })
-                        }
-                      >
-                        班主任账号
-                      </button>
-                    ) : null}
-                    <button
-                      className="ghost-button"
-                      type="button"
-                      onClick={() =>
-                        navigateWithQuery("/teachers", {
-                          keyword: selectedClass.name,
-                          returnTo: buildClassesLocation(selectedClass.id),
-                          returnLabel: "返回班级管理",
-                        })
-                      }
-                    >
-                      相关教师
-                    </button>
-                  </div>
-                </section>
+                    </div>
+                  </section>
 
-                <details className="class-archive-tips">
-                  <summary>运营建议</summary>
-                  <ul>
-                    <li>建议把班级目标积分与展示端榜单阈值保持一致，避免汇报口径不统一。</li>
-                    <li>若班级已接入展示大屏，推荐同步检查班主任与设备在线状态。</li>
-                    <li>学生人数变更后，建议复核学生导入，保持看板数据准确。</li>
-                  </ul>
-                </details>
-              </div>
-            );
-          })()}
-        </Modal>
-      ) : null}
-      {selectedClass && showClassHonorGrant ? (
-        <HonorGrantModal
-          token={token}
-          target={{
-            targetType: "class",
-            classId: selectedClass.id,
-            className: `${selectedClass.gradeName}${selectedClass.name}`,
-          }}
-          honors={honors}
-          onClose={() => setShowClassHonorGrant(false)}
-          onGranted={async () => {
-            await onSaved();
-            if (!selectedClass) return;
-            await reloadClassHonorRecords(selectedClass.id);
-            setClassHonorGrantSuccess(`集体荣誉已颁发至 ${selectedClass.gradeName}${selectedClass.name}`);
-          }}
-        />
-      ) : null}
+                  <details className="class-archive-tips">
+                    <summary>运营建议</summary>
+                    <ul>
+                      <li>
+                        建议把班级目标积分与展示端榜单阈值保持一致，避免汇报口径不统一。
+                      </li>
+                      <li>
+                        若班级已接入展示大屏，推荐同步检查班主任与设备在线状态。
+                      </li>
+                      <li>
+                        学生人数变更后，建议复核学生导入，保持看板数据准确。
+                      </li>
+                    </ul>
+                  </details>
+                </div>
+              );
+            })()}
+          </Modal>
+        ) : null}
+        {selectedClass && showClassHonorGrant ? (
+          <HonorGrantModal
+            token={token}
+            target={{
+              targetType: "class",
+              classId: selectedClass.id,
+              className: `${selectedClass.gradeName}${selectedClass.name}`,
+            }}
+            honors={honors}
+            onClose={() => setShowClassHonorGrant(false)}
+            onGranted={async () => {
+              await onSaved();
+              if (!selectedClass) return;
+              await reloadClassHonorRecords(selectedClass.id);
+              setClassHonorGrantSuccess(
+                `集体荣誉已颁发至 ${selectedClass.gradeName}${selectedClass.name}`,
+              );
+            }}
+          />
+        ) : null}
       </div>
     </Shell>
   );

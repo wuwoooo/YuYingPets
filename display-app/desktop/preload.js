@@ -9,6 +9,7 @@ function getArgumentValue(name) {
 const displayApiBaseUrl = getArgumentValue('display-api-base-url');
 const displayRealtimeUrl = getArgumentValue('display-realtime-url');
 let desktopInlineBubbleVisible = true;
+let desktopUpdateToastTimer = null;
 
 if (displayApiBaseUrl) {
   contextBridge.exposeInMainWorld('__DISPLAY_API_BASE_URL__', displayApiBaseUrl);
@@ -17,8 +18,8 @@ if (displayRealtimeUrl) {
   contextBridge.exposeInMainWorld('__DISPLAY_REALTIME_URL__', displayRealtimeUrl);
 }
 
-function invokeDesktopAction(channel) {
-  return ipcRenderer.invoke(channel);
+function invokeDesktopAction(channel, ...args) {
+  return ipcRenderer.invoke(channel, ...args);
 }
 
 function setDesktopInlineBubbleVisible(visible) {
@@ -45,6 +46,20 @@ function createDesktopInlineBubble() {
       <button class="desktop-inline-action" type="button" data-action="minimize" title="最小化">−</button>
       <button class="desktop-inline-action" type="button" data-action="maximize" title="最大化/还原">□</button>
       <button class="desktop-inline-action" type="button" data-action="fullscreen" title="全屏/窗口">⛶</button>
+      <button class="desktop-inline-action" type="button" data-action="lock" title="锁定" aria-label="锁定">
+        <svg class="desktop-inline-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M8.5 10V8.25a3.5 3.5 0 1 1 7 0V10" />
+          <rect x="6.5" y="10" width="11" height="9" rx="2.5" />
+          <path d="M12 13.1v2.8" />
+        </svg>
+      </button>
+      <button class="desktop-inline-action" type="button" data-action="logout" title="退出登录" aria-label="退出登录">
+        <svg class="desktop-inline-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M10 7H7.75A2.75 2.75 0 0 0 5 9.75v4.5A2.75 2.75 0 0 0 7.75 17H10" />
+          <path d="M13 8l4 4-4 4" />
+          <path d="M9 12h8" />
+        </svg>
+      </button>
       <button class="desktop-inline-action desktop-inline-close" type="button" data-action="quit" title="退出">×</button>
     </div>
     <button class="desktop-inline-ball" type="button" title="窗口操作">
@@ -80,6 +95,22 @@ function createDesktopInlineBubble() {
         runAction(() => invokeDesktopAction('display-app:toggle-maximize'));
       } else if (action === 'fullscreen') {
         runAction(() => invokeDesktopAction('display-app:toggle-fullscreen'));
+      } else if (action === 'lock') {
+        runAction(async () => {
+          window.dispatchEvent(
+            new CustomEvent('display-desktop-command', {
+              detail: { action: 'lock' },
+            }),
+          );
+        });
+      } else if (action === 'logout') {
+        runAction(async () => {
+          window.dispatchEvent(
+            new CustomEvent('display-desktop-command', {
+              detail: { action: 'logout' },
+            }),
+          );
+        });
       } else if (action === 'quit') {
         runAction(() => invokeDesktopAction('display-app:quit'));
       }
@@ -94,6 +125,50 @@ function createDesktopInlineBubble() {
 
   document.body.appendChild(root);
   setDesktopInlineBubbleVisible(desktopInlineBubbleVisible);
+}
+
+function createDesktopUpdateToast() {
+  if (document.getElementById('displayDesktopUpdateToast') || !document.body) {
+    return;
+  }
+
+  const toast = document.createElement('div');
+  toast.id = 'displayDesktopUpdateToast';
+  toast.setAttribute('aria-live', 'polite');
+  toast.innerHTML = `
+    <div class="desktop-update-toast-title" id="displayDesktopUpdateToastTitle"></div>
+    <div class="desktop-update-toast-message" id="displayDesktopUpdateToastMessage"></div>
+  `;
+  document.body.appendChild(toast);
+}
+
+function showDesktopUpdateToast(payload) {
+  createDesktopUpdateToast();
+  const toast = document.getElementById('displayDesktopUpdateToast');
+  const title = document.getElementById('displayDesktopUpdateToastTitle');
+  const message = document.getElementById('displayDesktopUpdateToastMessage');
+  if (!toast || !title || !message || !payload) {
+    return;
+  }
+
+  title.textContent = String(payload.title || '应用更新');
+  message.textContent = String(payload.message || '');
+  toast.dataset.tone = String(payload.tone || 'info');
+  toast.classList.add('is-visible');
+
+  if (desktopUpdateToastTimer) {
+    clearTimeout(desktopUpdateToastTimer);
+    desktopUpdateToastTimer = null;
+  }
+
+  if (payload.sticky) {
+    return;
+  }
+
+  desktopUpdateToastTimer = window.setTimeout(() => {
+    toast.classList.remove('is-visible');
+    desktopUpdateToastTimer = null;
+  }, 3200);
 }
 
 function injectDesktopRuntimeStyles() {
@@ -144,10 +219,10 @@ function injectDesktopRuntimeStyles() {
         radial-gradient(circle at 64% 72%, rgba(20, 92, 166, 0.44), transparent 42px),
         linear-gradient(145deg, rgba(255, 255, 255, 0.93), rgba(222, 242, 255, 0.74) 42%, rgba(255, 255, 255, 0.88));
       box-shadow:
-        0 16px 30px rgba(8, 31, 62, 0.34),
-        0 5px 12px rgba(184, 28, 36, 0.18),
+        0 6px 16px rgba(8, 31, 62, 0.16),
+        0 0 0 1px rgba(255, 255, 255, 0.92),
         inset 0 1px 2px rgba(255, 255, 255, 0.95),
-        inset 0 -10px 18px rgba(6, 58, 91, 0.12),
+        inset 0 -8px 14px rgba(6, 58, 91, 0.08),
         inset 0 0 0 1px rgba(255, 255, 255, 0.68);
       outline: none;
       position: relative;
@@ -194,7 +269,7 @@ function injectDesktopRuntimeStyles() {
     }
 
     #displayDesktopInlineBubble.is-expanded .desktop-inline-actions {
-      width: 174px;
+      width: 258px;
       opacity: 1;
       transform: translateX(0) scale(1);
       pointer-events: auto;
@@ -216,6 +291,17 @@ function injectDesktopRuntimeStyles() {
       pointer-events: auto;
     }
 
+    .desktop-inline-icon {
+      width: 17px;
+      height: 17px;
+      stroke: currentColor;
+      stroke-width: 1.9;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      display: block;
+    }
+
     .desktop-inline-action:hover {
       background: rgba(20, 92, 166, 0.84);
     }
@@ -223,9 +309,48 @@ function injectDesktopRuntimeStyles() {
     .desktop-inline-close:hover {
       background: rgba(207, 31, 46, 0.94);
     }
+
+    #displayDesktopUpdateToast {
+      position: fixed;
+      top: max(18px, env(safe-area-inset-top));
+      right: max(18px, env(safe-area-inset-right));
+      z-index: 2147483647;
+      min-width: 220px;
+      max-width: min(360px, calc(100vw - 36px));
+      padding: 12px 14px;
+      border-radius: 12px;
+      color: #fff;
+      background: rgba(8, 22, 45, 0.84);
+      box-shadow: 0 14px 30px rgba(8, 31, 62, 0.26);
+      backdrop-filter: blur(8px);
+      pointer-events: none;
+      opacity: 0;
+      transform: translateY(-8px);
+      transition: opacity 180ms ease, transform 180ms ease;
+    }
+
+    #displayDesktopUpdateToast.is-visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    #displayDesktopUpdateToast[data-tone="success"] {
+      background: rgba(16, 107, 66, 0.88);
+    }
+
+    .desktop-update-toast-title {
+      font: 700 14px/1.3 "Microsoft YaHei", Arial, sans-serif;
+    }
+
+    .desktop-update-toast-message {
+      margin-top: 4px;
+      font: 500 12px/1.4 "Microsoft YaHei", Arial, sans-serif;
+      color: rgba(255, 255, 255, 0.84);
+    }
   `;
   document.head.appendChild(style);
   createDesktopInlineBubble();
+  createDesktopUpdateToast();
 }
 
 window.addEventListener('DOMContentLoaded', injectDesktopRuntimeStyles);
@@ -234,10 +359,17 @@ ipcRenderer.on('display-app:inline-bubble-visible', (_event, visible) => {
   setDesktopInlineBubbleVisible(visible);
 });
 
+ipcRenderer.on('display-app:auto-update-status', (_event, payload) => {
+  showDesktopUpdateToast(payload);
+});
+
 contextBridge.exposeInMainWorld('displayDesktop', {
   isDesktop: true,
   apiBaseUrl: displayApiBaseUrl,
   realtimeUrl: displayRealtimeUrl,
+  setFloatingBallStatus(payload) {
+    return invokeDesktopAction('display-app:set-floating-ball-status', payload);
+  },
   minimizeWindow() {
     return invokeDesktopAction('display-app:minimize');
   },

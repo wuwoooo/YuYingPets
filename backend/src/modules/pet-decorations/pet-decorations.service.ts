@@ -220,7 +220,6 @@ export class PetDecorationsService {
             where: { studentId: freshPet.studentId },
             data: {
               currentScore: { decrement: changeCost },
-              negativeCount7d: { increment: 1 },
               lastScoreAt: new Date(),
             },
           });
@@ -412,7 +411,6 @@ export class PetDecorationsService {
           where: { studentId: freshPet.studentId },
           data: {
             currentScore: { decrement: changeCost },
-            negativeCount7d: { increment: 1 },
             lastScoreAt: new Date(),
           },
         });

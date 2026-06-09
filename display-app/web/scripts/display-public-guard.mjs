@@ -5,6 +5,8 @@ const REQUIRED_FILES = [
   'public/display/display.html',
   'public/display/scripts/display-runtime.js',
   'public/display/scripts/display-ui.js',
+  'public/display/scripts/display-auth.js',
+  'public/display/scripts/display-holiday-dates.js',
   'public/display/scripts/display-app.js',
   'public/display/scripts/pet-colors.js',
   'public/display/styles/display.css',
@@ -37,6 +39,8 @@ const REQUIRED_SCRIPT_ORDER = [
   'scripts/pet-colors.js',
   'scripts/display-runtime.js',
   'scripts/display-ui.js',
+  'scripts/display-auth.js',
+  'scripts/display-holiday-dates.js',
   'scripts/display-app.js',
 ];
 
@@ -100,6 +104,8 @@ const REQUIRED_UI_API = [
   'activatePage',
   'showDisplayToast',
   'setRealtimeStatus',
+  'renderLockMeta',
+  'renderLockOverlay',
   'closeConfirmModal',
   'showConfirmModal',
   'showDisplayAlert',
@@ -109,10 +115,40 @@ const REQUIRED_UI_API = [
 const REQUIRED_DISPLAY_UI_DELEGATES = [
   ['showDisplayToast', 'showDisplayToast'],
   ['setRealtimeConnectionStatus', 'setRealtimeStatus'],
+  ['updateLockMeta', 'renderLockMeta'],
   ['closeConfirmModal', 'closeConfirmModal'],
   ['showConfirmModal', 'showConfirmModal'],
   ['showDisplayAlert', 'showDisplayAlert'],
   ['showToast', 'showToast'],
+];
+
+const REQUIRED_AUTH_API = [
+  'isDisplayAdminRole',
+  'canInitializeDisplayTerminalRole',
+  'canOverrideClassDisplayBinding',
+  'getClassScopeIds',
+  'canAccessClass',
+  'isHomeroomOfClass',
+  'canAdoptPet',
+  'shouldAutoRenewUnlock',
+  'shouldRenewUnlockSoon',
+  'getOperationLockedAlertCopy',
+  'getHomeroomOnlyAlertCopy',
+  'createLockOverlayViewModel',
+];
+
+const REQUIRED_DISPLAY_AUTH_DELEGATES = [
+  ['shouldAutoRenewUnlock', 'shouldAutoRenewUnlock'],
+  ['shouldRenewUnlockSoon', 'shouldRenewUnlockSoon'],
+  ['getClassScopeIds', 'getClassScopeIds'],
+  ['isDisplayAdminRole', 'isDisplayAdminRole'],
+  ['canInitializeDisplayTerminalRole', 'canInitializeDisplayTerminalRole'],
+  ['canOverrideClassDisplayBinding', 'canOverrideClassDisplayBinding'],
+  ['canCurrentUserAccessClass', 'canAccessClass'],
+  ['isHomeroomOfCurrentClass', 'isHomeroomOfClass'],
+  ['canAdoptPet', 'canAdoptPet'],
+  ['getOperationLockedAlertCopy', 'getOperationLockedAlertCopy'],
+  ['getHomeroomOnlyAlertCopy', 'getHomeroomOnlyAlertCopy'],
 ];
 
 function readText(filePath) {
@@ -255,6 +291,21 @@ function assertDisplayUiContract(displayUi) {
   }
 }
 
+function assertDisplayAuthContract(displayAuth) {
+  const missing = [];
+  for (const name of REQUIRED_AUTH_API) {
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (!new RegExp(`\\b${escaped}\\s*[,}]`).test(displayAuth)) {
+      missing.push(name);
+    }
+  }
+  if (missing.length > 0) {
+    throw new Error(
+      `Display 构建校验失败：DisplayAuth 缺少主脚本依赖的方法：${missing.join(', ')}`,
+    );
+  }
+}
+
 function assertDisplayRuntimeDelegates(displayScript) {
   const missing = [];
   for (const [globalName, runtimeName] of REQUIRED_DISPLAY_RUNTIME_DELEGATES) {
@@ -293,6 +344,25 @@ function assertDisplayUiDelegates(displayScript) {
   }
 }
 
+function assertDisplayAuthDelegates(displayScript) {
+  const missing = [];
+  for (const [globalName, authName] of REQUIRED_DISPLAY_AUTH_DELEGATES) {
+    const escapedGlobal = globalName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const escapedAuth = authName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const delegatePattern = new RegExp(
+      `\\bfunction\\s+${escapedGlobal}\\s*\\([^)]*\\)\\s*{[\\s\\S]{0,900}\\bDisplayAuth\\.${escapedAuth}\\s*\\(`,
+    );
+    if (!delegatePattern.test(displayScript)) {
+      missing.push(`${globalName}->DisplayAuth.${authName}`);
+    }
+  }
+  if (missing.length > 0) {
+    throw new Error(
+      `Display 构建校验失败：主脚本认证权限判断必须委托给 DisplayAuth：${missing.join(', ')}`,
+    );
+  }
+}
+
 function assertApiFetchUsesRuntime(displayScript) {
   const apiFetchWithTokenPattern =
     /\basync\s+function\s+apiFetchWithToken\s*\([^)]*\)\s*{[\s\S]{0,1800}\bDisplayRuntime\.fetchApiJson\s*\(/;
@@ -313,6 +383,16 @@ function assertNavigateUsesDisplayUi(displayScript) {
   }
 }
 
+function assertLockOverlayUsesBridges(displayScript) {
+  const applyLockOverlayPattern =
+    /\bfunction\s+applyLockOverlay\s*\([^)]*\)\s*{[\s\S]{0,1200}\bDisplayUI\.renderLockOverlay\s*\([\s\S]{0,900}\bDisplayAuth\.createLockOverlayViewModel\s*\(/;
+  if (!applyLockOverlayPattern.test(displayScript)) {
+    throw new Error(
+      'Display 构建校验失败：applyLockOverlay 必须委托 DisplayAuth.createLockOverlayViewModel 和 DisplayUI.renderLockOverlay',
+    );
+  }
+}
+
 function countMatches(source, pattern) {
   return Array.from(source.matchAll(pattern)).length;
 }
@@ -322,11 +402,13 @@ export function collectDisplayPublicMetrics({ root = process.cwd() } = {}) {
   const displayScriptPath = path.join(root, 'public/display/scripts/display-app.js');
   const displayRuntimePath = path.join(root, 'public/display/scripts/display-runtime.js');
   const displayUiPath = path.join(root, 'public/display/scripts/display-ui.js');
+  const displayAuthPath = path.join(root, 'public/display/scripts/display-auth.js');
   const displayCssPath = path.join(root, 'public/display/styles/display.css');
   const displayHtml = readText(displayHtmlPath);
   const displayScript = readText(displayScriptPath);
   const displayRuntime = readText(displayRuntimePath);
   const displayUi = readText(displayUiPath);
+  const displayAuth = readText(displayAuthPath);
   const displayCss = readText(displayCssPath);
 
   return {
@@ -334,6 +416,7 @@ export function collectDisplayPublicMetrics({ root = process.cwd() } = {}) {
     scriptLines: displayScript.split('\n').length,
     runtimeLines: displayRuntime.split('\n').length,
     uiLines: displayUi.split('\n').length,
+    authLines: displayAuth.split('\n').length,
     cssLines: displayCss.split('\n').length,
     inlineOnclickCount: countMatches(displayHtml, /\bonclick=/g),
     scriptFunctionCount: countMatches(displayScript, /^\s*(?:async\s+)?function\s+/gm),
@@ -353,24 +436,30 @@ export function validateDisplayPublic({ root = process.cwd(), silent = false } =
   const displayScriptPath = path.join(displayRoot, 'scripts/display-app.js');
   const displayRuntimePath = path.join(displayRoot, 'scripts/display-runtime.js');
   const displayUiPath = path.join(displayRoot, 'scripts/display-ui.js');
+  const displayAuthPath = path.join(displayRoot, 'scripts/display-auth.js');
   const petColorsPath = path.join(displayRoot, 'scripts/pet-colors.js');
   const displayHtml = readText(displayHtmlPath);
   const displayScript = readText(displayScriptPath);
   const displayRuntime = readText(displayRuntimePath);
   const displayUi = readText(displayUiPath);
+  const displayAuth = readText(displayAuthPath);
 
   assertBrowserScriptSyntax(displayRuntimePath, 'scripts/display-runtime.js');
   assertBrowserScriptSyntax(displayUiPath, 'scripts/display-ui.js');
+  assertBrowserScriptSyntax(displayAuthPath, 'scripts/display-auth.js');
   assertBrowserScriptSyntax(displayScriptPath, 'scripts/display-app.js');
   assertBrowserScriptSyntax(petColorsPath, 'scripts/pet-colors.js');
   assertHtmlAssetRefs(displayRoot, displayHtml);
   assertScriptLoadOrder(displayHtml);
   assertRuntimeApiContract(displayRuntime);
   assertDisplayUiContract(displayUi);
+  assertDisplayAuthContract(displayAuth);
   assertDisplayRuntimeDelegates(displayScript);
   assertDisplayUiDelegates(displayScript);
+  assertDisplayAuthDelegates(displayScript);
   assertApiFetchUsesRuntime(displayScript);
   assertNavigateUsesDisplayUi(displayScript);
+  assertLockOverlayUsesBridges(displayScript);
   assertInlineHandlersHaveGlobals(displayHtml, displayScript);
 
   const metrics = collectDisplayPublicMetrics({ root });
@@ -381,6 +470,7 @@ export function validateDisplayPublic({ root = process.cwd(), silent = false } =
         `html=${metrics.htmlLines}行`,
         `runtime=${metrics.runtimeLines}行`,
         `ui=${metrics.uiLines}行`,
+        `auth=${metrics.authLines}行`,
         `js=${metrics.scriptLines}行`,
         `css=${metrics.cssLines}行`,
         `onclick=${metrics.inlineOnclickCount}`,

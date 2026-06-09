@@ -595,6 +595,7 @@ export type ScoreRule = {
   description: string | null;
   allowedRoleCodes: string[];
   isHighFrequency: boolean;
+  highFrequencyRank?: number;
   displayEnabled: boolean;
   adminEnabled: boolean;
 };

@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=1920, initial-scale=1.0" />
     <title>育英星宠 · Display端</title>
     <link rel="stylesheet" href="./vendor/fontawesome/css/all.min.css" />
+    <link rel="preload" href="./images/2.svg" as="image" type="image/svg+xml" />
+    <link rel="preload" href="./images/logo.svg" as="image" type="image/svg+xml" />
+    <link rel="preload" href="./styles/display.css?v=202606021900" as="style" />
     <script>
       window.performance = window.performance || {
         now: function now() {
@@ -615,9 +618,9 @@
         <span class="trans-holiday-pop trans-holiday-pop-a"></span>
         <span class="trans-holiday-pop trans-holiday-pop-b"></span>
         <div class="trans-holiday-card">
-          <span class="trans-holiday-kicker">儿童节彩蛋已开启</span>
-          <strong>六一儿童节快乐</strong>
-          <span>愿每一颗星宠都和同学们一起闪闪发光</span>
+          <span class="trans-holiday-kicker" id="transHolidayKicker">儿童节彩蛋已开启</span>
+          <strong id="transHolidayTitle">六一儿童节快乐</strong>
+          <span id="transHolidayCopy">愿每一颗星宠都和同学们一起闪闪发光</span>
         </div>
       </div>
 
@@ -671,85 +674,20 @@
             <div class="pm-info-pts">当前积分：<b id="pmPts">0</b></div>
           </div>
         </div>
-        <div class="pm-quick-panels" id="pmQuickPanels">
-          <div class="pm-section-head">
-            <div class="pm-section-title">
-              <i
-                class="fa-solid fa-trophy"
-                style="color: var(--honor-gold)"
-              ></i>
-              快捷加分
-            </div>
-            <button
-              type="button"
-              class="pm-more-trigger add"
-              onclick="openMoreRulePanel('add')"
-            >
-              查看更多
-            </button>
-          </div>
-          <div class="pm-grid" id="pmAddGrid">
-            <div class="pm-btn add" onclick="updatePoint(this, 5, '课堂表现')">
-              <span>课堂表现</span><span>+5</span>
-            </div>
-            <div class="pm-btn add" onclick="updatePoint(this, 3, '助人为乐')">
-              <span>助人为乐</span><span>+3</span>
-            </div>
-            <div class="pm-btn add" onclick="updatePoint(this, 2, '作业极佳')">
-              <span>作业极佳</span><span>+2</span>
-            </div>
-            <div class="pm-btn add" onclick="updatePoint(this, 1, '日常加分')">
-              <span>日常加分</span><span>+1</span>
-            </div>
-          </div>
-          <div class="pm-section-head">
-            <div class="pm-section-title">
-              <i
-                class="fa-solid fa-triangle-exclamation"
-                style="color: var(--warning-orange)"
-              ></i>
-              快捷扣分
-            </div>
-            <button
-              type="button"
-              class="pm-more-trigger sub"
-              onclick="openMoreRulePanel('deduct')"
-            >
-              查看更多
-            </button>
-          </div>
-          <div class="pm-grid" id="pmSubGrid" style="margin-bottom: 0">
-            <div class="pm-btn sub" onclick="updatePoint(this, -3, '未做作业')">
-              <span>未做作业</span><span>-3</span>
-            </div>
-            <div class="pm-btn sub" onclick="updatePoint(this, -5, '课堂违纪')">
-              <span>课堂违纪</span><span>-5</span>
-            </div>
-          </div>
-        </div>
-        <div class="pm-more-panel" id="pmMorePanel">
-          <div class="pm-section-head" style="margin-top: 24px">
-            <div
-              class="pm-section-title"
-              id="pmMoreTitle"
-              style="margin-bottom: 0"
-            >
-              <i class="fa-solid fa-layer-group"></i> 全部加分规则
-            </div>
-            <button
-              type="button"
-              class="pm-more-close"
-              style="display: none"
-              onclick="closeMoreRulePanel()"
-            >
-              返回快捷操作
-            </button>
-          </div>
-          <div class="pm-more-toolbar">
+        <div class="pm-more-panel active" id="pmMorePanel">
+          <div class="pm-more-toolbar" style="margin-top: 20px">
             <div class="pm-more-tabs">
               <button
                 type="button"
                 class="pm-more-tab active"
+                id="pmMoreTabQuick"
+                onclick="switchMoreRuleType('quick')"
+              >
+                高频场景
+              </button>
+              <button
+                type="button"
+                class="pm-more-tab"
                 id="pmMoreTabAdd"
                 onclick="switchMoreRuleType('add')"
               >
@@ -766,13 +704,45 @@
             </div>
             <input
               type="text"
-              class="pm-search-input"
+              class="pm-search-input hidden"
               id="pmRuleSearch"
               placeholder="搜索规则名称"
             />
           </div>
-          <div class="pm-scene-filters" id="pmSceneFilters"></div>
-          <div class="pm-more-grid" id="pmMoreGrid"></div>
+
+          <div class="pm-quick-panels" id="pmQuickPanels">
+            <div class="pm-section-head" style="margin-top: 16px">
+              <div class="pm-section-title">
+                <i
+                  class="fa-solid fa-trophy"
+                  style="color: var(--honor-gold)"
+                ></i>
+                加分快捷项
+              </div>
+            </div>
+            <div class="pm-grid" id="pmAddGrid">
+              <!-- dynamic add items -->
+            </div>
+            <div class="pm-section-head">
+              <div class="pm-section-title">
+                <i
+                  class="fa-solid fa-triangle-exclamation"
+                  style="color: var(--warning-orange)"
+                ></i>
+                减分快捷项
+              </div>
+            </div>
+            <div class="pm-grid" id="pmSubGrid" style="margin-bottom: 0">
+              <!-- dynamic sub items -->
+            </div>
+          </div>
+
+          <div
+            class="pm-scene-filters hidden"
+            id="pmSceneFilters"
+            style="margin-top: 16px"
+          ></div>
+          <div class="pm-more-grid hidden" id="pmMoreGrid"></div>
         </div>
         <div class="pm-section-head pm-history-head" style="margin-top: 24px">
           <div class="pm-section-title" style="margin-bottom: 0">
@@ -795,7 +765,10 @@
     </div>
 
     <div class="point-modal-overlay" id="luckyAllHistoryModal">
-      <div class="point-modal pm-all-history-modal" style="width: min(800px, 90vw);">
+      <div
+        class="point-modal pm-all-history-modal"
+        style="width: min(800px, 90vw)"
+      >
         <div class="pm-close" onclick="closeLuckyHistoryModal()" role="button">
           <i class="fa-solid fa-xmark" aria-hidden="true"></i>
         </div>
@@ -804,8 +777,19 @@
             <i class="fa-solid fa-users"></i> 全部抽取名单
           </div>
         </div>
-        <div class="pm-history-list" id="luckyAllHistoryList" style="margin-top: 16px; display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; max-height: 60vh; overflow-y: auto;">
-        </div>
+        <div
+          class="pm-history-list"
+          id="luckyAllHistoryList"
+          style="
+            margin-top: 16px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            justify-content: center;
+            max-height: 60vh;
+            overflow-y: auto;
+          "
+        ></div>
       </div>
     </div>
 
@@ -850,13 +834,21 @@
                 alt=""
               />
             </div>
-            <button
-              class="pet-profile-change-deco-btn pet-profile-change-deco-btn--overlay"
-              id="petProfileChangeDecoBtn"
-              onclick="openDecorationPanel()"
-            >
-              <i class="fa-solid fa-palette"></i> 更换装扮
-            </button>
+            <div class="pet-profile-hero-actions">
+              <button
+                class="pet-profile-change-deco-btn"
+                id="petProfileChangeDecoBtn"
+                onclick="openDecorationPanel()"
+              >
+                <i class="fa-solid fa-palette"></i> 更换装扮
+              </button>
+              <button
+                class="pet-profile-change-deco-btn pet-profile-fullview-btn"
+                onclick="openPetFullView()"
+              >
+                <i class="fa-solid fa-expand"></i> 全屏观看
+              </button>
+            </div>
           </div>
 
           <div class="pet-profile-sideinfo">
@@ -882,7 +874,6 @@
                   type="text"
                   class="pet-profile-rename-input"
                   id="petProfileRenameInput"
-                  maxlength="12"
                   placeholder="输入新昵称"
                 />
                 <div class="pet-profile-rename-actions">
@@ -972,6 +963,196 @@
           >
             <i class="fa-solid fa-book-open"></i> 进化图鉴
           </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 萌宠档案全屏观看模式 -->
+    <div
+      class="pet-fullview-overlay"
+      id="petFullViewOverlay"
+      aria-hidden="true"
+    >
+      <div class="pet-fullview-bg-particles" aria-hidden="true">
+        <span
+          class="pet-fullview-bg-particle"
+          style="
+            left: 10%;
+            top: 20%;
+            animation-delay: 0s;
+            width: 4px;
+            height: 4px;
+          "
+        ></span>
+        <span
+          class="pet-fullview-bg-particle"
+          style="
+            left: 85%;
+            top: 30%;
+            animation-delay: 1.2s;
+            width: 6px;
+            height: 6px;
+          "
+        ></span>
+        <span
+          class="pet-fullview-bg-particle"
+          style="
+            left: 20%;
+            top: 80%;
+            animation-delay: 0.5s;
+            width: 8px;
+            height: 8px;
+            background: #aee1ff;
+          "
+        ></span>
+        <span
+          class="pet-fullview-bg-particle"
+          style="
+            left: 75%;
+            top: 75%;
+            animation-delay: 2.1s;
+            width: 5px;
+            height: 5px;
+          "
+        ></span>
+        <span
+          class="pet-fullview-bg-particle"
+          style="
+            left: 50%;
+            top: 15%;
+            animation-delay: 1.8s;
+            width: 3px;
+            height: 3px;
+          "
+        ></span>
+        <span
+          class="pet-fullview-bg-particle"
+          style="
+            left: 90%;
+            top: 60%;
+            animation-delay: 0.9s;
+            width: 7px;
+            height: 7px;
+            background: #ffd97d;
+          "
+        ></span>
+        <span
+          class="pet-fullview-bg-particle"
+          style="
+            left: 30%;
+            top: 40%;
+            animation-delay: 2.5s;
+            width: 4px;
+            height: 4px;
+            background: #e0b0ff;
+          "
+        ></span>
+        <span
+          class="pet-fullview-bg-particle"
+          style="
+            left: 65%;
+            top: 25%;
+            animation-delay: 1.5s;
+            width: 6px;
+            height: 6px;
+          "
+        ></span>
+        <span
+          class="pet-fullview-bg-particle"
+          style="
+            left: 45%;
+            top: 85%;
+            animation-delay: 0.7s;
+            width: 5px;
+            height: 5px;
+            background: #aee1ff;
+          "
+        ></span>
+        <span
+          class="pet-fullview-bg-particle"
+          style="
+            left: 8%;
+            top: 60%;
+            animation-delay: 2.8s;
+            width: 6px;
+            height: 6px;
+            background: #ffd97d;
+          "
+        ></span>
+        <span
+          class="pet-fullview-bg-particle"
+          style="
+            left: 95%;
+            top: 15%;
+            animation-delay: 0.3s;
+            width: 4px;
+            height: 4px;
+          "
+        ></span>
+        <span
+          class="pet-fullview-bg-particle"
+          style="
+            left: 55%;
+            top: 55%;
+            animation-delay: 1.1s;
+            width: 5px;
+            height: 5px;
+            background: #e0b0ff;
+          "
+        ></span>
+      </div>
+      <button
+        class="lb-back-btn pet-fullview-back-btn"
+        onclick="closePetFullView()"
+        type="button"
+      >
+        <i class="fa-solid fa-arrow-left"></i> 返回档案
+      </button>
+      <div class="pet-fullview-stage">
+        <div class="pet-fullview-center">
+          <div class="pet-fullview-aura" aria-hidden="true"></div>
+          <div class="pet-fullview-avatar-shell" id="petFullViewAvatarShell">
+            <img
+              class="pet-fullview-deco-bg"
+              id="petFullViewDecoBg"
+              src=""
+              alt=""
+            />
+            <div class="pet-fullview-descend-wrap">
+              <img
+                class="pet-fullview-avatar"
+                id="petFullViewAvatar"
+                src=""
+                alt=""
+              />
+            </div>
+            <div class="pet-fullview-float-wrap">
+              <img
+                class="pet-fullview-deco-accessory"
+                id="petFullViewDecoAccessory"
+                src=""
+                alt=""
+              />
+            </div>
+            <img
+              class="pet-fullview-deco-frame"
+              id="petFullViewDecoFrame"
+              src=""
+              alt=""
+            />
+          </div>
+          <div class="pet-fullview-particles" aria-hidden="true">
+            <span class="pet-fullview-particle p-1"></span>
+            <span class="pet-fullview-particle p-2"></span>
+            <span class="pet-fullview-particle p-3"></span>
+            <span class="pet-fullview-particle p-4"></span>
+            <span class="pet-fullview-particle p-5"></span>
+            <span class="pet-fullview-particle p-6"></span>
+          </div>
+        </div>
+        <div class="pet-fullview-info" id="petFullViewInfo">
+          <div class="pet-fullview-name" id="petFullViewName"></div>
+          <div class="pet-fullview-meta" id="petFullViewMeta"></div>
         </div>
       </div>
     </div>
@@ -1333,13 +1514,13 @@
             <span class="holiday-wow-cloud holiday-wow-cloud-c"></span>
           </div>
           <div class="holiday-wow-card">
-            <span class="holiday-wow-kicker">育英星宠 · 儿童节限定彩蛋</span>
+            <span class="holiday-wow-kicker" id="holidayWowKicker">育英星宠 · 儿童节限定彩蛋</span>
             <div class="holiday-wow-main">
-              <span class="holiday-wow-number">6.1</span>
-              <strong>儿童节快乐</strong>
+              <span class="holiday-wow-number" id="holidayWowNumber">6.1</span>
+              <strong id="holidayWowTitle">儿童节快乐</strong>
             </div>
-            <div class="holiday-wow-subtitle">星宠派对开始啦</div>
-            <div class="holiday-wow-copy">愿每位同学今天都闪闪发光</div>
+            <div class="holiday-wow-subtitle" id="holidayWowSubtitle">星宠派对开始啦</div>
+            <div class="holiday-wow-copy" id="holidayWowCopy">愿每位同学今天都闪闪发光</div>
           </div>
           <span class="holiday-wow-balloon holiday-wow-balloon-a"></span>
           <span class="holiday-wow-balloon holiday-wow-balloon-b"></span>
@@ -1353,13 +1534,13 @@
           <span class="holiday-wow-star holiday-wow-star-c"></span>
         </div>
         <div class="holiday-badge">
-          <span class="holiday-badge-kicker">6.1 儿童节</span>
-          <strong>童心闪闪 快乐成长</strong>
+          <span class="holiday-badge-kicker" id="holidayBadgeKicker">6.1 儿童节</span>
+          <strong id="holidayBadgeTitle">童心闪闪 快乐成长</strong>
         </div>
         <div class="holiday-classroom-title">
-          <span>6.1</span>
-          <strong>儿童节快乐</strong>
-          <em>今天的大屏有彩蛋</em>
+          <span id="holidayClassroomTitleNumber">6.1</span>
+          <strong id="holidayClassroomTitleMain">儿童节快乐</strong>
+          <em id="holidayClassroomTitleEm">今天的大屏有彩蛋</em>
         </div>
         <span class="holiday-balloon holiday-balloon-a"></span>
         <span class="holiday-balloon holiday-balloon-b"></span>
@@ -2217,8 +2398,23 @@
       </div>
 
       <section class="toolbox-home" id="toolboxHome">
-        <header class="toolbox-home-header" style="justify-content: center; text-align: center; padding: 22px 30px;">
-          <h2 style="margin: 0; font-size: clamp(34px, 4vw, 54px); text-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);">教室工具箱</h2>
+        <header
+          class="toolbox-home-header"
+          style="
+            justify-content: center;
+            text-align: center;
+            padding: 22px 30px;
+          "
+        >
+          <h2
+            style="
+              margin: 0;
+              font-size: clamp(34px, 4vw, 54px);
+              text-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+            "
+          >
+            教室工具箱
+          </h2>
         </header>
 
         <div class="toolbox-ritual-grid" aria-label="教室工具箱场景">
@@ -2352,7 +2548,8 @@
             onclick="navigateTo('classroom')"
             type="button"
           >
-            <i class="fa-solid fa-arrow-left" aria-hidden="true"></i> 返回班级主页
+            <i class="fa-solid fa-arrow-left" aria-hidden="true"></i>
+            返回班级主页
           </button>
         </div>
       </section>
@@ -2362,10 +2559,28 @@
         id="toolboxImmersive"
         aria-live="polite"
       >
-        <header class="toolbox-immersive-top" style="justify-content: center; text-align: center; position: relative;">
-          <div class="toolbox-live-title" style="margin: 0 auto; text-align: center;">
-            <span id="toolboxLiveKicker" style="display: block; margin-bottom: 2px;">CLASSROOM RITUAL</span>
-            <strong id="toolboxLiveTitle" style="font-size: 28px; line-height: 1.2;">点燃课堂</strong>
+        <header
+          class="toolbox-immersive-top"
+          style="
+            justify-content: center;
+            text-align: center;
+            position: relative;
+          "
+        >
+          <div
+            class="toolbox-live-title"
+            style="margin: 0 auto; text-align: center"
+          >
+            <span
+              id="toolboxLiveKicker"
+              style="display: block; margin-bottom: 2px"
+              >CLASSROOM RITUAL</span
+            >
+            <strong
+              id="toolboxLiveTitle"
+              style="font-size: 28px; line-height: 1.2"
+              >点燃课堂</strong
+            >
           </div>
           <!-- 模式小字胶囊 -->
           <div
@@ -2397,7 +2612,12 @@
         <div class="toolbox-live-stage" id="toolboxLiveStage">
           <div class="toolbox-scene active" data-toolbox-scene="energy">
             <div class="energy-immersive-orb" id="toolboxEnergyOrb">
-              <img src="images/toolbox/energy-orb.png" loading="lazy" decoding="async" alt="" />
+              <img
+                src="images/toolbox/energy-orb.png"
+                loading="lazy"
+                decoding="async"
+                alt=""
+              />
             </div>
             <div
               class="energy-pk-container"
@@ -2475,8 +2695,15 @@
 
           <div class="toolbox-scene" data-toolbox-scene="garden">
             <div class="garden-immersive-scene" id="toolboxGardenScene">
-              <div class="garden-flora-container" id="toolboxGardenFlora" aria-hidden="true"></div>
-              <div class="garden-flower-wrap main-flower" id="toolboxGardenMainFlower">
+              <div
+                class="garden-flora-container"
+                id="toolboxGardenFlora"
+                aria-hidden="true"
+              ></div>
+              <div
+                class="garden-flower-wrap main-flower"
+                id="toolboxGardenMainFlower"
+              >
                 <img
                   class="garden-flower-img"
                   src="images/toolbox/quiet-flower.png"
@@ -2540,23 +2767,40 @@
             <div class="lucky-draw-stage" id="toolboxLuckyWheel">
               <div class="lucky-spotlight"></div>
               <div class="lucky-avatar-track" id="toolboxLuckyTrack"></div>
-              <div class="lucky-center-card-container" id="toolboxLuckyCenterContainer">
+              <div
+                class="lucky-center-card-container"
+                id="toolboxLuckyCenterContainer"
+              >
                 <div class="lucky-roll-card center" id="toolboxLuckyCenterCard">
-                  <img class="lucky-roll-avatar unknown" src="images/logo.svg" alt="未知">
+                  <img
+                    class="lucky-roll-avatar unknown"
+                    src="images/logo.svg"
+                    alt="未知"
+                  />
                   <b>准备抽选</b>
                 </div>
               </div>
             </div>
-             <div class="lucky-history" id="toolboxLuckyHistory"></div>
+            <div class="lucky-history" id="toolboxLuckyHistory"></div>
           </div>
 
           <div class="toolbox-scene" data-toolbox-scene="timer">
             <div class="timer-immersive-stage">
-              <div class="timer-hourglass" id="toolboxTimerHourglass" aria-hidden="true">
+              <div
+                class="timer-hourglass"
+                id="toolboxTimerHourglass"
+                aria-hidden="true"
+              >
                 <div class="timer-hourglass-sand-layer">
-                  <div class="timer-hourglass-sand timer-hourglass-sand-top"></div>
-                  <div class="timer-hourglass-sand timer-hourglass-sand-stream"></div>
-                  <div class="timer-hourglass-sand timer-hourglass-sand-bottom"></div>
+                  <div
+                    class="timer-hourglass-sand timer-hourglass-sand-top"
+                  ></div>
+                  <div
+                    class="timer-hourglass-sand timer-hourglass-sand-stream"
+                  ></div>
+                  <div
+                    class="timer-hourglass-sand timer-hourglass-sand-bottom"
+                  ></div>
                 </div>
                 <img
                   class="timer-hourglass-img"
@@ -2596,18 +2840,29 @@
                 10分钟
               </button>
             </div>
-            
-            <div class="timer-custom-picker-wrap" id="toolboxTimerCustomPickerWrap">
+
+            <div
+              class="timer-custom-picker-wrap"
+              id="toolboxTimerCustomPickerWrap"
+            >
               <div class="timer-custom-picker">
                 <div class="picker-column" id="timerPickerHours" data-unit="h">
                   <div class="picker-wheel"></div>
                   <div class="picker-label">时</div>
                 </div>
-                <div class="picker-column" id="timerPickerMinutes" data-unit="m">
+                <div
+                  class="picker-column"
+                  id="timerPickerMinutes"
+                  data-unit="m"
+                >
                   <div class="picker-wheel"></div>
                   <div class="picker-label">分</div>
                 </div>
-                <div class="picker-column" id="timerPickerSeconds" data-unit="s">
+                <div
+                  class="picker-column"
+                  id="timerPickerSeconds"
+                  data-unit="s"
+                >
                   <div class="picker-wheel"></div>
                   <div class="picker-label">秒</div>
                 </div>
@@ -2632,7 +2887,7 @@
             class="toolbox-primary-action"
             id="toolboxEnergyPkBtn"
             onclick="startEnergyPkAction()"
-            style="display: none;"
+            style="display: none"
           >
             小组 PK
           </button>
@@ -2652,7 +2907,7 @@
             class="toolbox-secondary-action"
             id="toolboxPauseBtn"
             onclick="toggleToolboxPause()"
-            style="display: none;"
+            style="display: none"
           >
             暂停
           </button>
@@ -2678,7 +2933,7 @@
             class="toolbox-control-btn btn-reset-list"
             id="toolboxLuckyResetBtn"
             onclick="resetActiveToolboxTool()"
-            style="display: none;"
+            style="display: none"
           >
             <i class="fa-solid fa-rotate-left" aria-hidden="true"></i> 重置名单
           </button>
@@ -2706,7 +2961,7 @@
             <button type="button" onclick="closeToolboxSettings()">关闭</button>
           </header>
           <div class="toolbox-settings-grid">
-             <label class="toolbox-setting-field setting-energy">
+            <label class="toolbox-setting-field setting-energy">
               声浪目标 (挑战难度)
               <select id="toolboxEnergyTarget">
                 <option value="60">低 (轻松讨论 - 60dB)</option>
@@ -2754,9 +3009,15 @@
                 <option value="group">小组</option>
               </select>
             </label>
-            <label class="toolbox-setting-field setting-lucky" id="toolboxLuckyGroupSelectContainer">
+            <label
+              class="toolbox-setting-field setting-lucky"
+              id="toolboxLuckyGroupSelectContainer"
+            >
               选择小组
-              <select id="toolboxLuckyGroupSelect" onchange="setLuckyGroupNo(this.value)"></select>
+              <select
+                id="toolboxLuckyGroupSelect"
+                onchange="setLuckyGroupNo(this.value)"
+              ></select>
             </label>
             <label class="toolbox-setting-field setting-timer">
               自定义分钟
@@ -2774,7 +3035,9 @@
               允许重复抽选
               <input id="toolboxLuckyRepeat" type="checkbox" />
             </label>
-            <div class="toolbox-setting-field setting-lucky toolbox-lucky-exclude-panel">
+            <div
+              class="toolbox-setting-field setting-lucky toolbox-lucky-exclude-panel"
+            >
               <div class="toolbox-lucky-exclude-head">
                 <span>抽选排除名单</span>
                 <button type="button" onclick="clearLuckyExcludedStudents()">
@@ -2865,6 +3128,12 @@
             <span>分</span>
           </div>
           <p id="gardenResultFeedback">全班同学一起守护了安静的花园！</p>
+          <div class="toolbox-result-stats" style="display: flex; flex-wrap: wrap; justify-content: space-between; margin-bottom: 24px; font-size: 14px; background: rgba(255,255,255,0.06); border-radius: 12px; padding: 16px 20px; text-align: left; color: rgba(255,255,255,0.7); line-height: 1.8;">
+            <div style="width: 48%; margin-bottom: 8px;">峰值声浪：<strong id="gardenResultHighDb" style="color:#ffa39e; font-size: 16px; margin-left: 4px;">--</strong></div>
+            <div style="width: 48%; margin-bottom: 8px;">最静时刻：<strong id="gardenResultLowDb" style="color:#a8f1cf; font-size: 16px; margin-left: 4px;">--</strong></div>
+            <div style="width: 48%;">嘈杂时长：<strong id="gardenResultTimeAbove" style="color:#ffa39e; font-size: 16px; margin-left: 4px;">--</strong></div>
+            <div style="width: 48%;">安静时长：<strong id="gardenResultTimeBelow" style="color:#a8f1cf; font-size: 16px; margin-left: 4px;">--</strong></div>
+          </div>
           <button
             type="button"
             class="toolbox-primary-action"
@@ -2899,6 +3168,12 @@
             <span>分</span>
           </div>
           <p id="energyResultFeedback">全班同学积聚了不可思议的星光能量！</p>
+          <div class="toolbox-result-stats" style="display: flex; flex-wrap: wrap; justify-content: space-between; margin-bottom: 24px; font-size: 14px; background: rgba(255,255,255,0.06); border-radius: 12px; padding: 16px 20px; text-align: left; color: rgba(255,255,255,0.7); line-height: 1.8;">
+            <div style="width: 48%; margin-bottom: 8px;">最高声浪：<strong id="energyResultHighDb" style="color:#ffe48e; font-size: 16px; margin-left: 4px;">--</strong></div>
+            <div style="width: 48%; margin-bottom: 8px;">最弱声量：<strong id="energyResultLowDb" style="color:#e2e8f0; font-size: 16px; margin-left: 4px;">--</strong></div>
+            <div style="width: 48%;">活跃时长：<strong id="energyResultTimeAbove" style="color:#ffe48e; font-size: 16px; margin-left: 4px;">--</strong></div>
+            <div style="width: 48%;">蓄力时长：<strong id="energyResultTimeBelow" style="color:#e2e8f0; font-size: 16px; margin-left: 4px;">--</strong></div>
+          </div>
           <button
             type="button"
             class="toolbox-primary-action"
@@ -3863,6 +4138,8 @@
     <script src="./scripts/pet-colors.js?v=202605241713"></script>
     <script src="./scripts/display-runtime.js?v=202606061100"></script>
     <script src="./scripts/display-ui.js?v=202606061200"></script>
-    <script src="./scripts/display-app.js?v=202606021900"></script>
+    <script src="./scripts/display-auth.js?v=202606071100"></script>
+    <script src="./scripts/display-holiday-dates.js?v=202606091530"></script>
+    <script src="./scripts/display-app.js?v=202606091530"></script>
   </body>
 </html>

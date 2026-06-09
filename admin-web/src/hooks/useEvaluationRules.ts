@@ -22,7 +22,7 @@ export function useEvaluationRules({
   subjectFilter,
   roleCode,
 }: UseEvaluationRulesOptions) {
-  const [scoreTypeFilter, setScoreTypeFilter] = useState<'all' | 'add' | 'deduct'>('all');
+  const [scoreTypeFilter, setScoreTypeFilter] = useState<'quick' | 'all' | 'add' | 'deduct'>('quick');
   const [sceneFilter, setSceneFilter] = useState<string>('all');
   const [ruleKeyword, setRuleKeyword] = useState('');
   const [recentRuleIds, setRecentRuleIds] = useState<number[]>([]);
@@ -79,12 +79,12 @@ export function useEvaluationRules({
   );
 
   const quickAddRules = useMemo(
-    () => (showAllQuickAdd ? sortedQuickRules.add : sortedQuickRules.add.slice(0, 4)),
+    () => (showAllQuickAdd ? sortedQuickRules.add : sortedQuickRules.add.slice(0, 9)),
     [showAllQuickAdd, sortedQuickRules.add],
   );
 
   const quickDeductRules = useMemo(
-    () => (showAllQuickDeduct ? sortedQuickRules.deduct : sortedQuickRules.deduct.slice(0, 4)),
+    () => (showAllQuickDeduct ? sortedQuickRules.deduct : sortedQuickRules.deduct.slice(0, 9)),
     [showAllQuickDeduct, sortedQuickRules.deduct],
   );
 

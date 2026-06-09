@@ -28,6 +28,8 @@
   color: #dcfaff;
   font-family: "DIN Alternate", "Arial Narrow", "Microsoft YaHei", sans-serif;
   letter-spacing: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 .projection-page.projection-layout-classic {
@@ -364,7 +366,7 @@
 }
 
 .projection-page.projection-layout-classic .projection-progress-row {
-  grid-template-columns: 16px minmax(0, 1.1fr) minmax(0, .88fr) 36px;
+  grid-template-columns: 16px minmax(0, 1.4fr) minmax(0, .7fr) 32px;
   height: 17px;
   gap: 4px;
 }
@@ -1001,7 +1003,7 @@
 }
 
 .projection-page.projection-layout-desktop .projection-progress-row {
-  grid-template-columns: 20px minmax(0, 1.1fr) minmax(0, .92fr) 44px;
+  grid-template-columns: 20px minmax(0, 1.4fr) minmax(0, .7fr) 40px;
   height: 20px;
   gap: 6px;
 }
@@ -2545,7 +2547,7 @@
 
 .projection-progress-row {
   display: grid;
-  grid-template-columns: 12px minmax(0, 1fr) minmax(0, 0.82fr) 26px;
+  grid-template-columns: 12px minmax(0, 1.4fr) minmax(0, 0.65fr) 24px;
   gap: 2px;
   align-items: center;
   height: 12px;
@@ -3198,4 +3200,28 @@
 .projection-theme-scifi .projection-core {
   background: rgba(0, 10, 22, 0.92);
   box-shadow: inset 0 0 24px rgba(0, 229, 255, 0.06);
+}
+
+/* ==========================================================================
+   LED 大屏文字清晰度优化 (LED Screen Typography Optimization)
+   针对所有可能显示学生姓名的地方，加粗、加间距、加锐化阴影防光晕
+   ========================================================================== */
+.projection-student-row span,
+.projection-progress-row b,
+.projection-left-risk-row em,
+.projection-live-row b {
+  font-weight: 600;
+  letter-spacing: 1px;
+}
+
+/* 仅在深色模式下应用文字锐化黑底发光，避免在明亮模式下显得突兀 */
+.projection-page:not(.projection-theme-outdoor) .projection-student-row span,
+.projection-page:not(.projection-theme-outdoor) .projection-progress-row b,
+.projection-page:not(.projection-theme-outdoor) .projection-left-risk-row em,
+.projection-page:not(.projection-theme-outdoor) .projection-live-row b {
+  text-shadow: 
+    -1px -1px 0 rgba(0,0,0,0.8),  
+     1px -1px 0 rgba(0,0,0,0.8),
+    -1px  1px 0 rgba(0,0,0,0.8),
+     1px  1px 0 rgba(0,0,0,0.8);
 }

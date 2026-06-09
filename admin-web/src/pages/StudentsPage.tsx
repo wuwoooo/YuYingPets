@@ -1991,8 +1991,13 @@ export function StudentsPage({
                       </td>
                       <td>
                         <div className="table-main-sub">
-                          <strong>{row.pet?.name ?? '未领养'}</strong>
-                          <span>Lv.{row.currentPetLevel}</span>
+                          <strong>
+                            {row.pet?.name ?? '未领养'}
+                            {row.pet ? ` Lv.${row.currentPetLevel}` : ''}
+                          </strong>
+                          <span>
+                            {row.pet?.nickname?.trim() ? row.pet.nickname.trim() : (row.pet ? '-' : '')}
+                          </span>
                         </div>
                       </td>
                       <td>

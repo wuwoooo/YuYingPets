@@ -89,6 +89,62 @@
     }
   }
 
+  function renderLockMeta(lines = []) {
+    const meta = document.getElementById("displayLockMeta");
+    if (!meta) return;
+    meta.replaceChildren();
+    lines.forEach((line, index) => {
+      if (index > 0) {
+        meta.appendChild(document.createElement("br"));
+      }
+      meta.appendChild(document.createTextNode(String(line || "")));
+    });
+  }
+
+  function renderLockOverlay(viewModel = {}) {
+    const overlay = document.getElementById("displayLockOverlay");
+    const badge = document.getElementById("displayLockBadgeText");
+    const title = document.getElementById("displayLockTitle");
+    const desc = document.getElementById("displayLockDesc");
+    const primaryBtn = document.getElementById("displayLockPrimaryBtn");
+    const secondaryBtn = document.getElementById("displayLockSecondaryBtn");
+    const opBar = document.getElementById("displayOpBar");
+    const opTitle = document.getElementById("displayOpTitle");
+    const opSubtitle = document.getElementById("displayOpSubtitle");
+    const opPrimaryBtn = document.getElementById("displayOpPrimaryBtn");
+    const opSecondaryBtn = document.getElementById("displayOpSecondaryBtn");
+    const topActionBtn = document.getElementById("displayTopActionBtn");
+    const topActionIcon = document.getElementById("displayTopActionIcon");
+    if (!overlay || !badge || !title || !desc || !primaryBtn || !secondaryBtn) {
+      return false;
+    }
+
+    overlay.classList.toggle("active", Boolean(viewModel.shouldShow));
+    opBar?.classList.add("hidden");
+    badge.textContent = viewModel.badge || "";
+    title.textContent = viewModel.title || "";
+    desc.textContent = viewModel.description || "";
+    primaryBtn.textContent = viewModel.primaryText || "";
+    secondaryBtn.textContent = viewModel.secondaryText || "";
+    if (opTitle) opTitle.textContent = viewModel.opTitle || "";
+    if (opSubtitle) opSubtitle.textContent = viewModel.opSubtitle || "";
+    if (opPrimaryBtn) opPrimaryBtn.textContent = viewModel.opPrimaryText || "";
+    if (opSecondaryBtn) {
+      opSecondaryBtn.textContent = viewModel.opSecondaryText || "";
+    }
+    if (topActionBtn) {
+      topActionBtn.classList.toggle(
+        "unlocked",
+        Boolean(viewModel.topActionUnlocked),
+      );
+    }
+    if (topActionIcon && viewModel.topActionIcon) {
+      topActionIcon.className = viewModel.topActionIcon;
+    }
+    renderLockMeta(viewModel.metaLines || []);
+    return true;
+  }
+
   function closeConfirmModal(confirmed = false) {
     const overlay = document.getElementById("confirmModal");
     overlay?.classList.remove("active");
@@ -191,6 +247,34 @@
     });
   }
 
+  function isOverlayVisible(overlay) {
+    if (!overlay) return false;
+    if (overlay.hidden) return false;
+    if (overlay.classList.contains("active")) return true;
+    const style = global.getComputedStyle(overlay);
+    if (style.display === "none") return false;
+    if (style.visibility === "hidden") return false;
+    if (Number(style.opacity || "1") <= 0) return false;
+    return style.display === "flex" || style.display === "block";
+  }
+
+  /** 点击遮罩层关闭弹窗（仅 event.target 为 overlay 自身时触发） */
+  function bindOverlayBackdropDismiss(registrations = []) {
+    registrations.forEach(({ id, onClose, isVisible }) => {
+      const overlay = document.getElementById(id);
+      if (!overlay || overlay.dataset.backdropDismissBound === "1") return;
+      overlay.dataset.backdropDismissBound = "1";
+      overlay.addEventListener("click", (event) => {
+        if (event.target !== overlay) return;
+        const visible = typeof isVisible === "function"
+          ? isVisible(overlay)
+          : isOverlayVisible(overlay);
+        if (!visible) return;
+        onClose(event);
+      });
+    });
+  }
+
   function showToast(message, type = "info") {
     let container = document.getElementById("toastContainer");
     if (!container) {
@@ -224,9 +308,12 @@
     activatePage,
     showDisplayToast,
     setRealtimeStatus,
+    renderLockMeta,
+    renderLockOverlay,
     closeConfirmModal,
     showConfirmModal,
     showDisplayAlert,
+    bindOverlayBackdropDismiss,
     showToast,
   };
 })(window);

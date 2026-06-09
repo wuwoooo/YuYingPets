@@ -2179,6 +2179,7 @@ function studentGridRenderSignature(indices) {
           s.hasPet === false ? "seed" : "pet",
           s.petImageUrl || s.avatarUrl || s.petId || "",
           s.petName || "",
+          s.petNickname || "",
           s.lv ?? "",
           s.pts ?? "",
           s.medals ?? "",
@@ -2388,6 +2389,54 @@ function warmDecoAssetCache(decos, size = 400) {
   });
 }
 
+/* ========== 图片预加载缓存 ========== */
+
+const imageWarmCache = new Set();
+let imageWarmQueue = [];
+let imageWarmTimer = null;
+
+function drainImageWarmQueue() {
+  imageWarmTimer = null;
+  const batch = imageWarmQueue.splice(0, 6);
+  if (!batch.length) return;
+  batch.forEach((url) => {
+    const img = new Image();
+    img.decoding = "async";
+    img.src = url;
+  });
+  if (imageWarmQueue.length > 0) {
+    imageWarmTimer = setTimeout(drainImageWarmQueue, 80);
+  }
+}
+
+function warmImageCache(urls) {
+  if (!Array.isArray(urls)) return;
+  urls.forEach((url) => {
+    if (!url || url === "images/logo.svg" || imageWarmCache.has(url)) return;
+    imageWarmCache.add(url);
+    imageWarmQueue.push(url);
+  });
+  if (!imageWarmTimer && imageWarmQueue.length > 0) {
+    imageWarmTimer = setTimeout(drainImageWarmQueue, 16);
+  }
+}
+
+function warmStudentPetImages(studentList) {
+  if (!Array.isArray(studentList) || !studentList.length) return;
+  const urls = [];
+  studentList.forEach((s) => {
+    const url = petImg(s);
+    if (url) urls.push(url);
+    if (Array.isArray(s.equippedDecorations) && s.equippedDecorations.length) {
+      s.equippedDecorations.forEach((deco) => {
+        const decoUrl = resolveDecoAssetUrl(deco, 400);
+        if (decoUrl) urls.push(decoUrl);
+      });
+    }
+  });
+  warmImageCache(urls);
+}
+
 function setDecoLayerElement(el, deco, size = 1024) {
   if (!el) return;
   const url = deco ? resolveDecoAssetUrl(deco, size) : "";
@@ -2507,15 +2556,16 @@ function performRenderStudentGrid(options = {}) {
               ? "rank-3"
               : "";
       const badge =
-        visPos >= 0 && visPos < 3
+        visPos >= 0 && visPos < 3 && studentSortMode === "score"
           ? `<span class="card-rank-badge">${visPos + 1}</span>`
           : "";
       const noPet = s.hasPet === false;
       const batchOn = batchMode;
       const sel = batchSelectedNames.has(s.name);
+      const groupLabel = s.groupName || getGroupLabel(s.group);
       const topRight = batchOn
         ? `<input type="checkbox" class="card-batch-check" ${sel ? "checked" : ""} onclick="toggleBatchSelect('${s.name.replace(/'/g, "\\'")}', event)">`
-        : `<span class="card-group-tag">${escapeHtml(s.groupName || getGroupLabel(s.group))}</span>`;
+        : (groupLabel !== "未分组" ? `<span class="card-group-tag">${escapeHtml(groupLabel)}</span>` : "");
       const noPetClass = noPet ? " no-pet" : "";
       const batchCls = batchOn && sel ? " batch-selected" : "";
       const modeCls = batchOn ? " batch-mode" : "";
@@ -2524,6 +2574,8 @@ function performRenderStudentGrid(options = {}) {
       const imagePriority = visPos >= 0 && visPos < 8 ? "high" : "low";
       const decoLayers = !noPet ? buildCardDecoLayers(s) : "";
       const petDisplayLabel = resolvePetDisplayName(s);
+      const customName = resolveCardCustomName(s);
+      const cardNameHtml = `<span class="card-student-name">${escapeHtml(s.name)}</span>${customName ? `<span class="card-custom-name">（${escapeHtml(customName)}）</span>` : ""}`;
       const avatarBlock = noPet
         ? `<button type="button" class="card-pet-trigger card-pet-trigger--seed" onclick="event.stopPropagation();openAdoptModal('${qn}')"><img class="card-pet-img card-pet-img--seed" src="${petImg(s)}" alt="待孕育星种" loading="${imageLoading}" decoding="async" fetchpriority="${imagePriority}" draggable="false" onerror="this.src='images/logo.svg'"><span class="card-nameplate-placeholder">待孕育</span></button>`
         : decoLayers
@@ -2534,7 +2586,7 @@ function performRenderStudentGrid(options = {}) {
         ${topRight}
         ${badge}
         ${avatarBlock}
-        <div class="card-name">${s.name}</div>
+        <div class="card-name">${cardNameHtml}</div>
         <div class="card-info">
           <span class="card-level" data-lv="${lvCategory(s.lv)}">Lv.${s.lv}</span>
           <span class="card-points">${s.pts}分</span>
@@ -3831,12 +3883,70 @@ function renderLeaderboardList() {
     .join("");
 }
 
+const DISPLAY_HOLIDAY_PRESENTATION = {
+  "children-day": {
+    enableSplash: true,
+    enableTransition: true,
+    transition: {
+      kicker: "儿童节彩蛋已开启",
+      title: "六一儿童节快乐",
+      copy: "愿每一颗星宠都和同学们一起闪闪发光",
+    },
+    splash: {
+      kicker: "育英星宠 · 儿童节限定彩蛋",
+      number: "6.1",
+      title: "儿童节快乐",
+      subtitle: "星宠派对开始啦",
+      copy: "愿每位同学今天都闪闪发光",
+    },
+    badge: { kicker: "6.1 儿童节", title: "童心闪闪 快乐成长" },
+    classroomTitle: { number: "6.1", main: "儿童节快乐", em: "今天的大屏有彩蛋" },
+    sloganMain: "六一儿童节快乐",
+    sloganTag: "星宠同庆",
+    cardBadge: "6.1",
+    pointModalBadge: "6.1 儿童节限定",
+  },
+  "dragon-boat-festival": {
+    enableSplash: true,
+    enableTransition: true,
+    transition: {
+      kicker: "端午节彩蛋已开启",
+      title: "端午安康",
+      copy: "愿每一位同学与星宠共度龙舟竞渡好时光",
+    },
+    splash: {
+      kicker: "育英星宠 · 端午节限定彩蛋",
+      number: "端午",
+      title: "端午安康",
+      subtitle: "粽叶飘香 龙舟竞渡",
+      copy: "愿每位同学今天都元气满满",
+    },
+    badge: { kicker: "端午佳节", title: "粽叶飘香 龙舟竞渡" },
+    classroomTitle: { number: "端午", main: "端午安康", em: "今天的大屏有彩蛋" },
+    sloganMain: "端午安康",
+    sloganTag: "星宠同庆",
+    cardBadge: "端午",
+    pointModalBadge: "端午限定",
+  },
+};
+
 const DISPLAY_HOLIDAY_CONFIGS = [
   {
     key: "children-day",
     className: "display-holiday-children-day",
     matchDate(date) {
-      return date.getMonth() === 5 && date.getDate() === 1;
+      const ymd =
+        window.DisplayHolidayDates?.formatChinaYmd?.(date) ||
+        formatLocalYmd(date);
+      const [, month, day] = ymd.split("-").map(Number);
+      return month === 6 && day === 1;
+    },
+  },
+  {
+    key: "dragon-boat-festival",
+    className: "display-holiday-dragon-boat",
+    matchDate(date) {
+      return window.DisplayHolidayDates?.matchDragonBoatFestival?.(date) === true;
     },
   },
 ];
@@ -3878,6 +3988,46 @@ function resolveDisplayHoliday(date = getDisplayHolidayEvaluationDate()) {
   return DISPLAY_HOLIDAY_CONFIGS.find((item) => item.matchDate(date)) || null;
 }
 
+function setHolidayText(id, text) {
+  const el = document.getElementById(id);
+  if (el && text != null) el.textContent = text;
+}
+
+function applyHolidayPresentation(holiday) {
+  const layer = document.getElementById("classroomHolidayLayer");
+  DISPLAY_HOLIDAY_CONFIGS.forEach((item) => {
+    layer?.classList.toggle(
+      `is-${item.key}`,
+      !!holiday && holiday.key === item.key,
+    );
+  });
+
+  const presentation = holiday
+    ? DISPLAY_HOLIDAY_PRESENTATION[holiday.key]
+    : null;
+  if (!presentation) return;
+
+  setHolidayText("transHolidayKicker", presentation.transition?.kicker);
+  setHolidayText("transHolidayTitle", presentation.transition?.title);
+  setHolidayText("transHolidayCopy", presentation.transition?.copy);
+  setHolidayText("holidayWowKicker", presentation.splash?.kicker);
+  setHolidayText("holidayWowNumber", presentation.splash?.number);
+  setHolidayText("holidayWowTitle", presentation.splash?.title);
+  setHolidayText("holidayWowSubtitle", presentation.splash?.subtitle);
+  setHolidayText("holidayWowCopy", presentation.splash?.copy);
+  setHolidayText("holidayBadgeKicker", presentation.badge?.kicker);
+  setHolidayText("holidayBadgeTitle", presentation.badge?.title);
+  setHolidayText(
+    "holidayClassroomTitleNumber",
+    presentation.classroomTitle?.number,
+  );
+  setHolidayText(
+    "holidayClassroomTitleMain",
+    presentation.classroomTitle?.main,
+  );
+  setHolidayText("holidayClassroomTitleEm", presentation.classroomTitle?.em);
+}
+
 function syncDisplayHolidayState(date) {
   const holiday = resolveDisplayHoliday(date);
   const classroom = document.getElementById("page-classroom");
@@ -3888,6 +4038,7 @@ function syncDisplayHolidayState(date) {
     classroom?.classList.toggle(item.className, holiday?.key === item.key);
   });
   if (holiday) {
+    applyHolidayPresentation(holiday);
     document.body.dataset.displayHoliday = holiday.key;
     if (classroom) classroom.dataset.displayHoliday = holiday.key;
     if (layer) layer.hidden = false;
@@ -3896,12 +4047,18 @@ function syncDisplayHolidayState(date) {
     if (classroom) delete classroom.dataset.displayHoliday;
     if (layer) layer.hidden = true;
     splash?.classList.remove("show");
+    DISPLAY_HOLIDAY_CONFIGS.forEach((item) => {
+      layer?.classList.remove(`is-${item.key}`);
+    });
   }
 }
 
 function playDisplayHolidaySplash(options = {}) {
   const holiday = resolveDisplayHoliday();
-  if (holiday?.key !== "children-day") return;
+  const presentation = holiday
+    ? DISPLAY_HOLIDAY_PRESENTATION[holiday.key]
+    : null;
+  if (!holiday || !presentation?.enableSplash) return;
   if (displayHolidaySplashPlayed && !options.force) return;
   const splash = document.getElementById("holidayWowSplash");
   if (!splash) return;
@@ -4146,9 +4303,16 @@ function startTransitionAnimation() {
   const flash = document.getElementById("transFlash");
   const skip = document.getElementById("skipBtn");
 
-  const isHoliday = resolveDisplayHoliday()?.key === "children-day";
+  const holiday = resolveDisplayHoliday();
+  const holidayPresentation = holiday
+    ? DISPLAY_HOLIDAY_PRESENTATION[holiday.key]
+    : null;
+  const isHoliday = !!(holiday && holidayPresentation?.enableTransition);
   if (isHoliday) {
-    const todayStr = new Date().toLocaleDateString("zh-CN", { timeZone: "Asia/Shanghai" });
+    applyHolidayPresentation(holiday);
+    const todayStr = new Date().toLocaleDateString("zh-CN", {
+      timeZone: "Asia/Shanghai",
+    });
     if (!window.DisplayRuntime.hasHolidaySplashPlayed(todayStr)) {
       skip.style.display = "none";
       window.DisplayRuntime.markHolidaySplashPlayed(todayStr);
@@ -4208,7 +4372,7 @@ function startTransitionAnimation() {
     }, 5200),
   );
 
-  /* 儿童节彩蛋：班级信息后追加一次明确庆祝动画 */
+  /* 节日彩蛋：班级信息后追加一次明确庆祝动画 */
   if (isHoliday) {
     transTimers.push(
       setTimeout(() => {
@@ -5030,7 +5194,7 @@ function openPointModalGroup(groupNum) {
 }
 
 function closePointModal() {
-  openMoreRulePanel("add");
+  openMoreRulePanel("quick");
   closeAllHistoryModal();
   document.getElementById("pointModal")?.classList.remove("active");
   closeConfirmModal(false);
@@ -5042,6 +5206,7 @@ function closePointModal() {
 
 function closePetProfileModal() {
   closePetProfileAllHistoryModal();
+  closePetFullView();
   document.getElementById("petProfileModal")?.classList.remove("active");
   petProfileShowcaseToken += 1;
   currentProfileShowcaseStudentKey = null;
@@ -5050,6 +5215,93 @@ function closePetProfileModal() {
   setPetProfileAllHistoryButtonState({ visible: false });
   closeDecorationPanel();
 }
+
+/* ===== 萌宠全屏观看模式 ===== */
+let petFullViewToken = 0;
+
+function openPetFullView() {
+  if (!currentProfileStudent) return;
+  const overlay = document.getElementById("petFullViewOverlay");
+  const avatarEl = document.getElementById("petFullViewAvatar");
+  const bgEl = document.getElementById("petFullViewDecoBg");
+  const frameEl = document.getElementById("petFullViewDecoFrame");
+  const accessoryEl = document.getElementById("petFullViewDecoAccessory");
+  const shellEl = document.getElementById("petFullViewAvatarShell");
+  const nameEl = document.getElementById("petFullViewName");
+  const metaEl = document.getElementById("petFullViewMeta");
+  
+  if (!overlay || !avatarEl || !shellEl) return;
+  
+  const token = ++petFullViewToken;
+  const student = currentProfileStudent;
+  
+  // 渲染图片和装饰
+  const heroSize = isLowSpecMode() ? 400 : 1024;
+  const primaryUrl = petImgVariant(student, heroSize);
+  const fallbackUrl = petImgVariant(student, 400);
+  
+  avatarEl.removeAttribute("src");
+  if (primaryUrl) {
+    const preload = new Image();
+    preload.decoding = "async";
+    const applySrc = (url) => {
+      if (token !== petFullViewToken) return;
+      avatarEl.src = url;
+    };
+    preload.onload = () => applySrc(primaryUrl);
+    preload.onerror = () => {
+      if (fallbackUrl) applySrc(fallbackUrl);
+    };
+    preload.src = primaryUrl;
+  }
+  
+  // 渲染装饰
+  const decos = student.equippedDecorations || [];
+  const backdrop = decos.find((d) => d.type === THEME_BACKDROP_TYPE);
+  const bg = decos.find((d) => d.type === "background");
+  const frame = decos.find((d) => d.type === "frame");
+  const accessory = decos.find((d) => d.type === "accessory");
+  
+  if (backdrop) {
+    setDecoLayerElement(bgEl, backdrop, heroSize);
+    setDecoLayerElement(frameEl, null, heroSize);
+  } else {
+    setDecoLayerElement(bgEl, bg, heroSize);
+    setDecoLayerElement(frameEl, frame, heroSize);
+  }
+  const petCode = extractPetSpeciesCode(student);
+  syncAccessoryDecoElement(accessoryEl, accessory, heroSize, petCode);
+  
+  if (backdrop || bg || frame || accessory) {
+    shellEl.classList.add("has-deco");
+    if (backdrop || bg || frame) {
+      shellEl.classList.add("has-deco-scene");
+    } else {
+      shellEl.classList.remove("has-deco-scene");
+    }
+  } else {
+    shellEl.classList.remove("has-deco");
+    shellEl.classList.remove("has-deco-scene");
+  }
+  
+  // 渲染信息
+  const petDisplayName = resolvePetDisplayName(student);
+  nameEl.textContent = petDisplayName;
+  const stageStr = student.petStageName ? student.petStageName : `Lv.${student.lv || 1} · 当前形态`;
+  metaEl.innerHTML = `<i class="fa-solid fa-paw" style="opacity:0.8; margin-right:4px"></i> ${escapeHtml(stageStr)}`;
+  
+  // 播放音效与显示
+  if (typeof playPkTone === "function") playPkTone("hover");
+  overlay.classList.add("active");
+}
+
+function closePetFullView() {
+  const overlay = document.getElementById("petFullViewOverlay");
+  if (overlay) {
+    overlay.classList.remove("active");
+  }
+}
+
 
 /** 进入登录/解锁流程前关闭档案与装扮等遮挡层 */
 function dismissProfileOverlaysForAuthFlow() {
@@ -5139,11 +5391,6 @@ function openPetProfileAllHistoryModal() {
     currentProfileStudent.name,
     currentPetProfileRecords,
   );
-  overlay.onclick = (event) => {
-    if (event.target === overlay) {
-      closePetProfileAllHistoryModal();
-    }
-  };
   overlay.classList.add("active");
 }
 
@@ -5170,8 +5417,22 @@ function renderPetProfileLoading() {
   }
 }
 
+const PET_NICKNAME_MAX_CHARS = 4;
+
 function resolvePetDisplayName(student) {
   return student.petNickname || student.petName || "未命名萌宠";
+}
+
+function resolveCardCustomName(student) {
+  const nickname = String(student?.petNickname || "").trim();
+  if (!nickname) return "";
+  return normalizePetNicknameInput(nickname);
+}
+
+function normalizePetNicknameInput(value) {
+  return Array.from(String(value || "").trim())
+    .slice(0, PET_NICKNAME_MAX_CHARS)
+    .join("");
 }
 
 function resolveStudentPetId(student) {
@@ -5497,7 +5758,8 @@ function openPetRenameInput() {
   if (nicknameRow) nicknameRow.style.display = "none";
   if (renameRow) renameRow.style.display = "flex";
   if (input) {
-    input.value = student.petNickname || student.petName || "";
+    input.removeAttribute("maxlength");
+    input.value = String(student.petNickname || student.petName || "").trim();
     input.focus();
     input.select();
   }
@@ -5519,8 +5781,18 @@ async function submitPetRename() {
   }
   const input = document.getElementById("petProfileRenameInput");
   const nickname = (input?.value || "").trim();
-  if (!nickname || nickname.length < 1 || nickname.length > 12) {
-    showToast("昵称长度需在1-12个字符之间", "warn");
+  const nicknameLength = Array.from(nickname).length;
+  if (!nickname || nicknameLength < 1) {
+    showToast("昵称不能为空", "warn");
+    return;
+  }
+  if (nicknameLength > PET_NICKNAME_MAX_CHARS) {
+    await showDisplayAlert({
+      badge: "昵称过长",
+      title: `昵称长度不能超过${PET_NICKNAME_MAX_CHARS}个字`,
+      description: "请把昵称调整到4个字以内后再提交。",
+      confirmText: "我知道了",
+    });
     return;
   }
 
@@ -5624,6 +5896,58 @@ let petDecoChangePolicy = {
   freeChangeKind: null,
   currentScore: 0,
 };
+
+function normalizeDecoArrayPayload(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.data)) return payload.data;
+  return [];
+}
+
+function mergeDecorationCatalogWithKnownState(allDecos, unlocked, equipped) {
+  const merged = normalizeDecoArrayPayload(allDecos).map((item) => ({ ...item }));
+  const seen = new Set();
+  const remember = (item) => {
+    if (!item) return;
+    if (item.id != null || item.decorationId != null) {
+      seen.add(`id:${item.id ?? item.decorationId}`);
+    }
+    const fallbackKey = `${item.type || ""}:${item.name || ""}:${item.imageUrl || item.previewUrl || ""}`;
+    if (fallbackKey !== "::") {
+      seen.add(fallbackKey);
+    }
+  };
+  const addKnown = (item) => {
+    if (!item) return;
+    const deco = {
+      id: item.id ?? item.decorationId ?? null,
+      code: item.code,
+      name: item.name || "未命名装扮",
+      type: item.type,
+      imageUrl: item.imageUrl,
+      previewUrl: item.previewUrl,
+      unlockLevel: item.unlockLevel ?? 1,
+      sortOrder: item.sortOrder ?? 999999,
+      themeGroup: item.themeGroup,
+      themeFreeRule: item.themeFreeRule,
+      themeFreeActive: item.themeFreeActive,
+      themeFreeLabel: item.themeFreeLabel,
+      knownOnly: item.id == null && item.decorationId == null,
+    };
+    if (!deco.type || (!deco.imageUrl && !deco.previewUrl)) return;
+    const key =
+      deco.id != null
+        ? `id:${deco.id}`
+        : `${deco.type}:${deco.name}:${deco.imageUrl || deco.previewUrl || ""}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    merged.push(deco);
+  };
+
+  merged.forEach(remember);
+  normalizeDecoArrayPayload(unlocked).forEach(addKnown);
+  normalizeDecoArrayPayload(equipped).forEach(addKnown);
+  return merged;
+}
 
 function syncConfirmedLayersFromStudent() {
   petDecoConfirmedLayers = {};
@@ -6044,40 +6368,68 @@ async function openDecorationPanel() {
   });
   renderDecoPreviewLayers();
 
-  try {
-    const [allDecos, unlocked, policyResp] = await Promise.all([
-      apiFetch(
-        `/display/classes/${runtimeState.classId}/pet-decorations`,
-      ).catch(() => []),
-      apiFetch(`/student-pets/${studentPetId}/decorations`).catch(() => []),
-      apiFetch(`/student-pets/${studentPetId}/decorations/change-policy`).catch(
-        () => null,
-      ),
-    ]);
-    petDecoAllDecorations = allDecos || [];
-    petDecoUnlockedMap = {};
-    (unlocked || []).forEach((d) => {
-      petDecoUnlockedMap[d.decorationId] = d;
-    });
-    warmDecoAssetCache(petDecoAllDecorations, resolveDecoPreviewSize());
-    const policyData = policyResp?.data ?? policyResp ?? {};
-    petDecoChangePolicy = {
-      changeCost: policyData.changeCost ?? 10,
-      freeAvailable: !!policyData.freeAvailable,
-      freeChangeKind: policyData.freeChangeKind ?? null,
-      currentScore: policyData.currentScore ?? student.pts ?? 0,
-    };
-    revertDecoPreviewToEquipped();
-  } catch {
-    petDecoAllDecorations = [];
-    petDecoUnlockedMap = {};
-    petDecoChangePolicy = {
-      changeCost: 10,
-      freeAvailable: false,
-      freeChangeKind: null,
-      currentScore: student.pts ?? 0,
-    };
+  const classId = runtimeState.classId;
+  const [allDecosResult, unlockedResult, policyResult] = await Promise.allSettled([
+    classId
+      ? apiFetch(`/display/classes/${classId}/pet-decorations`)
+      : Promise.resolve([]),
+    apiFetch(`/student-pets/${studentPetId}/decorations`),
+    apiFetch(`/student-pets/${studentPetId}/decorations/change-policy`),
+  ]);
+  const allDecos =
+    allDecosResult.status === "fulfilled"
+      ? normalizeDecoArrayPayload(allDecosResult.value)
+      : [];
+  const unlocked =
+    unlockedResult.status === "fulfilled"
+      ? normalizeDecoArrayPayload(unlockedResult.value)
+      : [];
+  if (allDecosResult.status === "rejected") {
+    console.warn("加载班级装扮列表失败", allDecosResult.reason);
   }
+  if (unlockedResult.status === "rejected") {
+    console.warn("加载学生已解锁装扮失败", unlockedResult.reason);
+  }
+  if (policyResult.status === "rejected") {
+    console.warn("加载装扮更换策略失败", policyResult.reason);
+  }
+
+  petDecoAllDecorations = mergeDecorationCatalogWithKnownState(
+    allDecos,
+    unlocked,
+    currentDecos,
+  );
+  petDecoUnlockedMap = {};
+  unlocked.forEach((d) => {
+    if (d.decorationId != null) {
+      petDecoUnlockedMap[d.decorationId] = d;
+    }
+  });
+  currentDecos.forEach((d) => {
+    const matched = petDecoAllDecorations.find((item) => isSameDeco(item, d));
+    if (matched?.id != null && !petDecoUnlockedMap[matched.id]) {
+      petDecoUnlockedMap[matched.id] = {
+        decorationId: matched.id,
+        code: matched.code,
+        name: matched.name,
+        type: matched.type,
+        unlockLevel: matched.unlockLevel ?? 1,
+        isEquipped: true,
+      };
+    }
+  });
+  warmDecoAssetCache(petDecoAllDecorations, resolveDecoPreviewSize());
+  const policyData =
+    policyResult.status === "fulfilled"
+      ? (policyResult.value?.data ?? policyResult.value ?? {})
+      : {};
+  petDecoChangePolicy = {
+    changeCost: policyData.changeCost ?? 10,
+    freeAvailable: !!policyData.freeAvailable,
+    freeChangeKind: policyData.freeChangeKind ?? null,
+    currentScore: policyData.currentScore ?? student.pts ?? 0,
+  };
+  revertDecoPreviewToEquipped();
 
   renderDecoChangePolicyHint();
 
@@ -7478,31 +7830,22 @@ async function apiFetch(path, options = {}) {
 }
 
 function shouldAutoRenewUnlock(path, options = {}) {
-  const method = String(options.method || "GET").toUpperCase();
-  if (method === "GET" || method === "HEAD") return false;
-  if (!runtimeState.token || !runtimeState.user || !runtimeState.classId) {
-    return false;
-  }
-  if (runtimeState.lockStatus !== "active") return false;
-  if (
-    path === "/auth/login" ||
-    path === "/display/unlock" ||
-    path === "/display/unlock-renew" ||
-    path === "/display/lock"
-  ) {
-    return false;
-  }
-  return true;
+  return window.DisplayAuth.shouldAutoRenewUnlock({
+    path,
+    method: options.method,
+    token: runtimeState.token,
+    user: runtimeState.user,
+    classId: runtimeState.classId,
+    lockStatus: runtimeState.lockStatus,
+  });
 }
 
 function shouldRenewUnlockSoon(options = {}) {
-  const force = options.force === true;
-  const thresholdMs = options.thresholdMs ?? 5 * 60 * 1000;
-  if (force) return true;
-  if (!runtimeState.unlockedUntil) return true;
-  const unlockedUntilTs = new Date(runtimeState.unlockedUntil).getTime();
-  if (!Number.isFinite(unlockedUntilTs)) return true;
-  return unlockedUntilTs - Date.now() <= thresholdMs;
+  return window.DisplayAuth.shouldRenewUnlockSoon({
+    unlockedUntil: runtimeState.unlockedUntil,
+    force: options.force === true,
+    thresholdMs: options.thresholdMs,
+  });
 }
 
 async function renewDisplayUnlockSession(options = {}) {
@@ -7901,44 +8244,32 @@ function requireUnlockRelogin(options = {}) {
 }
 
 function getClassScopeIds(scopes = runtimeState.scopes) {
-  const scopeIds = scopes
-    .filter((scope) => scope && scope.classId)
-    .map((scope) => Number(scope.classId));
-  const assignmentIds = (runtimeState.classAssignments || [])
-    .filter((assignment) => assignment && assignment.classId)
-    .map((assignment) => Number(assignment.classId));
-  return Array.from(new Set([...scopeIds, ...assignmentIds])).filter(Boolean);
+  return window.DisplayAuth.getClassScopeIds(
+    scopes,
+    runtimeState.classAssignments || [],
+  );
 }
 
 function isDisplayAdminRole(roleCode = runtimeState.user?.roleCode) {
-  return [
-    "super_admin",
-    "school_admin",
-    "academic_admin",
-    "moral_admin",
-  ].includes(roleCode || "");
+  return window.DisplayAuth.isDisplayAdminRole(roleCode);
 }
 
 function canInitializeDisplayTerminalRole(roleCode) {
-  return [
-    "super_admin",
-    "school_admin",
-    "academic_admin",
-    "moral_admin",
-    "homeroom_teacher",
-  ].includes(roleCode || "");
+  return window.DisplayAuth.canInitializeDisplayTerminalRole(roleCode);
 }
 
 /** 系统管理员可绕过「一班级一终端」限制，用于线上测试大屏 */
 function canOverrideClassDisplayBinding(roleCode = runtimeState.setupAdminRoleCode) {
-  return roleCode === "super_admin";
+  return window.DisplayAuth.canOverrideClassDisplayBinding(roleCode);
 }
 
 function canCurrentUserAccessClass(classId) {
-  if (isDisplayAdminRole()) {
-    return true;
-  }
-  return getClassScopeIds().includes(Number(classId));
+  return window.DisplayAuth.canAccessClass({
+    roleCode: runtimeState.user?.roleCode,
+    scopes: runtimeState.scopes,
+    classAssignments: runtimeState.classAssignments,
+    classId,
+  });
 }
 
 function isHomeroomTeacher() {
@@ -7946,25 +8277,23 @@ function isHomeroomTeacher() {
 }
 
 function isHomeroomOfCurrentClass() {
-  if (isDisplayAdminRole()) return true;
-  const classId = Number(runtimeState.classId);
-  if (!classId || !runtimeState.user) return false;
-  return (runtimeState.classAssignments || []).some(
-    (assignment) =>
-      Number(assignment.classId) === classId &&
-      ["homeroom", "co_homeroom"].includes(
-        String(assignment.roleInClass || ""),
-      ),
-  );
+  return window.DisplayAuth.isHomeroomOfClass({
+    roleCode: runtimeState.user?.roleCode,
+    user: runtimeState.user,
+    classId: runtimeState.classId,
+    classAssignments: runtimeState.classAssignments,
+  });
 }
 
 function canAdoptPet() {
-  return Boolean(
-    runtimeState.user &&
-      runtimeState.token &&
-      runtimeState.classId &&
-      canCurrentUserAccessClass(runtimeState.classId),
-  );
+  return window.DisplayAuth.canAdoptPet({
+    roleCode: runtimeState.user?.roleCode,
+    user: runtimeState.user,
+    token: runtimeState.token,
+    classId: runtimeState.classId,
+    scopes: runtimeState.scopes,
+    classAssignments: runtimeState.classAssignments,
+  });
 }
 
 /** 班主任及以上权限 + 终端未锁定（与领养等班级档案操作一致） */
@@ -7973,13 +8302,7 @@ function blockHomeroomLockedOperation(featureName) {
 }
 
 function getOperationLockedAlertCopy(featureName) {
-  return {
-    badge: "操作已锁定",
-    title: "教师操作已锁定",
-    description: featureName
-      ? `当前展示端处于锁定状态，暂无法${featureName}。\n请先重新登录并解锁操作权限后再继续。`
-      : "当前展示端处于锁定状态。请先重新登录并解锁操作权限后再继续。",
-  };
+  return window.DisplayAuth.getOperationLockedAlertCopy(featureName);
 }
 
 /** 终端锁定时拦截并提示（锁定后会清除登录态，须优先于「需班主任登录」判断） */
@@ -7993,27 +8316,7 @@ function blockOperationIfLocked(featureName) {
 }
 
 function getHomeroomOnlyAlertCopy(featureName) {
-  const featureHints = {
-    分组管理: "学生分组属于班级基础设置，通常由班主任统一安排。",
-    更换装扮:
-      "更换装扮会消耗积分并写入学生成长档案，通常由班主任统一引导完成。",
-    萌宠改名: "萌宠改名会写入学生成长档案，通常由班主任统一引导完成。",
-  };
-  const featureHint =
-    featureHints[featureName] ||
-    "这项操作属于班级成长档案设置，通常由班主任负责。";
-  return {
-    login: {
-      badge: "需要班主任登录",
-      title: "这项操作需班主任登录后完成",
-      description: `${featureHint}\n请先请本班班主任登录展示端，再继续${featureName}。`,
-    },
-    restricted: {
-      badge: "班主任专属操作",
-      title: "这项操作暂由班主任负责",
-      description: `${featureHint}\n您仍可正常使用课堂加减分等功能；如需${featureName}，请联系本班班主任协助处理。`,
-    },
-  };
+  return window.DisplayAuth.getHomeroomOnlyAlertCopy(featureName);
 }
 
 function blockHomeroomOnlyOperation(featureName) {
@@ -8470,6 +8773,7 @@ function syncStudentCollectionFromRoster(rosterData) {
 
   students.splice(0, students.length, ...mapped);
   reorderStudents();
+  warmStudentPetImages(students);
 }
 
 async function refreshStudentRoster() {
@@ -9044,28 +9348,34 @@ function closeTerminalRebind() {
   navigateTo("entry");
 }
 
-function getClassBindingByClassId(classId) {
-  return (runtimeState.classBindings || []).find(
+function getClassBindingsByClassId(classId) {
+  return (runtimeState.classBindings || []).filter(
     (item) => Number(item.classId) === Number(classId),
   );
 }
 
 function isSetupClassSelectable(classId) {
-  const binding = getClassBindingByClassId(classId);
-  if (!binding) return true;
-  if (binding.terminalCode === runtimeState.terminalCode) return true;
+  const bindings = getClassBindingsByClassId(classId);
+  if (bindings.length === 0) return true;
+  if (bindings.some((b) => b.terminalCode === runtimeState.terminalCode))
+    return true;
+  if (bindings.length < 2) return true;
   return canOverrideClassDisplayBinding();
 }
 
 function getSetupClassBindingHint(classId) {
-  const binding = getClassBindingByClassId(classId);
-  if (!binding) return "";
-  if (binding.terminalCode === runtimeState.terminalCode) return "";
-  const terminalLabel = binding.terminalName || binding.terminalCode;
-  if (canOverrideClassDisplayBinding()) {
-    return `已绑定终端：${terminalLabel}（系统管理员可强制绑定）`;
+  const others = getClassBindingsByClassId(classId).filter(
+    (b) => b.terminalCode !== runtimeState.terminalCode,
+  );
+  if (others.length === 0) return "";
+  const labels = others.map((b) => b.terminalName || b.terminalCode);
+  if (others.length >= 2 && !canOverrideClassDisplayBinding()) {
+    return `已绑定终端：${labels.join("、")}（已达上限）`;
   }
-  return `已绑定终端：${terminalLabel}`;
+  if (others.length >= 2 && canOverrideClassDisplayBinding()) {
+    return `已绑定终端：${labels.join("、")}（管理员可强制绑定）`;
+  }
+  return `已绑定终端：${labels.join("、")}`;
 }
 
 function normalizeGradeName(row) {
@@ -9277,10 +9587,9 @@ function selectSetupClass(classId) {
   const nextClassId = Number(classId);
   if (!Number.isFinite(nextClassId)) return;
   if (!isSetupClassSelectable(nextClassId)) {
-    const binding = getClassBindingByClassId(nextClassId);
     setSetupMessage(
       "setupBindMessage",
-      `该班级已绑定终端「${binding?.terminalName || binding?.terminalCode || ""}」，一个班级同时只能绑定一个终端`,
+      "该班级已绑定 2 个终端，一个班级最多同时绑定两个终端",
     );
     return;
   }
@@ -9356,10 +9665,9 @@ async function confirmTerminalInitialize() {
     return;
   }
   if (!isSetupClassSelectable(runtimeState.selectedSetupClassId)) {
-    const binding = getClassBindingByClassId(runtimeState.selectedSetupClassId);
     setSetupMessage(
       "setupBindMessage",
-      `该班级已绑定终端「${binding?.terminalName || binding?.terminalCode || ""}」，一个班级同时只能绑定一个终端`,
+      "该班级已绑定 2 个终端，一个班级最多同时绑定两个终端",
     );
     return;
   }
@@ -9442,126 +9750,24 @@ async function loadTerminalState() {
 }
 
 function updateLockMeta(lines = []) {
-  const meta = document.getElementById("displayLockMeta");
-  if (!meta) return;
-  meta.innerHTML = lines.join("<br />");
+  return window.DisplayUI.renderLockMeta(lines);
 }
 
 function applyLockOverlay() {
-  const overlay = document.getElementById("displayLockOverlay");
-  const badge = document.getElementById("displayLockBadgeText");
-  const title = document.getElementById("displayLockTitle");
-  const desc = document.getElementById("displayLockDesc");
-  const primaryBtn = document.getElementById("displayLockPrimaryBtn");
-  const secondaryBtn = document.getElementById("displayLockSecondaryBtn");
-  const opBar = document.getElementById("displayOpBar");
-  const opTitle = document.getElementById("displayOpTitle");
-  const opSubtitle = document.getElementById("displayOpSubtitle");
-  const opPrimaryBtn = document.getElementById("displayOpPrimaryBtn");
-  const opSecondaryBtn = document.getElementById("displayOpSecondaryBtn");
-  const topActionBtn = document.getElementById("displayTopActionBtn");
-  const topActionIcon = document.getElementById("displayTopActionIcon");
-  if (!overlay || !badge || !title || !desc || !primaryBtn || !secondaryBtn) {
-    return;
-  }
   syncBottomUserName();
-
-  const activePageId = document.querySelector(".page.active")?.id;
-  const shouldHandlePage = [
-    "page-classroom",
-    "page-exchange",
-    "page-leaderboard",
-  ].includes(activePageId);
-  const shouldShow = shouldHandlePage && runtimeState.lockOverlayForced;
-  overlay.classList.toggle("active", shouldShow);
-  if (opBar) {
-    opBar.classList.add("hidden");
-  }
-
-  const metaLines = [
-    `当前终端：${escapeHtml(runtimeState.terminalCode)}`,
-    `当前班级：${escapeHtml(runtimeState.home?.className || (runtimeState.classId ? `班级 ${runtimeState.classId}` : "未绑定"))}`,
-  ];
-
-  if (!runtimeState.user) {
-    badge.textContent = "操作已锁定";
-    title.textContent = "教师操作已锁定";
-    desc.textContent =
-      "当前为展示状态。若需加减分、兑换或执行其他教师操作，请重新登录后解锁操作权限；学生可继续更换萌宠装扮和昵称。";
-    primaryBtn.textContent = "去解锁";
-    secondaryBtn.textContent = "我知道了";
-    if (runtimeState.lastLockedAt) {
-      metaLines.push(
-        `锁定时间：${new Date(runtimeState.lastLockedAt).toLocaleString("zh-CN")}`,
-      );
-    }
-    if (opTitle) opTitle.textContent = "操作已锁定";
-    if (opSubtitle)
-      opSubtitle.textContent =
-        "学生可继续查看展示内容并更换萌宠装扮，教师操作需重新登录";
-    if (opPrimaryBtn) opPrimaryBtn.textContent = "去解锁";
-    if (opSecondaryBtn) opSecondaryBtn.textContent = "我知道了";
-    if (topActionBtn) {
-      topActionBtn.classList.remove("unlocked");
-    }
-    if (topActionIcon) topActionIcon.className = "fa-solid fa-lock-open";
-  } else if (runtimeState.lockStatus === "active") {
-    badge.textContent = "操作已解锁";
-    title.textContent = `当前教师：${runtimeState.user.name}`;
-    desc.textContent =
-      "当前展示端处于 15 分钟可操作状态。您可以继续课堂加减分、积分兑换或主动锁定终端。";
-    primaryBtn.textContent = "继续操作";
-    secondaryBtn.textContent = "立即锁定";
-    if (runtimeState.unlockedUntil) {
-      metaLines.push(
-        `操作截止：${new Date(runtimeState.unlockedUntil).toLocaleString("zh-CN")}`,
-      );
-    }
-    if (opTitle) opTitle.textContent = `教师操作中：${runtimeState.user.name}`;
-    if (opSubtitle) {
-      opSubtitle.textContent = runtimeState.unlockedUntil
-        ? `可操作至 ${new Date(runtimeState.unlockedUntil).toLocaleTimeString(
-            "zh-CN",
-            {
-              hour: "2-digit",
-              minute: "2-digit",
-            },
-          )}`
-        : "当前可进行加减分与兑换";
-    }
-    if (opPrimaryBtn) opPrimaryBtn.textContent = "继续操作";
-    if (opSecondaryBtn) opSecondaryBtn.textContent = "立即锁定";
-    if (topActionBtn) {
-      topActionBtn.classList.add("unlocked");
-    }
-    if (topActionIcon) topActionIcon.className = "fa-solid fa-lock";
-  } else {
-    badge.textContent = "操作已锁定";
-    title.textContent = "教师操作已锁定";
-    desc.textContent =
-      "当前为展示状态。若需继续加减分、兑换或执行其他教师操作，请重新登录后解锁操作权限；学生可继续更换萌宠装扮和昵称。";
-    primaryBtn.textContent = "去解锁";
-    secondaryBtn.textContent = "我知道了";
-    if (runtimeState.lastLockedAt || runtimeState.unlockedUntil) {
-      metaLines.push(
-        `锁定时间：${new Date(runtimeState.lastLockedAt || runtimeState.unlockedUntil).toLocaleString("zh-CN")}`,
-      );
-    }
-    if (opTitle) {
-      opTitle.textContent = "操作已锁定";
-    }
-    if (opSubtitle) {
-      opSubtitle.textContent = "展示继续可见，学生装扮与昵称自助操作不受锁定影响";
-    }
-    if (opPrimaryBtn) opPrimaryBtn.textContent = "去解锁";
-    if (opSecondaryBtn) opSecondaryBtn.textContent = "我知道了";
-    if (topActionBtn) {
-      topActionBtn.classList.remove("unlocked");
-    }
-    if (topActionIcon) topActionIcon.className = "fa-solid fa-lock-open";
-  }
-
-  updateLockMeta(metaLines);
+  window.DisplayUI.renderLockOverlay(
+    window.DisplayAuth.createLockOverlayViewModel({
+      activePageId: document.querySelector(".page.active")?.id || "",
+      classId: runtimeState.classId,
+      className: runtimeState.home?.className || "",
+      lastLockedAt: runtimeState.lastLockedAt,
+      lockOverlayForced: runtimeState.lockOverlayForced,
+      lockStatus: runtimeState.lockStatus,
+      terminalCode: runtimeState.terminalCode,
+      unlockedUntil: runtimeState.unlockedUntil,
+      user: runtimeState.user,
+    }),
+  );
   syncCallOverlayAction();
 }
 
@@ -11976,17 +12182,26 @@ function configureRuleButtons() {
   if (!addGrid || !subGrid) return;
   const sortRules = (rules) =>
     [...rules].sort((a, b) => {
-      const highFrequencyDiff =
-        Number(Boolean(b.isHighFrequency)) - Number(Boolean(a.isHighFrequency));
-      if (highFrequencyDiff !== 0) return highFrequencyDiff;
+      if (a.highFrequencyRank !== undefined && b.highFrequencyRank !== undefined) {
+        if (a.highFrequencyRank !== b.highFrequencyRank) {
+          return a.highFrequencyRank - b.highFrequencyRank;
+        }
+      } else if (a.highFrequencyRank !== undefined) {
+        return -1;
+      } else if (b.highFrequencyRank !== undefined) {
+        return 1;
+      }
+      const absA = Math.abs(a.scoreValue || 0);
+      const absB = Math.abs(b.scoreValue || 0);
+      if (absA !== absB) return absB - absA;
       return String(a.name || "").localeCompare(String(b.name || ""), "zh-CN");
     });
   const positiveRules = sortRules(
-    runtimeState.scoreRules.filter((rule) => rule.scoreType === "add"),
-  ).slice(0, 8);
+    runtimeState.scoreRules.filter((rule) => rule.scoreType === "add" && rule.isHighFrequency),
+  ).slice(0, 9);
   const negativeRules = sortRules(
-    runtimeState.scoreRules.filter((rule) => rule.scoreType === "deduct"),
-  ).slice(0, 6);
+    runtimeState.scoreRules.filter((rule) => rule.scoreType === "deduct" && rule.isHighFrequency),
+  ).slice(0, 9);
 
   const renderRuleButton = (rule, type) => `
           <div class="pm-btn ${type}" onclick="applyQuickRule(${rule.id})">
@@ -12022,31 +12237,45 @@ function getFilteredRulesForMorePanel() {
 function renderMoreRulePanel() {
   const panel = document.getElementById("pmMorePanel");
   const grid = document.getElementById("pmMoreGrid");
+  const quickPanels = document.getElementById("pmQuickPanels");
   const sceneFilters = document.getElementById("pmSceneFilters");
+  const quickTab = document.getElementById("pmMoreTabQuick");
   const addTab = document.getElementById("pmMoreTabAdd");
   const deductTab = document.getElementById("pmMoreTabDeduct");
   const searchInput = document.getElementById("pmRuleSearch");
-  const title = document.getElementById("pmMoreTitle");
+  
   if (
     !panel ||
     !grid ||
+    !quickPanels ||
     !sceneFilters ||
+    !quickTab ||
     !addTab ||
     !deductTab ||
-    !searchInput ||
-    !title
+    !searchInput
   )
     return;
 
+  quickTab.classList.toggle("active", displayRulePanelState.activeType === "quick");
   addTab.classList.toggle("active", displayRulePanelState.activeType === "add");
   deductTab.classList.toggle(
     "active",
     displayRulePanelState.activeType === "deduct",
   );
+
+  if (displayRulePanelState.activeType === "quick") {
+    quickPanels.classList.remove("hidden");
+    grid.classList.add("hidden");
+    sceneFilters.classList.add("hidden");
+    searchInput.classList.add("hidden");
+    return;
+  }
+
+  quickPanels.classList.add("hidden");
+  grid.classList.remove("hidden");
+  sceneFilters.classList.remove("hidden");
+  searchInput.classList.remove("hidden");
   searchInput.value = displayRulePanelState.searchKeyword;
-  title.innerHTML = `<i class="fa-solid fa-layer-group"></i> ${
-    displayRulePanelState.activeType === "add" ? "全部加分规则" : "全部扣分规则"
-  }`;
 
   const sceneCodeSet = Array.from(
     new Set(
@@ -12086,24 +12315,15 @@ function renderMoreRulePanel() {
       : '<div class="pm-empty">当前筛选下没有可用规则</div>';
 }
 
-function openMoreRulePanel(type = "add") {
-  const panel = document.getElementById("pmMorePanel");
-  const quickPanels = document.getElementById("pmQuickPanels");
-  if (!panel || !quickPanels) return;
+function openMoreRulePanel(type = "quick") {
   displayRulePanelState.activeType = type;
   displayRulePanelState.searchKeyword = "";
   displayRulePanelState.sceneCode = "all";
-  quickPanels.classList.add("hidden");
-  panel.classList.add("active");
   renderMoreRulePanel();
 }
 
 function closeMoreRulePanel() {
-  const panel = document.getElementById("pmMorePanel");
-  const quickPanels = document.getElementById("pmQuickPanels");
-  if (!panel || !quickPanels) return;
-  panel.classList.remove("active");
-  quickPanels.classList.remove("hidden");
+  // Logic removed because the panels are merged.
 }
 
 function switchMoreRuleType(type) {
@@ -12182,11 +12402,6 @@ function openAllHistoryModal() {
   const student = students[currentFocusStudent.idx];
   if (!student) return;
   renderAllHistoryModal(student.name, currentAllHistoryRecords);
-  overlay.onclick = (event) => {
-    if (event.target === overlay) {
-      closeAllHistoryModal();
-    }
-  };
   overlay.classList.add("active");
 }
 
@@ -12267,7 +12482,7 @@ async function openPointModalSingle(idx, cardEl) {
   });
   currentAllHistoryRecords = Array.isArray(s.history) ? s.history : [];
   renderModalHistory(s);
-  openMoreRulePanel("add");
+  openMoreRulePanel("quick");
   document.getElementById("pointModal").classList.add("active");
   if (s.id) {
     s.history = await loadScoreHistory(s.id).catch(() => s.history || []);
@@ -12298,7 +12513,7 @@ function openPointModalBatch(names) {
   closeAllHistoryModal();
   setAllHistoryButtonState({ visible: false });
   currentAllHistoryRecords = [];
-  openMoreRulePanel("add");
+  openMoreRulePanel("quick");
   document.getElementById("pointModal").classList.add("active");
 }
 
@@ -12315,7 +12530,7 @@ function openPointModalGroup(groupNum) {
   closeAllHistoryModal();
   setAllHistoryButtonState({ visible: false });
   currentAllHistoryRecords = [];
-  openMoreRulePanel("add");
+  openMoreRulePanel("quick");
   document.getElementById("pointModal").classList.add("active");
 }
 
@@ -12676,6 +12891,20 @@ async function handleExitAction() {
   navigateTo("entry");
 }
 
+function handleDesktopBubbleCommand(event) {
+  const action = String(event?.detail?.action || "").trim();
+  if (!action) return;
+
+  if (action === "lock") {
+    handleTopAction();
+    return;
+  }
+
+  if (action === "logout") {
+    handleExitAction();
+  }
+}
+
 async function loadAvailableClasses() {
   const rows = await apiFetch("/classes");
   runtimeState.availableClasses = rows || [];
@@ -12780,6 +13009,7 @@ function syncStudentCollection(studentRows, groups) {
 
   students.splice(0, students.length, ...mapped);
   reorderStudents();
+  warmStudentPetImages(students);
 }
 
 function renderClassroomEntryViews(options = {}) {
@@ -13235,6 +13465,7 @@ function syncToolboxRunningChrome() {
   page.classList.toggle("toolbox-paused", Boolean(state.paused || state.timerPaused));
   page.classList.toggle("toolbox-energy-running", state.activeTool === "energy" && audioRunning);
   page.classList.toggle("toolbox-garden-running", state.activeTool === "garden" && audioRunning);
+  syncDesktopFloatingBallStatus();
 }
 
 function openToolboxHome(options = {}) {
@@ -13763,6 +13994,43 @@ function clearLuckyExcludedStudents() {
   renderLuckyToolbox();
 }
 
+function syncDesktopFloatingBallStatus() {
+  if (
+    window.displayDesktop?.isDesktop !== true ||
+    typeof window.displayDesktop.setFloatingBallStatus !== "function"
+  ) {
+    return;
+  }
+
+  const state = toolboxState();
+  let payload = null;
+
+  if (
+    (state.activeTool === "energy" && (state.energyRunning || state.paused)) ||
+    (state.activeTool === "garden" && (state.gardenRunning || state.paused))
+  ) {
+    const db = state.activeTool === "energy" ? state.energyDb : state.gardenDb;
+    payload = {
+      value: db == null ? "--" : String(Math.max(0, Math.round(db))),
+      unit: "dB",
+      label: state.activeTool === "energy" ? "点燃" : "安静",
+    };
+  } else if (
+    state.activeTool === "timer" &&
+    (state.timerRunning || state.timerPaused || state.timerFinishedAlerting)
+  ) {
+    payload = {
+      value: formatTimerMs(
+        Math.max(0, state.timerRemainingMs ?? state.timerDurationMs ?? 0),
+      ),
+      unit: "",
+      label: "计时",
+    };
+  }
+
+  window.displayDesktop.setFloatingBallStatus(payload).catch(() => {});
+}
+
 function describeToolboxAudioError(error) {
   const name = String(error?.name || "");
   const message = String(error?.message || "");
@@ -13942,6 +14210,11 @@ async function startEnergyTool() {
     state.energySamples = [];
     state.energyDb = null;
     state.energyStartedAt = performance.now();
+    state.energyLastTick = performance.now();
+    state.statsHighestDb = null;
+    state.statsLowestDb = null;
+    state.statsTimeAbove = 0;
+    state.statsTimeBelow = 0;
     document.getElementById("toolboxLiveStage")?.classList.add("energy-awake");
     setToolboxResult("toolboxEnergyResult", "星光正在听见全班的声音。系统只计算能量，不录音、不上传。");
     startToolboxAudioLoop((level) => updateEnergySample(level));
@@ -13955,7 +14228,19 @@ async function startEnergyTool() {
 function updateEnergySample(level, now = performance.now()) {
   const state = toolboxState();
   if (!state.energyRunning || state.paused) return;
+  const delta = Math.max(0, (now - (state.energyLastTick || now)) / 1000);
+  state.energyLastTick = now;
   state.energyDb = Math.round(38 + Math.max(0, Math.min(100, level)) * 0.55);
+  
+  if (state.statsHighestDb === null || state.energyDb > state.statsHighestDb) state.statsHighestDb = state.energyDb;
+  if (state.statsLowestDb === null || state.energyDb < state.statsLowestDb) state.statsLowestDb = state.energyDb;
+  const targetDb = Number(state.settings.energyTarget || 90);
+  if (state.energyDb >= targetDb) {
+    state.statsTimeAbove += delta;
+  } else {
+    state.statsTimeBelow += delta;
+  }
+
   state.energySamples.push(level);
   if (state.energySamples.length > 600) state.energySamples.shift();
   const avg =
@@ -14021,10 +14306,27 @@ function stopEnergyTool(options = {}) {
   syncToolboxPrimaryButton();
 }
 
+function formatToolboxStatsTime(seconds) {
+  if (seconds < 60) return `${Math.round(seconds)}秒`;
+  const m = Math.floor(seconds / 60);
+  const s = Math.round(seconds % 60);
+  return `${m}分${s}秒`;
+}
+
 function showEnergyResultOverlay(score, level, customFeedback) {
   const scoreEl = document.getElementById("energyResultScore");
   const feedbackEl = document.getElementById("energyResultFeedback");
   const overlay = document.getElementById("toolboxEnergyResultOverlay");
+  const state = toolboxState();
+  
+  const highDbEl = document.getElementById("energyResultHighDb");
+  const lowDbEl = document.getElementById("energyResultLowDb");
+  const timeAboveEl = document.getElementById("energyResultTimeAbove");
+  const timeBelowEl = document.getElementById("energyResultTimeBelow");
+  if (highDbEl) highDbEl.textContent = state.statsHighestDb != null ? `${state.statsHighestDb} dB` : '-- dB';
+  if (lowDbEl) lowDbEl.textContent = state.statsLowestDb != null ? `${state.statsLowestDb} dB` : '-- dB';
+  if (timeAboveEl) timeAboveEl.textContent = formatToolboxStatsTime(state.statsTimeAbove || 0);
+  if (timeBelowEl) timeBelowEl.textContent = formatToolboxStatsTime(state.statsTimeBelow || 0);
   
   if (scoreEl) scoreEl.textContent = String(score);
   if (feedbackEl) {
@@ -14144,6 +14446,7 @@ function renderEnergyToolbox() {
   if (completion >= 100 && state.energyRunning) {
     setToolboxResult("toolboxEnergyResult", `全班点亮成功：${level}。这一下，课堂真的醒了。`);
   }
+  syncDesktopFloatingBallStatus();
 }
 
 function resolveEnergyTimeLabel() {
@@ -14181,6 +14484,10 @@ async function startGardenTool() {
     await ensureToolboxAudio();
     if (!state.paused) {
       state.gardenQuietSeconds = 0;
+      state.statsHighestDb = null;
+      state.statsLowestDb = null;
+      state.statsTimeAbove = 0;
+      state.statsTimeBelow = 0;
     }
     state.paused = false;
     state.gardenRunning = true;
@@ -14199,8 +14506,17 @@ function updateGardenSample(level, now = performance.now()) {
   if (!state.gardenRunning || state.paused) return;
   const delta = Math.max(0, (now - (state.gardenLastTick || now)) / 1000);
   state.gardenLastTick = now;
-  state.gardenDb = Math.round(15 + Math.max(0, Math.min(100, level)) * 0.65);
+  state.gardenDb = Math.round(14 + Math.max(0, Math.min(100, level)) * 0.8);
   const threshold = Number(state.settings.gardenThreshold || 34);
+  
+  if (state.statsHighestDb === null || state.gardenDb > state.statsHighestDb) state.statsHighestDb = state.gardenDb;
+  if (state.statsLowestDb === null || state.gardenDb < state.statsLowestDb) state.statsLowestDb = state.gardenDb;
+  if (state.gardenDb > threshold) {
+    state.statsTimeAbove += delta;
+  } else {
+    state.statsTimeBelow += delta;
+  }
+
   if (state.gardenDb <= threshold) {
     state.gardenQuietSeconds += delta;
   }
@@ -14369,6 +14685,7 @@ function renderGardenToolbox(isNoisy = false) {
 
   const thresholdLabel = getGardenThresholdLabel(state.settings.gardenThreshold || 34);
   setText("toolboxGardenDifficulty", thresholdLabel);
+  syncDesktopFloatingBallStatus();
 
   // 只有在限时模式且进度达到 100% 时，才自动停止
   if (target > 0 && progress >= 100 && state.gardenRunning) {
@@ -14397,7 +14714,17 @@ function showGardenResultOverlay(score, level) {
   const scoreEl = document.getElementById("gardenResultScore");
   const feedbackEl = document.getElementById("gardenResultFeedback");
   const overlay = document.getElementById("toolboxGardenResultOverlay");
+  const state = toolboxState();
   
+  const highDbEl = document.getElementById("gardenResultHighDb");
+  const lowDbEl = document.getElementById("gardenResultLowDb");
+  const timeAboveEl = document.getElementById("gardenResultTimeAbove");
+  const timeBelowEl = document.getElementById("gardenResultTimeBelow");
+  if (highDbEl) highDbEl.textContent = state.statsHighestDb != null ? `${state.statsHighestDb} dB` : '-- dB';
+  if (lowDbEl) lowDbEl.textContent = state.statsLowestDb != null ? `${state.statsLowestDb} dB` : '-- dB';
+  if (timeAboveEl) timeAboveEl.textContent = formatToolboxStatsTime(state.statsTimeAbove || 0);
+  if (timeBelowEl) timeBelowEl.textContent = formatToolboxStatsTime(state.statsTimeBelow || 0);
+
   if (scoreEl) scoreEl.textContent = String(score);
   if (feedbackEl) {
     let feedback = "";
@@ -14723,11 +15050,6 @@ function openLuckyHistoryModal() {
         )
         .join("");
     }
-    overlay.onclick = (event) => {
-      if (event.target === overlay) {
-        closeLuckyHistoryModal();
-      }
-    };
     overlay.classList.add("active");
   }
 }
@@ -14911,6 +15233,7 @@ function renderToolboxTimer() {
     const isActive = state.timerRunning || state.timerPaused || state.timerFinishedAlerting;
     timerScene.setAttribute('data-timer-active', String(isActive));
   }
+  syncDesktopFloatingBallStatus();
 }
 
 function setToolboxResult(id, message, isError = false) {
@@ -14920,11 +15243,57 @@ function setToolboxResult(id, message, isError = false) {
   el.classList.toggle("error", Boolean(isError));
 }
 
+function bindDisplayOverlayBackdropDismiss() {
+  if (typeof window.DisplayUI?.bindOverlayBackdropDismiss !== "function") {
+    return;
+  }
+  window.DisplayUI.bindOverlayBackdropDismiss([
+    { id: "pointModal", onClose: () => closePointModal() },
+    { id: "adoptPetModal", onClose: () => closeAdoptModal() },
+    { id: "adoptPetDetailModal", onClose: () => closeAdoptPetDetailModal() },
+    {
+      id: "groupManageModal",
+      onClose: () => {
+        void closeGroupManageModal();
+      },
+    },
+    { id: "groupScoreRecordsModal", onClose: () => closeGroupScoreRecordsModal() },
+    { id: "groupScoreAdjustModal", onClose: () => closeGroupScoreAdjustModal() },
+    { id: "classSelectModal", onClose: () => cancelClassSelection() },
+    { id: "petProfileModal", onClose: () => closePetProfileModal() },
+    { id: "petDecoPanel", onClose: () => closeDecorationPanel() },
+    { id: "petFullViewOverlay", onClose: () => closePetFullView() },
+    {
+      id: "petProfileAllHistoryModal",
+      onClose: () => closePetProfileAllHistoryModal(),
+    },
+    { id: "pmAllHistoryModal", onClose: () => closeAllHistoryModal() },
+    { id: "luckyAllHistoryModal", onClose: () => closeLuckyHistoryModal() },
+    { id: "academicAiModal", onClose: () => closeAcademicAiModal() },
+    { id: "exStudentModal", onClose: () => closeSelectStudentModal() },
+    { id: "exModal", onClose: () => closeExchangeSuccess() },
+    {
+      id: "toolboxSettingsOverlay",
+      onClose: (event) => closeToolboxSettings(event),
+    },
+    {
+      id: "toolboxEnergyResultOverlay",
+      onClose: (event) => closeEnergyResultOverlay(event),
+    },
+    {
+      id: "toolboxGardenResultOverlay",
+      onClose: (event) => closeGardenResultOverlay(event),
+    },
+  ]);
+}
+
 window.addEventListener("beforeunload", () => {
   cleanupToolboxRuntime({ keepTimer: false });
 });
 
 document.addEventListener("DOMContentLoaded", () => {
+  bindDisplayOverlayBackdropDismiss();
+  window.addEventListener("display-desktop-command", handleDesktopBubbleCommand);
   resolveRuntimeParams();
   initNoNativeTooltips();
   syncDisplayPerformanceBodyState();
@@ -14964,22 +15333,6 @@ document.addEventListener("DOMContentLoaded", () => {
     ruleSearchInput.addEventListener("input", (event) => {
       displayRulePanelState.searchKeyword = event.target.value || "";
       renderMoreRulePanel();
-    });
-  }
-  const petProfileModal = document.getElementById("petProfileModal");
-  if (petProfileModal) {
-    petProfileModal.addEventListener("click", (event) => {
-      if (event.target === petProfileModal) {
-        closePetProfileModal();
-      }
-    });
-  }
-  const academicAiModal = document.getElementById("academicAiModal");
-  if (academicAiModal) {
-    academicAiModal.addEventListener("click", (event) => {
-      if (event.target === academicAiModal) {
-        closeAcademicAiModal();
-      }
     });
   }
   loadTerminalState()

@@ -93,7 +93,7 @@ export function filterStudentRules(
     selectedClassId: number | null;
     subjectCodesByClass: Map<number, string[]>;
     subjectFilter: string;
-    scoreTypeFilter: 'all' | 'add' | 'deduct';
+    scoreTypeFilter: 'quick' | 'all' | 'add' | 'deduct';
     sceneFilter: string;
     ruleKeyword: string;
     roleCode?: string | null;
@@ -106,8 +106,8 @@ export function filterStudentRules(
   return rules.filter((item) => {
     if (item.scoreTarget !== 'student') return false;
     if (!item.adminEnabled) return false;
-    if (options.scoreTypeFilter !== 'all' && item.scoreType !== options.scoreTypeFilter) return false;
-    if (!matchesSceneFilter(options.sceneFilter, item)) return false;
+    if (options.scoreTypeFilter !== 'all' && options.scoreTypeFilter !== 'quick' && item.scoreType !== options.scoreTypeFilter) return false;
+    if (options.scoreTypeFilter !== 'quick' && !matchesSceneFilter(options.sceneFilter, item)) return false;
     if (item.moduleType === 'subject' && !subjectFilterMatchesRule(options.subjectFilter, item.subjectCode)) {
       return false;
     }
@@ -119,12 +119,7 @@ export function filterStudentRules(
         .toLowerCase();
       if (!haystack.includes(keyword)) return false;
     }
-    if (item.moduleType === 'general') return true;
-    if (['super_admin', 'school_admin', 'academic_admin', 'moral_admin', 'grade_admin'].includes(options.roleCode ?? '')) {
-      return true;
-    }
-    if (options.roleCode === 'homeroom_teacher' && currentSubjectCodes.length === 0) return false;
-    return canUseSubjectRule(currentSubjectCodes, item.subjectCode);
+    return true;
   });
 }
 
@@ -140,7 +135,18 @@ export function buildSortedQuickRules(highFrequencyRules: ScoreRule[], recentRul
       if (rightRecent === undefined) return -1;
       return leftRecent - rightRecent;
     }
-    return right.scoreValue - left.scoreValue;
+
+    if (left.highFrequencyRank !== undefined && right.highFrequencyRank !== undefined) {
+      if (left.highFrequencyRank !== right.highFrequencyRank) {
+        return left.highFrequencyRank - right.highFrequencyRank;
+      }
+    } else if (left.highFrequencyRank !== undefined) {
+      return -1;
+    } else if (right.highFrequencyRank !== undefined) {
+      return 1;
+    }
+
+    return Math.abs(right.scoreValue) - Math.abs(left.scoreValue) || left.name.localeCompare(right.name, 'zh-CN');
   });
 
   return {

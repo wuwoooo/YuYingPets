@@ -1,4 +1,11 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { io, type Socket } from "socket.io-client";
 import presentationLogo from "../assets/presentation-logo.svg";
@@ -6,7 +13,7 @@ import { PresentationGlyph } from "../components/PresentationGlyph";
 import { PresentationFullscreenButton } from "../components/PresentationFullscreenButton";
 import { PresentationHero3D } from "../components/PresentationHero3D";
 import { ProjectionHeroThree } from "../components/ProjectionHeroThree";
-import { resolveSubjectLabel } from "../constants/admin";
+import { resolveSubjectLabel, ruleSceneLabelMap } from "../constants/admin";
 import {
   adminApi,
   type AcademicExamListItem,
@@ -25,9 +32,7 @@ import {
 } from "../lib/api";
 import { buildAcademicGrowthSummary } from "../utils/academicGrowth";
 import { normalizeAcademicPeriodLabel } from "../utils/academicImport";
-import {
-  canViewSchoolPresentation,
-} from "../utils/adminPermissions";
+import { canViewSchoolPresentation } from "../utils/adminPermissions";
 import "./ProjectionModePage.css";
 import "./ProjectionModePage.outdoor.css";
 import {
@@ -79,7 +84,10 @@ function resolveProjectionClassLabel(
 ) {
   const info = classes.find((item) => item.id === classId);
   if (info?.name) return info.name;
-  return fallbackClassName.replace(/^[\u4e00-\u9fa5\d]+年级/, "").trim() || fallbackClassName;
+  return (
+    fallbackClassName.replace(/^[\u4e00-\u9fa5\d]+年级/, "").trim() ||
+    fallbackClassName
+  );
 }
 
 const PROJECTION_DAILY_SERIES_DAYS = 10;
@@ -244,7 +252,6 @@ function withCompetitionRank<T extends { value: number }>(rows: T[]) {
   });
 }
 
-
 function resolveRiskStudentStats(analytics: AnalyticsData | null) {
   const stats = analytics?.riskStudentStats;
   if (stats) {
@@ -292,30 +299,31 @@ function resolveAutoProjectionLayout(
   viewportWidth: number,
   viewportHeight: number,
 ): ProjectionLayoutMode {
-  if (!Number.isFinite(viewportWidth) || !Number.isFinite(viewportHeight) || viewportHeight <= 0) {
+  if (
+    !Number.isFinite(viewportWidth) ||
+    !Number.isFinite(viewportHeight) ||
+    viewportHeight <= 0
+  ) {
     return "classic";
   }
   const aspectRatio = viewportWidth / viewportHeight;
   if (typeof window === "undefined") {
     return aspectRatio >= 1.72 ? "classic" : "tablet-fluid";
   }
-  const screenWidth = window.screen?.availWidth || window.screen?.width || viewportWidth;
-  const screenHeight = window.screen?.availHeight || window.screen?.height || viewportHeight;
+  const screenWidth =
+    window.screen?.availWidth || window.screen?.width || viewportWidth;
+  const screenHeight =
+    window.screen?.availHeight || window.screen?.height || viewportHeight;
   const outerWidth = window.outerWidth || viewportWidth;
   const outerHeight = window.outerHeight || viewportHeight;
   const browserChromeWidth = Math.max(0, outerWidth - viewportWidth);
   const browserChromeHeight = Math.max(0, outerHeight - viewportHeight);
   const nearFullscreenViewport =
-    viewportWidth >= screenWidth * 0.9 &&
-    viewportHeight >= screenHeight * 0.82;
-  const lowChromeShell =
-    browserChromeWidth <= 24 &&
-    browserChromeHeight <= 110;
+    viewportWidth >= screenWidth * 0.9 && viewportHeight >= screenHeight * 0.82;
+  const lowChromeShell = browserChromeWidth <= 24 && browserChromeHeight <= 110;
   const fullscreenActive =
     typeof document !== "undefined" && !!document.fullscreenElement;
-  const nearSixteenByNine =
-    aspectRatio >= 1.7 &&
-    aspectRatio <= 1.95;
+  const nearSixteenByNine = aspectRatio >= 1.7 && aspectRatio <= 1.95;
   const shouldUseClassic =
     nearSixteenByNine &&
     (fullscreenActive || (nearFullscreenViewport && lowChromeShell));
@@ -427,12 +435,14 @@ async function loadProjectionSnapshot(
     analyticsResult.status === "fulfilled" ? analyticsResult.value.data : null;
   const analyticsHeatmap =
     heatmapResult.status === "fulfilled" ? heatmapResult.value.data : null;
-  const analytics = (analyticsSummary
-    ? {
-        ...analyticsSummary,
-        heatMap: analyticsHeatmap?.heatMap ?? analyticsSummary.heatMap,
-      }
-    : analyticsHeatmap) as AnalyticsData | null;
+  const analytics = (
+    analyticsSummary
+      ? {
+          ...analyticsSummary,
+          heatMap: analyticsHeatmap?.heatMap ?? analyticsSummary.heatMap,
+        }
+      : analyticsHeatmap
+  ) as AnalyticsData | null;
   const honorRecords =
     honorRecordsResult.status === "fulfilled"
       ? honorRecordsResult.value.data
@@ -607,8 +617,7 @@ export function ProjectionModePage({ token, user }: ProjectionModePageProps) {
           lastFailures = failures;
 
           const hasCoreData =
-            nextSnapshot.classes.length > 0 ||
-            nextSnapshot.students.length > 0;
+            nextSnapshot.classes.length > 0 || nextSnapshot.students.length > 0;
 
           if (hasCoreData || failures.length === 0) {
             setSnapshot(nextSnapshot);
@@ -810,10 +819,8 @@ export function ProjectionModePage({ token, user }: ProjectionModePageProps) {
     [analytics],
   );
 
-  const todayEvaluationCount =
-    analytics?.todayScoreRecordCount ?? 0;
-  const recent24hEvaluationCount =
-    analytics?.recent24hScoreRecordCount ?? 0;
+  const todayEvaluationCount = analytics?.todayScoreRecordCount ?? 0;
+  const recent24hEvaluationCount = analytics?.recent24hScoreRecordCount ?? 0;
   const positiveToday = analytics?.todayPositiveCount ?? 0;
   const negativeToday = analytics?.todayNegativeCount ?? 0;
   const positiveRate = todayEvaluationCount
@@ -974,10 +981,7 @@ export function ProjectionModePage({ token, user }: ProjectionModePageProps) {
   }, [analytics?.topStudents, students, topStudentLimit]);
 
   const progressLeaders = useMemo(() => {
-    const source = academicGrowth.progressLeaders.slice(
-      0,
-      progressLeaderLimit,
-    );
+    const source = academicGrowth.progressLeaders.slice(0, progressLeaderLimit);
     if (!source.length) return [];
     return Array.from({ length: progressLeaderLimit }, (_, index) => {
       const item = source[index];
@@ -1021,18 +1025,19 @@ export function ProjectionModePage({ token, user }: ProjectionModePageProps) {
     return source.sort((left, right) => right.value - left.value).slice(0, 6);
   }, [analytics?.ruleDistribution, rules]);
 
-  const subjectDistribution = useMemo(() => {
-    const source = analytics?.subjectDistribution?.length
-      ? analytics.subjectDistribution
-      : Array.from(
-          academicScores.reduce((map, item) => {
-            if (!item.subjectName || item.subjectCode === "total") return map;
-            map.set(item.subjectName, (map.get(item.subjectName) ?? 0) + 1);
-            return map;
-          }, new Map<string, number>()),
-        ).map(([name, value]) => ({ name, value }));
+  const sceneDistribution = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const record of scoreRecords) {
+      const sceneCode = record.sceneCode;
+      const label =
+        sceneCode && ruleSceneLabelMap[sceneCode]
+          ? ruleSceneLabelMap[sceneCode]
+          : "其他综合";
+      map.set(label, (map.get(label) ?? 0) + 1);
+    }
+    const source = Array.from(map).map(([name, value]) => ({ name, value }));
     return source.sort((left, right) => right.value - left.value).slice(0, 6);
-  }, [academicScores, analytics?.subjectDistribution]);
+  }, [scoreRecords]);
 
   const heatMap = useMemo(() => {
     const rows = analytics?.heatMap?.rows?.length
@@ -1049,7 +1054,9 @@ export function ProjectionModePage({ token, user }: ProjectionModePageProps) {
       };
     });
     const max = Math.max(...matrix.flatMap((item) => item.values), 1);
-    const total = matrix.flatMap((item) => item.values).reduce((sum, value) => sum + value, 0);
+    const total = matrix
+      .flatMap((item) => item.values)
+      .reduce((sum, value) => sum + value, 0);
     return { rows, cols, matrix, max, total };
   }, [analytics?.heatMap]);
   const heatMapPeriodLabel = useMemo(() => {
@@ -1107,14 +1114,19 @@ export function ProjectionModePage({ token, user }: ProjectionModePageProps) {
       { left: 66, top: 81, scale: 0.76 },
       { left: 84, top: 82, scale: 0.74 },
     ];
-    const bubbleHues = [186, 198, 210, 224, 236, 248, 258, 270, 282, 292, 304, 316];
+    const bubbleHues = [
+      186, 198, 210, 224, 236, 248, 258, 270, 282, 292, 304, 316,
+    ];
     return sorted.map((item, index) => ({
       ...bubbleLayout[index % bubbleLayout.length],
       id: item.id,
       label: item.name.replace("班", ""),
       value: item.classScore,
       rank: index + 1,
-      size: Math.round((22 + (item.classScore / maxScore) * 28) * bubbleLayout[index % bubbleLayout.length].scale),
+      size: Math.round(
+        (22 + (item.classScore / maxScore) * 28) *
+          bubbleLayout[index % bubbleLayout.length].scale,
+      ),
       hue: bubbleHues[index % bubbleHues.length],
       glow: index < 3 ? "strong" : index < 8 ? "mid" : "soft",
     }));
@@ -1266,7 +1278,11 @@ export function ProjectionModePage({ token, user }: ProjectionModePageProps) {
           <div className="projection-top-metrics">
             <span>{currentSemesterName ?? "当前学期"}</span>
             <span>
-              {new Date().getMonth() + 1}月{new Date().getDate()}日 星期{["日", "一", "二", "三", "四", "五", "六"][new Date().getDay()]}&nbsp;&nbsp;&nbsp;&nbsp;{weatherLabel} {weatherInfo?.temperatureText ?? "--°C"} {weatherInfo?.conditionText ?? ""}
+              {new Date().getMonth() + 1}月{new Date().getDate()}日 星期
+              {["日", "一", "二", "三", "四", "五", "六"][new Date().getDay()]}
+              &nbsp;&nbsp;&nbsp;&nbsp;{weatherLabel}{" "}
+              {weatherInfo?.temperatureText ?? "--°C"}{" "}
+              {weatherInfo?.conditionText ?? ""}
             </span>
             <span className={`projection-socket ${connectionStatus}`}>
               <i />
@@ -1284,12 +1300,14 @@ export function ProjectionModePage({ token, user }: ProjectionModePageProps) {
               title={theme === "outdoor" ? "室内暗色" : "户外亮色"}
               onClick={toggleTheme}
             >
-              <PresentationGlyph
-                name={theme === "outdoor" ? "moon" : "sun"}
-              />
+              <PresentationGlyph name={theme === "outdoor" ? "moon" : "sun"} />
             </button>
             <PresentationFullscreenButton className="projection-theme-toggle" />
-            <div className="projection-layout-group" role="group" aria-label="投屏布局切换">
+            <div
+              className="projection-layout-group"
+              role="group"
+              aria-label="投屏布局切换"
+            >
               <button
                 type="button"
                 className={`projection-theme-toggle projection-layout-toggle${layoutPreference === "classic" ? " is-active" : ""}`}
@@ -1465,7 +1483,9 @@ export function ProjectionModePage({ token, user }: ProjectionModePageProps) {
                       {dailySeries.map((item) => (
                         <span key={item.key}>
                           <i>{item.total}</i>
-                          <em>{item.score >= 0 ? `+${item.score}` : item.score}</em>
+                          <em>
+                            {item.score >= 0 ? `+${item.score}` : item.score}
+                          </em>
                         </span>
                       ))}
                     </div>
@@ -1501,7 +1521,10 @@ export function ProjectionModePage({ token, user }: ProjectionModePageProps) {
               </div>
               <div className="projection-left-risk-list">
                 {riskRows.slice(0, riskPreviewLimit).map((item) => (
-                  <div className="projection-left-risk-row" key={item.studentId}>
+                  <div
+                    className="projection-left-risk-row"
+                    key={item.studentId}
+                  >
                     <em title={item.studentName}>{item.studentName}</em>
                     <i title={item.className}>{item.className}</i>
                     <span className={`tone-${item.riskLevel}`}>
@@ -1542,35 +1565,39 @@ export function ProjectionModePage({ token, user }: ProjectionModePageProps) {
                     {classBubbles.map((item) => {
                       const bubbleStyle = getBubbleBackground(theme, item.hue);
                       return (
-                      <div
-                        key={item.id}
-                        className={`projection-bubble glow-${item.glow}`}
-                        style={{
-                          left: `${item.left}%`,
-                          top: `${item.top}%`,
-                          width: `${item.size}px`,
-                          height: `${item.size}px`,
-                          ["--bubble-hue" as string]: `${item.hue}`,
-                          background: bubbleStyle.background,
-                          ...(bubbleStyle.borderColor
-                            ? {
-                                borderColor: bubbleStyle.borderColor,
-                                color: bubbleStyle.color,
-                              }
-                            : {}),
-                        }}
-                      >
-                        <small>{item.rank}</small>
-                        <span>{item.label}</span>
-                        <b>{formatCompact(item.value)}</b>
-                      </div>
-                    );
+                        <div
+                          key={item.id}
+                          className={`projection-bubble glow-${item.glow}`}
+                          style={{
+                            left: `${item.left}%`,
+                            top: `${item.top}%`,
+                            width: `${item.size}px`,
+                            height: `${item.size}px`,
+                            ["--bubble-hue" as string]: `${item.hue}`,
+                            background: bubbleStyle.background,
+                            ...(bubbleStyle.borderColor
+                              ? {
+                                  borderColor: bubbleStyle.borderColor,
+                                  color: bubbleStyle.color,
+                                }
+                              : {}),
+                          }}
+                        >
+                          <small>{item.rank}</small>
+                          <span>{item.label}</span>
+                          <b>{formatCompact(item.value)}</b>
+                        </div>
+                      );
                     })}
                   </div>
                   <div className="projection-grade-table">
                     {gradeRows.map((item) => (
                       <div key={item.gradeName}>
-                        <span>{item.gradeName.replace("年级", "").replace(/[^一二三四五六七八九十]/g, "")}</span>
+                        <span>
+                          {item.gradeName
+                            .replace("年级", "")
+                            .replace(/[^一二三四五六七八九十]/g, "")}
+                        </span>
                         <em>{item.classCount}</em>
                         <b>{item.score}</b>
                       </div>
@@ -1596,25 +1623,25 @@ export function ProjectionModePage({ token, user }: ProjectionModePageProps) {
                       {row.values.map((value, index) => {
                         const heatLevel = getHeatLevel(value, heatMap.max);
                         return (
-                        <i
-                          key={`${row.row}-${index}`}
-                          className={
-                            theme === "outdoor"
-                              ? `proj-heat-${heatLevel}`
-                              : undefined
-                          }
-                          style={
-                            theme === "scifi"
-                              ? {
-                                  opacity:
-                                    0.24 + (value / heatMap.max) * 0.76,
-                                }
-                              : undefined
-                          }
-                        >
-                          {value}
-                        </i>
-                      );
+                          <i
+                            key={`${row.row}-${index}`}
+                            className={
+                              theme === "outdoor"
+                                ? `proj-heat-${heatLevel}`
+                                : undefined
+                            }
+                            style={
+                              theme === "scifi"
+                                ? {
+                                    opacity:
+                                      0.24 + (value / heatMap.max) * 0.76,
+                                  }
+                                : undefined
+                            }
+                          >
+                            {value}
+                          </i>
+                        );
                       })}
                     </Fragment>
                   ))}
@@ -1627,18 +1654,20 @@ export function ProjectionModePage({ token, user }: ProjectionModePageProps) {
                 <div className="projection-panel-title">班级TOP</div>
                 <div className="projection-bars-list">
                   {topClasses.map((item, index) => (
-                      <div className="projection-bar-row" key={item.id}>
-                        <span>{index + 1}</span>
-                        <b>{item.name}</b>
-                        <i>
-                          <em
-                            style={{
-                              width: `${item.value > 0 ? Math.max(5, (item.value / scoreMax) * 100) : 0}%`,
-                            }}
-                          />
-                        </i>
-                        <strong>{item.value > 0 ? formatCompact(item.value) : "—"}</strong>
-                      </div>
+                    <div className="projection-bar-row" key={item.id}>
+                      <span>{index + 1}</span>
+                      <b>{item.name}</b>
+                      <i>
+                        <em
+                          style={{
+                            width: `${item.value > 0 ? Math.max(5, (item.value / scoreMax) * 100) : 0}%`,
+                          }}
+                        />
+                      </i>
+                      <strong>
+                        {item.value > 0 ? formatCompact(item.value) : "—"}
+                      </strong>
+                    </div>
                   ))}
                 </div>
               </div>
@@ -1663,11 +1692,13 @@ export function ProjectionModePage({ token, user }: ProjectionModePageProps) {
                     ))}
                   </div>
                 ) : (
-                  <div className="projection-progress-empty">暂无学业进步数据</div>
+                  <div className="projection-progress-empty">
+                    暂无学业进步数据
+                  </div>
                 )}
               </div>
               <div className="projection-panel projection-donuts">
-                <div className="projection-panel-title">维度/学科</div>
+                <div className="projection-panel-title">维度/场景</div>
                 <div className="projection-donuts-body">
                   <MiniDonut
                     theme={theme}
@@ -1677,8 +1708,8 @@ export function ProjectionModePage({ token, user }: ProjectionModePageProps) {
                   />
                   <MiniDonut
                     theme={theme}
-                    title="学科"
-                    items={subjectDistribution}
+                    title="场景"
+                    items={sceneDistribution}
                     limit={4}
                   />
                 </div>
@@ -1745,7 +1776,9 @@ export function ProjectionModePage({ token, user }: ProjectionModePageProps) {
                     <span>{item.name}</span>
                     <small>{item.className}</small>
                     {item.petLevel > 0 ? (
-                      <u title={item.petName ?? undefined}>Lv.{item.petLevel}</u>
+                      <u title={item.petName ?? undefined}>
+                        Lv.{item.petLevel}
+                      </u>
                     ) : (
                       <u className="muted">—</u>
                     )}

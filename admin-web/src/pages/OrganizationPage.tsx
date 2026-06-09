@@ -40,6 +40,8 @@ const coreOrganizationTabs = [
 type CoreOrganizationTab = (typeof coreOrganizationTabs)[number][0];
 type OrganizationTab = CoreOrganizationTab | 'audit' | 'ops';
 
+type AccountSortKey = 'name' | 'username' | 'roleName' | 'scopeDisplay' | 'lastLoginAt' | 'status';
+
 type ResetPasswordResult = {
   name: string;
   username: string;
@@ -82,6 +84,7 @@ export function OrganizationPage({ token, user, classes, loading, error }: Organ
   const [resetPasswordCopyFeedback, setResetPasswordCopyFeedback] = useState<string | null>(null);
   const [searchKeyword, setSearchKeyword] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
+  const [sortConfig, setSortConfig] = useState<{ key: AccountSortKey; direction: 'asc' | 'desc' } | null>(null);
   const [editorGradeFilter, setEditorGradeFilter] = useState('all');
   const [editorClassKeyword, setEditorClassKeyword] = useState('');
   const [editorActiveClassId, setEditorActiveClassId] = useState<number | null>(null);
@@ -370,9 +373,29 @@ export function OrganizationPage({ token, user, classes, loading, error }: Organ
     }).format(date);
   }
 
+  function toggleSort(key: AccountSortKey) {
+    setSortConfig((prev) => {
+      if (!prev || prev.key !== key) {
+        return { key, direction: 'asc' };
+      }
+      return { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' };
+    });
+  }
+
+  function renderSortHeader(label: string, key: AccountSortKey) {
+    const active = sortConfig?.key === key;
+    const indicator = active ? (sortConfig.direction === 'asc' ? '↑' : '↓') : '↕';
+    return (
+      <button className={`table-sort-button${active ? ' active' : ''}`} type="button" onClick={() => toggleSort(key)}>
+        <span>{label}</span>
+        <b>{indicator}</b>
+      </button>
+    );
+  }
+
   const filteredUsers = useMemo(() => {
     const keyword = normalizeKeyword(searchKeyword);
-    return users.filter((row) => {
+    const result = users.filter((row) => {
       const matchesQuickFilter =
         quickFilter === 'all' ||
         (quickFilter === 'disabled' && row.status === 'disabled') ||
@@ -388,9 +411,46 @@ export function OrganizationPage({ token, user, classes, loading, error }: Organ
       const matchesRole = roleFilter === 'all' || row.roleCode === roleFilter;
       return matchesQuickFilter && matchesKeyword && matchesRole;
     });
-  }, [quickFilter, roleFilter, searchKeyword, users]);
 
-  const listPagination = usePagination(filteredUsers, `${quickFilter}|${searchKeyword}|${roleFilter}|${users.length}`);
+    if (!sortConfig) return result;
+
+    const directionFactor = sortConfig.direction === 'asc' ? 1 : -1;
+    return result.slice().sort((a, b) => {
+      let aVal: string | number = '';
+      let bVal: string | number = '';
+      switch (sortConfig.key) {
+        case 'name':
+          aVal = a.name;
+          bVal = b.name;
+          break;
+        case 'username':
+          aVal = a.username;
+          bVal = b.username;
+          break;
+        case 'roleName':
+          aVal = a.roleName;
+          bVal = b.roleName;
+          break;
+        case 'scopeDisplay':
+          aVal = a.scopeDisplay;
+          bVal = b.scopeDisplay;
+          break;
+        case 'lastLoginAt':
+          aVal = a.lastLoginAt ? new Date(a.lastLoginAt).getTime() : 0;
+          bVal = b.lastLoginAt ? new Date(b.lastLoginAt).getTime() : 0;
+          break;
+        case 'status':
+          aVal = a.status;
+          bVal = b.status;
+          break;
+      }
+      if (aVal < bVal) return -1 * directionFactor;
+      if (aVal > bVal) return 1 * directionFactor;
+      return 0;
+    });
+  }, [quickFilter, roleFilter, searchKeyword, users, sortConfig]);
+
+  const listPagination = usePagination(filteredUsers, `${quickFilter}|${searchKeyword}|${roleFilter}|${sortConfig?.key ?? 'default'}|${sortConfig?.direction ?? 'default'}|${users.length}`);
   const selectedRoleTemplate = roleTemplates.find((item) => item.code === form.roleCode);
   const selectedUserRoleTemplate = roleTemplates.find((item) => item.code === selectedUser?.roleCode);
   const isTeacherRole = form.roleCode === 'homeroom_teacher' || form.roleCode === 'subject_teacher';
@@ -647,12 +707,12 @@ export function OrganizationPage({ token, user, classes, loading, error }: Organ
               <table className="data-table security-table">
                 <thead>
                   <tr>
-                    <th>姓名</th>
-                    <th>账号</th>
-                    <th>岗位</th>
-                    <th>负责范围</th>
-                    <th>最近登录</th>
-                    <th>状态</th>
+                    <th>{renderSortHeader('姓名', 'name')}</th>
+                    <th>{renderSortHeader('账号', 'username')}</th>
+                    <th>{renderSortHeader('岗位', 'roleName')}</th>
+                    <th>{renderSortHeader('负责范围', 'scopeDisplay')}</th>
+                    <th>{renderSortHeader('最近登录', 'lastLoginAt')}</th>
+                    <th>{renderSortHeader('状态', 'status')}</th>
                     <th>操作</th>
                   </tr>
                 </thead>

@@ -1,7 +1,10 @@
-import { resolveSubjectLabel } from '../../constants/admin';
-import type { ScoreRecord, ScoreRule } from '../../lib/api';
-import { formatScoreDelta, formatScoreRecordLabel } from '../../utils/scoreRecordReverse';
-import { ScoreRuleButton } from './ScoreRuleButton';
+import { resolveSubjectLabel } from "../../constants/admin";
+import type { ScoreRecord, ScoreRule } from "../../lib/api";
+import {
+  formatScoreDelta,
+  formatScoreRecordLabel,
+} from "../../utils/scoreRecordReverse";
+import { ScoreRuleButton } from "./ScoreRuleButton";
 
 type EvaluationRulesPanelProps = {
   isSubjectTeacher: boolean;
@@ -14,9 +17,11 @@ type EvaluationRulesPanelProps = {
   showAllQuickAdd: boolean;
   setShowAllQuickAdd: (value: boolean | ((prev: boolean) => boolean)) => void;
   showAllQuickDeduct: boolean;
-  setShowAllQuickDeduct: (value: boolean | ((prev: boolean) => boolean)) => void;
-  scoreTypeFilter: 'all' | 'add' | 'deduct';
-  setScoreTypeFilter: (value: 'all' | 'add' | 'deduct') => void;
+  setShowAllQuickDeduct: (
+    value: boolean | ((prev: boolean) => boolean),
+  ) => void;
+  scoreTypeFilter: "quick" | "all" | "add" | "deduct";
+  setScoreTypeFilter: (value: "quick" | "all" | "add" | "deduct") => void;
   sceneFilter: string;
   setSceneFilter: (value: string) => void;
   ruleKeyword: string;
@@ -31,11 +36,11 @@ type EvaluationRulesPanelProps = {
 };
 
 function formatRecordTime(value: string) {
-  return new Intl.DateTimeFormat('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
     hour12: false,
   }).format(new Date(value));
 }
@@ -68,44 +73,52 @@ export function EvaluationRulesPanel({
 }: EvaluationRulesPanelProps) {
   return (
     <div className="ssm-rules-panel">
-        <div className="ssm-more-panel">
-          <div className="ssm-filter-bar">
-            <div className="ssm-filter-chips">
-              <button
-                type="button"
-                className={`ssm-filter-chip${scoreTypeFilter === 'add' ? ' active' : ''}`}
-                onClick={() => setScoreTypeFilter('add')}
-              >
-                加分
-              </button>
-              <button
-                type="button"
-                className={`ssm-filter-chip${scoreTypeFilter === 'deduct' ? ' active' : ''}`}
-                onClick={() => setScoreTypeFilter('deduct')}
-              >
-                扣分
-              </button>
-              <button
-                type="button"
-                className={`ssm-filter-chip${scoreTypeFilter === 'all' ? ' active' : ''}`}
-                onClick={() => setScoreTypeFilter('all')}
-              >
-                全部
-              </button>
-            </div>
-            <input
-              className="ssm-rule-search"
-              value={ruleKeyword}
-              onChange={(event) => setRuleKeyword(event.target.value)}
-              placeholder="搜索规则名称"
-            />
+      <div className="ssm-more-panel">
+        <div className="ssm-filter-bar">
+          <div className="ssm-filter-chips">
+            <button
+              type="button"
+              className={`ssm-filter-chip${scoreTypeFilter === "quick" ? " active" : ""}`}
+              onClick={() => setScoreTypeFilter("quick")}
+            >
+              高频场景
+            </button>
+            <button
+              type="button"
+              className={`ssm-filter-chip${scoreTypeFilter === "add" ? " active" : ""}`}
+              onClick={() => setScoreTypeFilter("add")}
+            >
+              加分
+            </button>
+            <button
+              type="button"
+              className={`ssm-filter-chip${scoreTypeFilter === "deduct" ? " active" : ""}`}
+              onClick={() => setScoreTypeFilter("deduct")}
+            >
+              扣分
+            </button>
+            <button
+              type="button"
+              className={`ssm-filter-chip${scoreTypeFilter === "all" ? " active" : ""}`}
+              onClick={() => setScoreTypeFilter("all")}
+            >
+              全部
+            </button>
           </div>
+          <input
+            className="ssm-rule-search"
+            value={ruleKeyword}
+            onChange={(event) => setRuleKeyword(event.target.value)}
+            placeholder="搜索规则名称"
+          />
+        </div>
 
+        {scoreTypeFilter !== "quick" ? (
           <div className="ssm-filter-chips wrap">
             <button
               type="button"
-              className={`ssm-filter-chip${sceneFilter === 'all' ? ' active' : ''}`}
-              onClick={() => setSceneFilter('all')}
+              className={`ssm-filter-chip${sceneFilter === "all" ? " active" : ""}`}
+              onClick={() => setSceneFilter("all")}
             >
               全部场景
             </button>
@@ -113,62 +126,92 @@ export function EvaluationRulesPanel({
               <button
                 key={item.value}
                 type="button"
-                className={`ssm-filter-chip${sceneFilter === item.value ? ' active' : ''}`}
+                className={`ssm-filter-chip${sceneFilter === item.value ? " active" : ""}`}
                 onClick={() => setSceneFilter(item.value)}
               >
                 {item.label}
               </button>
             ))}
           </div>
+        ) : null}
 
-          {recentRules.length > 0 ? (
-            <div className="ssm-recent-rules">
-              <span className="ssm-section-label">最近使用</span>
-              <div className="ssm-filter-chips wrap">
-                {recentRules.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className={`ssm-filter-chip${selectedRuleId === item.id ? ' active' : ''}`}
-                    onClick={() => onRuleClick(item)}
-                  >
-                    {item.name}
-                  </button>
-                ))}
+        {scoreTypeFilter === "quick" ? (
+          <>
+            {quickAddRules.length > 0 ? (
+              <div className="ssm-recent-rules" style={{ marginTop: 12 }}>
+                <span className="ssm-section-label">加分快捷项</span>
+                <div className="ssm-rule-grid wide">
+                  {quickAddRules.map((item) => (
+                    <ScoreRuleButton
+                      key={item.id}
+                      rule={item}
+                      active={selectedRuleId === item.id}
+                      onClick={() => onRuleClick(item)}
+                      compact
+                    />
+                  ))}
+                </div>
               </div>
+            ) : null}
+            {quickDeductRules.length > 0 ? (
+              <div className="ssm-recent-rules" style={{ marginTop: 16 }}>
+                <span className="ssm-section-label">减分快捷项</span>
+                <div className="ssm-rule-grid wide">
+                  {quickDeductRules.map((item) => (
+                    <ScoreRuleButton
+                      key={item.id}
+                      rule={item}
+                      active={selectedRuleId === item.id}
+                      onClick={() => onRuleClick(item)}
+                      compact
+                    />
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            {quickAddRules.length === 0 && quickDeductRules.length === 0 ? (
+              <div className="ssm-rule-grid wide">
+                <div className="ssm-empty">当前没有高频场景规则</div>
+              </div>
+            ) : null}
+          </>
+        ) : (
+          <>
+            {recentRules.length > 0 ? (
+              <div className="ssm-recent-rules">
+                <span className="ssm-section-label">最近使用</span>
+                <div className="ssm-filter-chips wrap">
+                  {recentRules.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className={`ssm-filter-chip${selectedRuleId === item.id ? " active" : ""}`}
+                      onClick={() => onRuleClick(item)}
+                    >
+                      {item.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            <div className="ssm-rule-grid wide">
+              {moreRules.map((item) => (
+                <ScoreRuleButton
+                  key={item.id}
+                  rule={item}
+                  active={selectedRuleId === item.id}
+                  onClick={() => onRuleClick(item)}
+                  compact
+                />
+              ))}
+              {moreRules.length === 0 ? (
+                <div className="ssm-empty">当前筛选条件下没有可用规则</div>
+              ) : null}
             </div>
-          ) : null}
-
-          <div className="ssm-rule-grid wide">
-            {moreRules.map((item) => (
-              <ScoreRuleButton
-                key={item.id}
-                rule={item}
-                active={selectedRuleId === item.id}
-                onClick={() => onRuleClick(item)}
-                compact
-              />
-            ))}
-            {moreRules.length === 0 ? <div className="ssm-empty">当前筛选条件下没有可用规则</div> : null}
-          </div>
-        </div>
-
-      {selectedRule ? (
-        <div className={`ssm-selected-preview ${selectedRule.scoreType === 'deduct' ? 'deduct' : 'add'}`}>
-          <span className="ssm-selected-tag">已选规则</span>
-          <div className="ssm-selected-main">
-            <strong>{selectedRule.name}</strong>
-            <em>
-              {selectedRule.scoreType === 'deduct' ? '-' : '+'}
-              {selectedRule.scoreValue} 分
-            </em>
-          </div>
-          <p>{selectedRule.description || selectedRule.aiSummaryText || '点击上方规则并确认后即可提交。'}</p>
-          {!isSubjectTeacher && selectedRule.subjectCode ? (
-            <span className="ssm-selected-meta">学科 · {resolveSubjectLabel(selectedRule.subjectCode)}</span>
-          ) : null}
-        </div>
-      ) : null}
+          </>
+        )}
+      </div>
 
       {recentScoreRecords.length > 0 ? (
         <div className="ssm-history">
@@ -178,7 +221,10 @@ export function EvaluationRulesPanel({
           </div>
           <ul className="ssm-history-list">
             {recentScoreRecords.slice(0, 5).map((item) => (
-              <li key={item.id} className={item.scoreDelta < 0 ? 'deduct' : 'add'}>
+              <li
+                key={item.id}
+                className={item.scoreDelta < 0 ? "deduct" : "add"}
+              >
                 <div className="ssm-history-main">
                   <strong>{formatScoreRecordLabel(item)}</strong>
                   <span>{formatRecordTime(item.createdAt)}</span>

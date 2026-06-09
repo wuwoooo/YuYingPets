@@ -12,6 +12,7 @@ import { OperationLogService } from '../operation-log/operation-log.service';
 import { PetUpsertDto } from './dto/pet-upsert.dto';
 import { toNumber } from '@/common/utils/bigint.util';
 import { normalizePetGrowthThresholds, resolveStageNeedScoreTotal } from '@/common/utils/pet-growth.util';
+import { behaviorScoreRecordWhere } from '@/common/utils/behavior-score-record.util';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, extname, resolve } from 'node:path';
 
@@ -54,6 +55,7 @@ const ANALYTICS_RISK_THRESHOLDS = {
   mediumComboNegativeCount: 5,
   mediumComboScoreDelta: -12,
 } as const;
+const ANALYTICS_CACHE_VERSION = 'v3-behavior-score-only';
 
 type AnalyticsRiskLevel = 'high' | 'medium' | 'low';
 
@@ -163,7 +165,7 @@ export class AdminInsightsService {
   ) {
     const user = await this.authService.getAuthUserFromAuthorization(authorization);
 
-    const cacheKey = `analytics:${user.id}:${filters?.classId || ''}:${filters?.gradeName || ''}:${filters?.startDate || ''}:${filters?.endDate || ''}:${filters?.subjectCode || ''}:${filters?.regenerateAi || ''}:${filters?.skipAi || ''}:${filters?.skipHeatmap || ''}:${filters?.skipSummary || ''}`;
+    const cacheKey = `${ANALYTICS_CACHE_VERSION}:analytics:${user.id}:${filters?.classId || ''}:${filters?.gradeName || ''}:${filters?.startDate || ''}:${filters?.endDate || ''}:${filters?.subjectCode || ''}:${filters?.regenerateAi || ''}:${filters?.skipAi || ''}:${filters?.skipHeatmap || ''}:${filters?.skipSummary || ''}`;
     const cachedData = await this.cacheManager.get(cacheKey);
     if (cachedData) {
       return cachedData;
@@ -198,6 +200,7 @@ export class AdminInsightsService {
     const scoreRecordWhereBase = {
       schoolId: user.schoolId,
       ...(hasClassScope ? { classId: { in: resolvedClassIds } } : { classId: BigInt(-1) }),
+      ...behaviorScoreRecordWhere(),
     };
     const todayDate = this.getLocalDateString();
     const rollingStartDate = this.shiftDateString(todayDate, -6);
@@ -1545,7 +1548,7 @@ export class AdminInsightsService {
                     'suggestion 必须是可执行动作，至少 2 条动作意图（可写在一句中），并标明优先关注对象。',
                     'reportSummary 需要能直接用于校务汇报：先结论，再依据，再行动建议。',
                     '若 academicFacts.latestImportedExamLabel 存在：说明最近一次教务全科成绩导入快照；须在 summary/reportSummary/suggestion 中同步提及学业侧的要点，但必须严格遵从 academicFacts 数字，禁止臆造分值或名单。',
-                    '积分口径：studentScoreTotal 与 averageStudentScore 均指学生个人积分；classScore 指班级积分账户，与个人积分独立；不得把班级积分当作全校总积分。',
+                    '积分口径：studentScoreTotal 与 averageStudentScore 均指学生个人当前积分；classScore 指班级积分账户，与个人积分独立；行为统计、风险学生与正负向事件已排除萌宠装扮和积分兑换等消费型扣分，不得把消费当作行为风险。',
                   ].join(' '),
                 },
               ],
@@ -2014,9 +2017,9 @@ export class AdminInsightsService {
     const cid = classId != null ? Number(classId) : NaN;
     if (Number.isFinite(cid) && cid > 0) {
       const base = dateRangeKey ? `class-${cid}-${dateRangeKey}` : `class-${cid}`;
-      return `${base}${subjectSuffix}`;
+      return `${base}-${ANALYTICS_CACHE_VERSION}${subjectSuffix}`;
     }
-    const scope = gradeName ? `global-grade-${gradeName}-v2` : 'global-all-v2';
+    const scope = gradeName ? `global-grade-${gradeName}-${ANALYTICS_CACHE_VERSION}` : `global-all-${ANALYTICS_CACHE_VERSION}`;
     return dateRangeKey ? `${scope}-${dateRangeKey}` : scope;
   }
 

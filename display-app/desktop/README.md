@@ -35,14 +35,44 @@
 
 自动更新发布流程：
 
-1. 修改 `desktop/package.json` 的 `version`，例如从 `0.1.0` 改为 `0.1.1`
-2. 在 Windows 打包机执行：
-   `npm run dist:win:cn --workspace desktop`
-3. 上传 `desktop/release/` 中的以下文件到服务器目录 `/www/wwwroot/yuyingpets/www-admin/download/display-app/win/`，对外访问地址为 `https://www.dlbfyy.cn/download/display-app/win/`
-   - `latest.yml`
-   - `YuYingPets-Display-<version>-Setup.exe`
-   - `YuYingPets-Display-<version>-Setup.exe.blockmap`
-4. 已安装的客户端启动后会延迟检查更新；发现新版本后后台下载，下载完成后提示是否立即重启安装
+如果打包在 Windows 机、上传在当前 Mac 机，推荐拆成两步：
+
+1. 在 Windows 打包机执行：
+
+`powershell -ExecutionPolicy Bypass -File .\build-display-desktop.ps1`
+
+默认行为：
+
+- 自动把 `desktop/package.json` 版本号做 `patch` 递增
+- 执行 `npm run dist:win:cn --workspace desktop`
+- 校验 `desktop/release/` 中的 `latest.yml`、`Setup.exe`、`Setup.exe.blockmap`
+
+常见示例：
+
+- `powershell -ExecutionPolicy Bypass -File .\build-display-desktop.ps1`
+  自动递增 patch 版本并打包
+- `powershell -ExecutionPolicy Bypass -File .\build-display-desktop.ps1 -Version minor`
+  自动递增 minor 版本并打包
+- `powershell -ExecutionPolicy Bypass -File .\build-display-desktop.ps1 -Version 0.1.3`
+  直接设置目标版本号并打包
+
+2. 把 `desktop/release/` 中的三个文件拷回当前 Mac，再在仓库根目录执行：
+
+`SKIP_BUILD=1 ./deploy-display-desktop.sh current`
+
+默认行为：
+
+1. 保持当前 `desktop` 版本号不变
+2. 不重新打包，只上传 `desktop/release/` 中的 `latest.yml`、`Setup.exe`、`Setup.exe.blockmap`
+3. 自动创建服务器目录 `/www/wwwroot/yuyingpets/www-admin/download/display-app/win/`（如果不存在）
+4. 校验 `latest.yml` 与安装包 URL 可访问
+
+常见示例：
+
+- `SKIP_BUILD=1 ./deploy-display-desktop.sh current`
+  不重新打包，只把当前 `release/` 里的文件上传
+
+已安装的客户端启动后会延迟检查更新；发现新版本后后台下载，下载完成后提示是否立即重启安装
 
 配置说明：
 
@@ -58,7 +88,7 @@
   - `fullscreen`
     是否全屏启动，默认 `true`
   - `clearCacheOnLaunch`
-    是否在启动时清理 Electron 的 HTTP 缓存与 Service Worker 缓存，默认 `true`
+    是否在启动时清理 Service Worker 与 CacheStorage 缓存，默认 `true`。HTTP 缓存（图片等静态资源）始终保留以加快启动速度
   - `autoUpdate`
     是否启用桌面壳自动更新，打包版默认 `true`
   - `autoUpdateUrl`

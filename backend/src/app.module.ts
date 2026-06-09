@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { JwtAuthGuard } from '@/common/auth/jwt-auth.guard';
 import { LoggingModule } from '@/logging/logging.module';
 import { AiModule } from './modules/ai/ai.module';
@@ -69,6 +70,7 @@ import { StudentPetsModule } from './modules/student-pets/student-pets.module';
     CallQueueModule,
     PetDecorationsModule,
     StudentPetsModule,
+    ScheduleModule.forRoot(),
   ],
   providers: [{ provide: APP_GUARD, useClass: JwtAuthGuard }],
 })

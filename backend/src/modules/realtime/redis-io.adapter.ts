@@ -19,7 +19,10 @@ export class RedisIoAdapter extends IoAdapter {
   }
 
   async connectToRedis(redisUrl: string) {
-    const pubClient = createClient({ url: redisUrl });
+    const pubClient = createClient({
+      url: redisUrl,
+      pingInterval: 10000,
+    });
     const subClient = pubClient.duplicate();
 
     this.bindRedisClientEvents('pub', pubClient);

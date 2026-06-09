@@ -15,6 +15,7 @@
 - `public/display/display.html`
 - `public/display/scripts/display-runtime.js`
 - `public/display/scripts/display-ui.js`
+- `public/display/scripts/display-auth.js`
 - `public/display/scripts/display-app.js`
 - `public/display/styles/display.css`
 
@@ -23,8 +24,9 @@
 
 `display-runtime.js` 是主脚本渐进重构的运行时 bridge，当前承载运行时 URL、
 资源地址、API 请求基础层、全屏和桌面端窗口桥接等低风险工具逻辑。
-`display-ui.js` 承载页面激活、底部 Tab 同步、Toast、实时连接状态条、Confirm、Alert 等基础 UI bridge。`display-app.js`
-中仍保留旧函数名作为包装层，保证 HTML 内联事件和历史调用不受影响。
+`display-ui.js` 承载页面激活、底部 Tab 同步、Toast、实时连接状态条、锁定覆盖层、Confirm、Alert 等基础 UI bridge。
+`display-auth.js` 承载角色、班级访问、展示端解锁续期、锁定覆盖层 view model 等认证权限判断。
+`display-app.js` 中仍保留旧函数名作为包装层，保证 HTML 内联事件和历史调用不受影响。
 
 继续开发或重构前，先阅读 `DISPLAY_DEVELOPMENT_GUIDE.md`，里面记录了真实入口、
 加载顺序、兼容层规则和高风险区域。
@@ -35,7 +37,7 @@
 
 - 必要 HTML / JS / CSS 文件是否存在
 - `display.html` 引用的相对资源是否存在
-- `display-runtime.js`、`display-ui.js`、`display-app.js` 与 `pet-colors.js` 是否能通过浏览器脚本语法解析
+- `display-runtime.js`、`display-ui.js`、`display-auth.js`、`display-app.js` 与 `pet-colors.js` 是否能通过浏览器脚本语法解析
 - `display.html` 内联 `onclick` 调用的全局函数是否能在 `display-app.js` 中找到
 - `DisplayRuntime`、`DisplayUI` 是否暴露主脚本依赖的 bridge API
 
@@ -48,7 +50,8 @@
 迁入 `src/display/`，并通过兼容层继续暴露旧全局函数：
 
 - API、localStorage key、运行参数
-- 基础页面激活、Toast、实时连接状态条、Confirm、Alert 与页面导航
+- 基础页面激活、Toast、实时连接状态条、锁定覆盖层、Confirm、Alert 与页面导航
+- 认证权限判断、展示端解锁续期判断、锁定覆盖层 view model
 - 登录/终端初始化、实时连接、学生网格、积分操作
 - 工具箱、学情、叫号遮罩
 

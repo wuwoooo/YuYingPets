@@ -41,7 +41,7 @@ export class ScoreRecordsService {
     }
     const occurredAtFilter = this.buildOccurredAtFilter(query.startDate, query.endDate);
     const scoreRecordWhere = {
-      classId,
+      classId: query.studentId ? undefined : classId,
       studentId: query.studentId ? BigInt(query.studentId) : undefined,
       subjectCode: query.subjectCode || undefined,
       operatorId: user?.roleCode === 'subject_teacher' ? user.id : undefined,
@@ -72,7 +72,7 @@ export class ScoreRecordsService {
         ? Promise.resolve([])
         : this.prisma.rewardOrder.findMany({
             where: {
-              classId,
+              classId: query.studentId ? undefined : classId,
               studentId: query.studentId ? BigInt(query.studentId) : undefined,
               operatorId: user?.roleCode === 'subject_teacher' ? user.id : undefined,
               createdAt: this.buildCreatedAtFilter(query.startDate, query.endDate),

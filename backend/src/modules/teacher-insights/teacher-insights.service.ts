@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { behaviorScoreRecordWhere } from '@/common/utils/behavior-score-record.util';
 import { toNumber } from '@/common/utils/bigint.util';
 import { PrismaService } from '@/prisma/prisma.service';
 import { AcademicRecordsService } from '../academic-records/academic-records.service';
@@ -139,6 +140,7 @@ export class TeacherInsightsService {
         schoolId: user.schoolId,
         classId: BigInt(classId),
         createdAt: { gte: recent14dStart },
+        ...behaviorScoreRecordWhere(),
         OR: [
           { subjectCode: { in: subjectCodes } },
           { subjectCode: null, sourceRole: 'subject_teacher' },
@@ -577,6 +579,7 @@ export class TeacherInsightsService {
           gte: range.startAt,
           lt: range.endAtExclusive,
         },
+        ...behaviorScoreRecordWhere(),
         OR: [
           { subjectCode: { in: subjectCodes } },
           { subjectCode: null, sourceRole: 'subject_teacher' },

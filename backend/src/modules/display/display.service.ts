@@ -302,22 +302,18 @@ export class DisplayService {
     }
 
     if (!this.authService.canOverrideClassDisplayBinding(user)) {
-      const existingClassBinding = await this.prisma.displayTerminal.findFirst({
+      const existingBindingCount = await this.prisma.displayTerminal.count({
         where: {
           schoolId: user.schoolId,
           status: 'enabled',
           classId: BigInt(dto.classId),
           terminalCode: { not: dto.terminalCode },
         },
-        select: {
-          terminalCode: true,
-          terminalName: true,
-        },
       });
 
-      if (existingClassBinding) {
+      if (existingBindingCount >= 2) {
         throw new BadRequestException(
-          `该班级已绑定终端「${existingClassBinding.terminalName || existingClassBinding.terminalCode}」，一个班级同时只能绑定一个终端`,
+          '该班级已绑定 2 个终端，一个班级最多同时绑定两个终端',
         );
       }
     }

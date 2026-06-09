@@ -514,19 +514,7 @@ export class AuthService {
       return false;
     }
 
-    if (this.hasHomeroomRoleForClass(user, classId)) {
-      return true;
-    }
-
-    if (rule.moduleType === 'general') {
-      return true;
-    }
-
-    if (typeof rule.subjectCode !== 'string' || !rule.subjectCode) {
-      return false;
-    }
-
-    return this.getRuleSubjectCodesForClass(user, classId).includes(rule.subjectCode);
+    return true;
   }
 
   ensureCanUseRuleForClass(

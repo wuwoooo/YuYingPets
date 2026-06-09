@@ -37,6 +37,12 @@ YuYingPets/
 - `admin-web` 已完成工程骨架初始化
 - `display-app` 已完成目录骨架与双形态拆分
 
+## 生产发布
+
+生产环境发布、后端 release/shared 结构、`deploy.sh` 子命令说明，见：
+
+- [`doc/生产发布手册.md`](/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/doc/生产发布手册.md)
+
 ## 数据初始化（后端）
 
 在部署环境完成数据库连接配置后，可在 `backend` 目录执行：

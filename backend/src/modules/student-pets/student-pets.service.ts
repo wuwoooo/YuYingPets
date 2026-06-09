@@ -4,6 +4,7 @@ import { toNumber } from '@/common/utils/bigint.util';
 import { RenamePetDto } from './dto/rename-pet.dto';
 
 const RENAME_COOLDOWN_DAYS = 7;
+const PET_NICKNAME_MAX_CHARS = 4;
 const NICKNAME_PATTERN = /^[\u4e00-\u9fa5a-zA-Z0-9_\- ·.]+$/;
 
 @Injectable()
@@ -12,8 +13,9 @@ export class StudentPetsService {
 
   async rename(studentPetId: number, dto: RenamePetDto) {
     const nickname = dto.nickname.trim();
-    if (nickname.length < 1 || nickname.length > 12) {
-      throw new BadRequestException('昵称长度需在1-12个字符之间');
+    const nicknameLength = Array.from(nickname).length;
+    if (nicknameLength < 1 || nicknameLength > PET_NICKNAME_MAX_CHARS) {
+      throw new BadRequestException(`昵称长度需在1-${PET_NICKNAME_MAX_CHARS}个字符之间`);
     }
     if (!NICKNAME_PATTERN.test(nickname)) {
       throw new BadRequestException('昵称包含不允许的字符，仅支持中英文、数字、空格和常见符号');

@@ -8,21 +8,44 @@ const DEFAULT_WINDOW_MIN_WIDTH = 960;
 const DEFAULT_WINDOW_MIN_HEIGHT = 540;
 const DEFAULT_FLOATING_BALL_SIZE = 72;
 const DEFAULT_FLOATING_BALL_MARGIN = 18;
+const FLOATING_BALL_PEEK_RATIO = 0.5;
 const DEFAULT_PRODUCTION_SERVICE_ORIGIN = 'https://www.dlbfyy.cn';
 const DEFAULT_PRODUCTION_START_URL = `${DEFAULT_PRODUCTION_SERVICE_ORIGIN}/display/display.html`;
 const DEFAULT_AUTO_UPDATE_URL = `${DEFAULT_PRODUCTION_SERVICE_ORIGIN}/download/display-app/win/`;
 const DEFAULT_AUTO_UPDATE_CHECK_DELAY_MS = 15 * 1000;
 const DEFAULT_AUTO_UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
+// 防止用户多次点击启动图标导致同时运行多个实例。
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    writeLog('info', 'duplicate launch blocked, focusing existing window');
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      bringMainWindowToFront(mainWindow, appConfig);
+      return;
+    }
+    if (app.isReady()) {
+      appConfig = appConfig && Object.keys(appConfig).length ? appConfig : loadAppConfig();
+      createWindow(appConfig);
+    }
+  });
+}
+
 let mainWindow = null;
 let floatingBallWindow = null;
+let splashWindow = null;
 let appConfig = {};
 let logFilePath = null;
 let autoUpdateConfigured = false;
 let autoUpdateCheckInProgress = false;
-let autoUpdateDownloadedInfo = null;
 let autoUpdatePromptInProgress = false;
 let autoUpdateLastProgressLogAt = 0;
+let autoUpdateLastToastPercent = -1;
+let floatingBallState = null;
+/** 本次运行期间的拖动位置（不写入磁盘，重启后恢复默认位置） */
+let floatingBallSessionBounds = null;
 const configuredPermissionSessions = new WeakSet();
 
 function ensureLogFile() {
@@ -54,6 +77,30 @@ function writeLog(level, message, meta = {}) {
   } catch {
     // 日志写入失败不应影响桌面端启动。
   }
+}
+
+function sendAutoUpdateStatus(payload) {
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) {
+    return;
+  }
+  mainWindow.webContents.send('display-app:auto-update-status', payload || null);
+}
+
+function normalizeFloatingBallState(payload) {
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+
+  const value = String(payload.value || '').trim();
+  if (!value) {
+    return null;
+  }
+
+  return {
+    value: value.slice(0, 8),
+    unit: String(payload.unit || '').trim().slice(0, 6),
+    label: String(payload.label || '').trim().slice(0, 8),
+  };
 }
 
 function isAutoUpdateEnabled(config) {
@@ -91,7 +138,6 @@ function promptInstallDownloadedUpdate(info) {
     return;
   }
   autoUpdatePromptInProgress = true;
-  autoUpdateDownloadedInfo = info;
 
   const targetWindow =
     mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()
@@ -186,6 +232,13 @@ function configureAutoUpdater(config) {
       version: info?.version,
       releaseDate: info?.releaseDate,
     });
+    autoUpdateLastToastPercent = -1;
+    sendAutoUpdateStatus({
+      tone: 'info',
+      title: '发现新版本',
+      message: `正在下载 ${info?.version || '最新版本'}`,
+      sticky: false,
+    });
   });
   autoUpdater.on('update-not-available', (info) => {
     writeLog('info', 'auto update not available', {
@@ -198,16 +251,32 @@ function configureAutoUpdater(config) {
       return;
     }
     autoUpdateLastProgressLogAt = now;
+    const percent = Math.round(progress?.percent || 0);
     writeLog('info', 'auto update download progress', {
-      percent: Math.round(progress?.percent || 0),
+      percent,
       transferred: progress?.transferred,
       total: progress?.total,
     });
+    if (percent >= 0 && (autoUpdateLastToastPercent < 0 || percent - autoUpdateLastToastPercent >= 10 || percent === 100)) {
+      autoUpdateLastToastPercent = percent;
+      sendAutoUpdateStatus({
+        tone: 'info',
+        title: '更新下载中',
+        message: `${percent}%`,
+        sticky: false,
+      });
+    }
   });
   autoUpdater.on('update-downloaded', (info) => {
     writeLog('info', 'auto update downloaded', {
       version: info?.version,
       downloadedFile: info?.downloadedFile,
+    });
+    sendAutoUpdateStatus({
+      tone: 'success',
+      title: '更新已下载',
+      message: `新版本 ${info?.version || ''} 已可安装`,
+      sticky: true,
     });
     promptInstallDownloadedUpdate(info);
   });
@@ -381,6 +450,13 @@ function setInlineBubbleVisible(visible) {
   mainWindow.webContents.send('display-app:inline-bubble-visible', Boolean(visible));
 }
 
+function syncFloatingBallState() {
+  if (!floatingBallWindow || floatingBallWindow.isDestroyed() || floatingBallWindow.webContents.isDestroyed()) {
+    return;
+  }
+  floatingBallWindow.webContents.send('display-app:floating-ball-state', floatingBallState);
+}
+
 function ensureWindowResizable(window) {
   if (!window || window.isDestroyed()) {
     return;
@@ -474,7 +550,9 @@ async function clearRuntimeCaches(session, config) {
     return;
   }
 
-  await session.clearCache();
+  // 只清理 Service Worker 与 CacheStorage，确保代码更新生效。
+  // 保留 HTTP 缓存（图片、字体等静态资源），避免每次启动重新下载。
+  // CSS/JS 文件已通过 ?v= 版本号实现缓存失效，无需主动清理 HTTP 缓存。
   await session.clearStorageData({
     storages: ['serviceworkers', 'cachestorage'],
   });
@@ -492,15 +570,74 @@ function buildPlaceholderUrl(params = {}) {
 }
 
 async function showPlaceholder(window, options = {}) {
-  const { title, message, detail, retryUrl } = options;
+  const { title, message, detail, retryUrl, variant } = options;
   await window.loadURL(
     buildPlaceholderUrl({
+      variant,
       title,
       message,
       detail,
       retryUrl,
     }),
   );
+}
+
+async function showStartupPlaceholder(window) {
+  await showPlaceholder(window, {
+    variant: 'loading',
+    title: '育英星宠 Display',
+    message: '正在启动大屏展示，请稍候…',
+    detail: '正在连接展示页并准备课堂界面。',
+  });
+}
+
+function closeSplashWindow() {
+  if (!splashWindow || splashWindow.isDestroyed()) {
+    splashWindow = null;
+    return;
+  }
+  splashWindow.close();
+  splashWindow = null;
+}
+
+async function createSplashWindow() {
+  if (splashWindow && !splashWindow.isDestroyed()) {
+    return splashWindow;
+  }
+
+  const display = screen.getPrimaryDisplay();
+  const bounds = display.bounds;
+  splashWindow = new BrowserWindow({
+    ...bounds,
+    frame: false,
+    resizable: false,
+    movable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    show: false,
+    backgroundColor: DEFAULT_BACKGROUND,
+    webPreferences: {
+      contextIsolation: true,
+      sandbox: true,
+    },
+  });
+
+  splashWindow.on('closed', () => {
+    splashWindow = null;
+  });
+
+  if (typeof splashWindow.setVisibleOnAllWorkspaces === 'function') {
+    splashWindow.setVisibleOnAllWorkspaces(true, {
+      visibleOnFullScreen: true,
+    });
+  }
+
+  await showStartupPlaceholder(splashWindow);
+  splashWindow.show();
+  splashWindow.focus();
+  return splashWindow;
 }
 
 async function loadRemoteWithFallback(window, remoteUrl, fallbackEntryFile) {
@@ -613,6 +750,9 @@ async function createWindow(config) {
   const apiBaseUrl = resolveApiBaseUrl(config);
   const realtimeUrl = resolveRealtimeUrl(config);
   let didShowMainWindow = false;
+  let readyToShow = false;
+  let contentLoaded = false;
+  await createSplashWindow();
   mainWindow = new BrowserWindow({
     width: 1600,
     height: 900,
@@ -653,8 +793,10 @@ async function createWindow(config) {
       mainWindow.setFullScreen(true);
     }
     mainWindow.show();
+    mainWindow.focus();
     setInlineBubbleVisible(true);
     hideFloatingBall();
+    setTimeout(closeSplashWindow, 600);
   };
 
   mainWindow.on('closed', () => {
@@ -707,7 +849,27 @@ async function createWindow(config) {
     });
   });
   registerWindowKeyboardShortcuts(mainWindow);
-  mainWindow.once('ready-to-show', showMainWindow);
+
+  const startupTimestamp = Date.now();
+
+  const tryTransitionToMain = (trigger) => {
+    writeLog('info', 'try transition to main', {
+      trigger,
+      readyToShow,
+      contentLoaded,
+      didShowMainWindow,
+      elapsedMs: Date.now() - startupTimestamp,
+    });
+    if (!readyToShow || !contentLoaded || didShowMainWindow) {
+      return;
+    }
+    setTimeout(showMainWindow, 350);
+  };
+
+  mainWindow.once('ready-to-show', () => {
+    readyToShow = true;
+    tryTransitionToMain('ready-to-show');
+  });
 
   await clearRuntimeCaches(mainWindow.webContents.session, config);
 
@@ -718,9 +880,57 @@ async function createWindow(config) {
     await loadLocalBundle(mainWindow, startupTarget.value);
   }
 
-  setTimeout(showMainWindow, 100);
+  contentLoaded = true;
+  tryTransitionToMain('content-loaded');
+
+  setTimeout(showMainWindow, 6000);
 
   return mainWindow;
+}
+
+function getFloatingBallWorkArea(point) {
+  const display = point
+    ? screen.getDisplayNearestPoint(point)
+    : screen.getPrimaryDisplay();
+  return display.workArea || display.bounds;
+}
+
+function clampFloatingBallPosition(x, y, size, workArea, peekRatio = FLOATING_BALL_PEEK_RATIO) {
+  const peek = Math.round(size * peekRatio);
+  return {
+    x: Math.round(
+      Math.min(
+        workArea.x + workArea.width - peek,
+        Math.max(workArea.x - (size - peek), x),
+      ),
+    ),
+    y: Math.round(
+      Math.min(
+        workArea.y + workArea.height - peek,
+        Math.max(workArea.y - (size - peek), y),
+      ),
+    ),
+  };
+}
+
+function applyFloatingBallPosition(x, y, config) {
+  if (!floatingBallWindow || floatingBallWindow.isDestroyed()) {
+    return null;
+  }
+  const size = getFloatingBallSize(config);
+  const clamped = clampFloatingBallPosition(
+    x,
+    y,
+    size,
+    getFloatingBallWorkArea({ x, y }),
+  );
+  floatingBallWindow.setBounds({
+    width: size,
+    height: size,
+    x: clamped.x,
+    y: clamped.y,
+  });
+  return clamped;
 }
 
 function resolveFloatingBallBounds(config) {
@@ -777,8 +987,48 @@ function syncFloatingBallBounds(config) {
   if (!floatingBallWindow || floatingBallWindow.isDestroyed()) {
     return;
   }
+  if (floatingBallSessionBounds) {
+    applyFloatingBallPosition(
+      floatingBallSessionBounds.x,
+      floatingBallSessionBounds.y,
+      config,
+    );
+    return;
+  }
   const bounds = resolveFloatingBallBounds(config);
   floatingBallWindow.setBounds(bounds);
+}
+
+function moveFloatingBallByDrag(event, payload, config) {
+  const senderWindow = BrowserWindow.fromWebContents(event.sender);
+  if (
+    !senderWindow ||
+    senderWindow !== floatingBallWindow ||
+    floatingBallWindow.isDestroyed()
+  ) {
+    return null;
+  }
+  const screenX = Number(payload?.screenX);
+  const screenY = Number(payload?.screenY);
+  const offsetX = Number(payload?.offsetX);
+  const offsetY = Number(payload?.offsetY);
+  if (
+    !Number.isFinite(screenX) ||
+    !Number.isFinite(screenY) ||
+    !Number.isFinite(offsetX) ||
+    !Number.isFinite(offsetY)
+  ) {
+    return null;
+  }
+  const clamped = applyFloatingBallPosition(
+    screenX - offsetX,
+    screenY - offsetY,
+    config,
+  );
+  if (clamped) {
+    floatingBallSessionBounds = clamped;
+  }
+  return clamped;
 }
 
 function createFloatingBallWindow(config) {
@@ -822,8 +1072,12 @@ function createFloatingBallWindow(config) {
   floatingBallWindow.on('closed', () => {
     writeLog('info', 'floating ball closed');
     floatingBallWindow = null;
+    floatingBallSessionBounds = null;
   });
 
+  floatingBallWindow.webContents.once('did-finish-load', () => {
+    syncFloatingBallState();
+  });
   floatingBallWindow.loadFile(path.join(__dirname, 'floating-ball.html'));
   return floatingBallWindow;
 }
@@ -855,6 +1109,7 @@ function hideFloatingBall() {
     return;
   }
   floatingBallWindow.hide();
+  floatingBallSessionBounds = null;
 }
 
 function bringMainWindowToFront(window, config) {
@@ -924,6 +1179,82 @@ function toggleMaximizeDisplayWindow(window) {
   toggleMaximize();
 }
 
+function requestWindowMinimize(window, reason = 'direct') {
+  if (!window || window.isDestroyed()) {
+    return false;
+  }
+
+  writeLog('info', 'request window minimize', {
+    reason,
+    isFullScreen: window.isFullScreen(),
+    isMaximized: window.isMaximized(),
+    isMinimized: window.isMinimized(),
+    isVisible: window.isVisible(),
+    isFocused: window.isFocused(),
+  });
+
+  try {
+    window.minimize();
+  } catch (error) {
+    writeLog('error', 'window minimize threw', {
+      reason,
+      error: error.message,
+    });
+    return false;
+  }
+
+  return true;
+}
+
+function scheduleMinimizeRetries(window, config, options = {}) {
+  if (!window || window.isDestroyed()) {
+    return;
+  }
+
+  const maxAttempts = Number(options.maxAttempts) > 0 ? Number(options.maxAttempts) : 5;
+  const retryDelayMs = Number(options.retryDelayMs) > 0 ? Number(options.retryDelayMs) : 180;
+  let attempt = 0;
+
+  const tryMinimize = () => {
+    if (!window || window.isDestroyed()) {
+      return;
+    }
+    if (window.isMinimized()) {
+      writeLog('info', 'window minimize confirmed', { attempt });
+      showFloatingBall(config);
+      return;
+    }
+
+    attempt += 1;
+    requestWindowMinimize(window, attempt === 1 ? 'first-attempt' : `retry-${attempt}`);
+
+    setTimeout(() => {
+      if (!window || window.isDestroyed()) {
+        return;
+      }
+      if (window.isMinimized()) {
+        writeLog('info', 'window minimize confirmed after retry', { attempt });
+        showFloatingBall(config);
+        return;
+      }
+      if (attempt >= maxAttempts) {
+        writeLog('warn', 'window minimize not confirmed, hide window as fallback', {
+          attempt,
+          isFullScreen: window.isFullScreen(),
+          isFocused: window.isFocused(),
+          isVisible: window.isVisible(),
+        });
+        window.hide();
+        showFloatingBall(config);
+        return;
+      }
+      tryMinimize();
+    }, retryDelayMs);
+  };
+
+  tryMinimize();
+}
+
 function minimizeDisplayWindow(window) {
   if (!window || window.isDestroyed()) {
     return;
@@ -936,35 +1267,76 @@ function minimizeDisplayWindow(window) {
   ensureWindowResizable(window);
   setInlineBubbleVisible(false);
 
-  let minimized = false;
-  const doMinimize = () => {
-    if (minimized || window.isDestroyed()) {
+  let finished = false;
+  const finishMinimize = () => {
+    if (finished || window.isDestroyed()) {
       return;
     }
-    minimized = true;
+    finished = true;
     window.__displayMinimizePending = false;
     clearWindowAlwaysOnTop(window);
     ensureWindowResizable(window);
     setInlineBubbleVisible(false);
-    window.minimize();
-    showFloatingBall(appConfig);
+    scheduleMinimizeRetries(window, appConfig, {
+      maxAttempts: process.platform === 'win32' ? 6 : 4,
+      retryDelayMs: process.platform === 'win32' ? 220 : 180,
+    });
   };
   const releaseMinimizePending = () => {
-    if (!minimized && !window.isDestroyed()) {
+    if (!finished && !window.isDestroyed()) {
+      writeLog('warn', 'window minimize pending released before completion', {
+        isFullScreen: window.isFullScreen(),
+        isFocused: window.isFocused(),
+        isVisible: window.isVisible(),
+      });
       window.__displayMinimizePending = false;
     }
   };
 
   if (!window.isFullScreen()) {
-    doMinimize();
+    finishMinimize();
     return;
   }
 
-  // macOS 原生全屏需等动画结束后再最小化，过早调用会被系统忽略
-  window.once('leave-full-screen', doMinimize);
+  // 全屏退场动画结束后再进入最小化重试，希沃等大屏设备在 Windows 下常比普通桌面更慢。
+  window.once('leave-full-screen', () => {
+    writeLog('info', 'leave full screen before minimize');
+    setTimeout(finishMinimize, process.platform === 'win32' ? 120 : 40);
+  });
   window.setFullScreen(false);
-  setTimeout(doMinimize, process.platform === 'darwin' ? 2500 : 180);
-  setTimeout(releaseMinimizePending, process.platform === 'darwin' ? 3200 : 1200);
+  setTimeout(finishMinimize, process.platform === 'darwin' ? 2500 : 900);
+  setTimeout(releaseMinimizePending, process.platform === 'darwin' ? 3200 : 2800);
+}
+
+async function confirmQuitApp() {
+  const targetWindow =
+    mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()
+      ? mainWindow
+      : undefined;
+  const options = {
+    type: 'warning',
+    title: '确认退出育英星宠 Display',
+    message: '确认退出当前应用吗？',
+    detail: '退出后桌面悬浮球与展示窗口都会关闭。',
+    buttons: ['退出应用', '取消'],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true,
+  };
+  try {
+    const result = targetWindow
+      ? await dialog.showMessageBox(targetWindow, options)
+      : await dialog.showMessageBox(options);
+    writeLog('info', 'quit app confirm answered', {
+      response: result.response,
+    });
+    return result.response === 0;
+  } catch (error) {
+    writeLog('error', 'quit app confirm failed', {
+      error: error.message,
+    });
+    return false;
+  }
 }
 
 function registerWindowKeyboardShortcuts(window) {
@@ -1017,8 +1389,12 @@ function registerDesktopIpcHandlers() {
     toggleDisplayFullScreen(window);
   });
 
-  ipcMain.handle('display-app:quit', () => {
-    app.quit();
+  ipcMain.handle('display-app:quit', async () => {
+    const confirmed = await confirmQuitApp();
+    if (confirmed) {
+      app.quit();
+    }
+    return confirmed;
   });
 
   ipcMain.handle('display-app:restore-main-window', async () => {
@@ -1042,9 +1418,26 @@ function registerDesktopIpcHandlers() {
   ipcMain.handle('display-app:hide-floating-ball', () => {
     hideFloatingBall();
   });
+
+  ipcMain.handle('display-app:move-floating-ball', (event, payload) => {
+    return moveFloatingBallByDrag(event, payload, appConfig);
+  });
+
+  ipcMain.handle('display-app:set-floating-ball-status', (event, payload) => {
+    const senderWindow = BrowserWindow.fromWebContents(event.sender);
+    if (senderWindow !== mainWindow) {
+      return null;
+    }
+    floatingBallState = normalizeFloatingBallState(payload);
+    syncFloatingBallState();
+    return floatingBallState;
+  });
 }
 
 app.whenReady().then(() => {
+  if (!gotSingleInstanceLock) {
+    return;
+  }
   writeLog('info', 'app ready', {
     appVersion: app.getVersion(),
     isPackaged: app.isPackaged,
@@ -1073,6 +1466,7 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   writeLog('info', 'window all closed');
+  closeSplashWindow();
   if (process.platform !== 'darwin') {
     app.quit();
   }

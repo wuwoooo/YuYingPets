@@ -23,6 +23,14 @@
         display: grid;
         place-items: center;
         user-select: none;
+        -webkit-user-select: none;
+      }
+
+      .ball,
+      .ball * {
+        -webkit-user-drag: none;
+        user-select: none;
+        -webkit-user-select: none;
       }
 
       .ball {
@@ -33,26 +41,33 @@
         padding: 0;
         display: grid;
         place-items: center;
-        cursor: pointer;
+        cursor: grab;
+        touch-action: none;
         background:
           radial-gradient(circle at 30% 22%, rgba(255, 255, 255, 0.95) 0 8px, rgba(255, 255, 255, 0.35) 9px, transparent 18px),
           radial-gradient(circle at 64% 72%, rgba(20, 92, 166, 0.44), transparent 42px),
           linear-gradient(145deg, rgba(255, 255, 255, 0.92), rgba(222, 242, 255, 0.72) 42%, rgba(255, 255, 255, 0.86));
         box-shadow:
-          0 16px 30px rgba(8, 31, 62, 0.32),
-          0 5px 12px rgba(184, 28, 36, 0.18),
+          0 6px 16px rgba(8, 31, 62, 0.15),
+          0 0 0 1px rgba(255, 255, 255, 0.92),
           inset 0 1px 2px rgba(255, 255, 255, 0.95),
-          inset 0 -10px 18px rgba(6, 58, 91, 0.12),
+          inset 0 -8px 14px rgba(6, 58, 91, 0.08),
           inset 0 0 0 1px rgba(255, 255, 255, 0.68);
         outline: none;
         position: relative;
       }
 
-      .ball:hover {
+      .ball:hover:not(.dragging) {
         transform: translateY(-1px);
       }
 
-      .ball:active {
+      .ball.dragging {
+        cursor: grabbing;
+        transform: none;
+      }
+
+      .ball:not(.dragging):active {
+        cursor: grabbing;
         transform: translateY(1px) scale(0.98);
       }
 
@@ -76,6 +91,45 @@
         z-index: 1;
       }
 
+      .info {
+        position: absolute;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        gap: 1px;
+        z-index: 2;
+        color: #12385f;
+        text-align: center;
+        pointer-events: none;
+      }
+
+      .ball.has-status .mark {
+        opacity: 0.14;
+      }
+
+      .ball.has-status .info {
+        display: flex;
+      }
+
+      .value {
+        max-width: 56px;
+        font: 800 16px/1 "Microsoft YaHei", Arial, sans-serif;
+        letter-spacing: 0;
+        white-space: nowrap;
+      }
+
+      .unit {
+        font: 700 10px/1 "Microsoft YaHei", Arial, sans-serif;
+        opacity: 0.88;
+      }
+
+      .label {
+        font: 700 9px/1 "Microsoft YaHei", Arial, sans-serif;
+        opacity: 0.75;
+      }
+
       .sr-only {
         position: absolute;
         width: 1px;
@@ -91,12 +145,40 @@
   </head>
   <body>
     <button class="ball" id="restoreButton" type="button" title="打开育英星宠 Display">
-      <img class="mark" src="./build/floating-ball-logo.png" alt="" />
+      <img class="mark" src="./build/floating-ball-logo.png" alt="" draggable="false" />
+      <span class="info" id="floatingBallInfo" aria-hidden="true">
+        <span class="value" id="floatingBallValue"></span>
+        <span class="unit" id="floatingBallUnit"></span>
+        <span class="label" id="floatingBallLabel"></span>
+      </span>
       <span class="sr-only">打开育英星宠 Display</span>
     </button>
     <script>
       const button = document.getElementById('restoreButton');
+      const info = document.getElementById('floatingBallInfo');
+      const valueEl = document.getElementById('floatingBallValue');
+      const unitEl = document.getElementById('floatingBallUnit');
+      const labelEl = document.getElementById('floatingBallLabel');
+      window.floatingDisplayBall.onStateChange((payload) => {
+        const hasStatus = Boolean(payload && payload.value);
+        button.classList.toggle('has-status', hasStatus);
+        if (!hasStatus) {
+          valueEl.textContent = '';
+          unitEl.textContent = '';
+          labelEl.textContent = '';
+          info.setAttribute('aria-hidden', 'true');
+          return;
+        }
+        valueEl.textContent = payload.value || '';
+        unitEl.textContent = payload.unit || '';
+        labelEl.textContent = payload.label || '';
+        info.setAttribute('aria-hidden', 'false');
+      });
       button.addEventListener('click', async () => {
+        if (suppressClick) {
+          suppressClick = false;
+          return;
+        }
         button.disabled = true;
         try {
           await window.floatingDisplayBall.restoreMainWindow();
@@ -108,6 +190,90 @@
         event.preventDefault();
         await window.floatingDisplayBall.hideFloatingBall();
       });
+      document.addEventListener('dragstart', (event) => {
+        event.preventDefault();
+      });
+
+      const DRAG_THRESHOLD = 6;
+      let pointerStart = null;
+      let dragOffset = null;
+      let isDragging = false;
+      let suppressClick = false;
+      let dragRaf = null;
+      let pendingDrag = null;
+
+      function flushDragMove() {
+        dragRaf = null;
+        if (!pendingDrag) return;
+        const payload = pendingDrag;
+        pendingDrag = null;
+        void window.floatingDisplayBall.moveByDrag(payload);
+        if (pendingDrag) {
+          dragRaf = requestAnimationFrame(flushDragMove);
+        }
+      }
+
+      function queueDragMove(payload) {
+        pendingDrag = payload;
+        if (!dragRaf) {
+          dragRaf = requestAnimationFrame(flushDragMove);
+        }
+      }
+
+      button.addEventListener('pointerdown', (event) => {
+        if (event.button !== 0) return;
+        event.preventDefault();
+        pointerStart = { x: event.clientX, y: event.clientY };
+        dragOffset = { x: event.clientX, y: event.clientY };
+        isDragging = false;
+        suppressClick = false;
+      });
+
+      function handlePointerMove(event) {
+        if (!pointerStart || !dragOffset) return;
+        const dx = event.clientX - pointerStart.x;
+        const dy = event.clientY - pointerStart.y;
+        if (!isDragging) {
+          if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+          isDragging = true;
+          button.classList.add('dragging');
+          button.setPointerCapture(event.pointerId);
+        }
+        event.preventDefault();
+        queueDragMove({
+          screenX: event.screenX,
+          screenY: event.screenY,
+          offsetX: dragOffset.x,
+          offsetY: dragOffset.y,
+        });
+      }
+
+      button.addEventListener('pointermove', handlePointerMove);
+
+      function finishPointerInteraction(event) {
+        if (dragRaf) {
+          cancelAnimationFrame(dragRaf);
+          dragRaf = null;
+        }
+        if (pendingDrag && isDragging) {
+          void window.floatingDisplayBall.moveByDrag(pendingDrag);
+        }
+        const wasDragging = isDragging;
+        pointerStart = null;
+        dragOffset = null;
+        pendingDrag = null;
+        isDragging = false;
+        button.classList.remove('dragging');
+        if (event && button.hasPointerCapture(event.pointerId)) {
+          button.releasePointerCapture(event.pointerId);
+        }
+        if (wasDragging) {
+          suppressClick = true;
+        }
+      }
+
+      button.addEventListener('pointerup', finishPointerInteraction);
+      button.addEventListener('pointercancel', finishPointerInteraction);
     </script>
   </body>
 </html>

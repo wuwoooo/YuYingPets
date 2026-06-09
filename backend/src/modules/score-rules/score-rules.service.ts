@@ -1,4 +1,7 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import { Cache } from 'cache-manager';
+import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { ConfigService } from '@nestjs/config';
 import { ModuleType, ScoreTarget, Sentiment } from '@prisma/client';
 import { AuthService } from '../auth/auth.service';
@@ -54,13 +57,135 @@ export class ScoreRulesService {
     private readonly prisma: PrismaService,
     private readonly authService: AuthService,
     private readonly configService: ConfigService,
+    @Inject(CACHE_MANAGER) private readonly cacheManager: Cache,
   ) {}
 
+  private async getHighFrequencyRuleIds(schoolId: number, teacherId: number | null, forceRefresh = false): Promise<Map<number, number>> {
+    const sixMonthsAgo = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000);
+
+    const getTopValidRuleIds = async (isAdd: boolean, tId: number | null) => {
+      const topRecords = await this.prisma.scoreRecord.groupBy({
+        by: ['ruleId'],
+        where: {
+          schoolId: BigInt(schoolId),
+          operatorId: tId ? BigInt(tId) : undefined,
+          createdAt: { gte: sixMonthsAgo },
+          reversedAt: null,
+          scoreDelta: isAdd ? { gt: 0 } : { lt: 0 },
+        },
+        _count: { ruleId: true },
+        orderBy: { _count: { ruleId: 'desc' } },
+        take: 1000,
+      });
+
+      const candidateIds = topRecords.map((r) => r.ruleId);
+      if (candidateIds.length === 0) return [];
+
+      const validRules = await this.prisma.scoreRule.findMany({
+        where: {
+          id: { in: candidateIds },
+          status: 'enabled',
+          displayEnabled: true,
+        },
+        select: { id: true },
+      });
+
+      const validIdSet = new Set(validRules.map((r) => Number(r.id)));
+      const finalIds: number[] = [];
+      for (const record of topRecords) {
+        const idNum = Number(record.ruleId);
+        if (validIdSet.has(idNum)) {
+          finalIds.push(idNum);
+          if (finalIds.length >= 30) break;
+        }
+      }
+      return finalIds;
+    };
+
+    const globalCacheKey = `high_frequency_rules_global_${schoolId}`;
+    let globalCached = forceRefresh ? null : await this.cacheManager.get<{ add: number[]; deduct: number[] }>(globalCacheKey);
+    if (!globalCached) {
+      globalCached = {
+        add: await getTopValidRuleIds(true, null),
+        deduct: await getTopValidRuleIds(false, null),
+      };
+      await this.cacheManager.set(globalCacheKey, globalCached, 24 * 60 * 60 * 1000);
+    }
+
+    const rankMap = new Map<number, number>();
+
+    if (!teacherId) {
+      let rank = 1;
+      for (const id of globalCached.add) rankMap.set(id, rank++);
+      rank = 1;
+      for (const id of globalCached.deduct) rankMap.set(id, rank++);
+      return rankMap;
+    }
+
+    const teacherCacheKey = `high_frequency_rules_teacher_${teacherId}`;
+    let teacherCached = forceRefresh ? null : await this.cacheManager.get<{ add: number[]; deduct: number[] }>(teacherCacheKey);
+    if (!teacherCached) {
+      teacherCached = {
+        add: await getTopValidRuleIds(true, teacherId),
+        deduct: await getTopValidRuleIds(false, teacherId),
+      };
+      await this.cacheManager.set(teacherCacheKey, teacherCached, 24 * 60 * 60 * 1000);
+    }
+
+    let addRank = 1;
+    let addCount = 0;
+    for (const id of teacherCached.add) {
+      if (!rankMap.has(id)) {
+        rankMap.set(id, addRank++);
+        addCount++;
+      }
+      if (addCount >= 9) break;
+    }
+    for (const id of globalCached.add) {
+      if (!rankMap.has(id)) {
+        rankMap.set(id, addRank + 1000);
+        addCount++;
+        addRank++;
+      }
+      if (addCount >= 9) break;
+    }
+
+    let deductRank = 1;
+    let deductCount = 0;
+    for (const id of teacherCached.deduct) {
+      if (!rankMap.has(id)) {
+        rankMap.set(id, deductRank++);
+        deductCount++;
+      }
+      if (deductCount >= 9) break;
+    }
+    for (const id of globalCached.deduct) {
+      if (!rankMap.has(id)) {
+        rankMap.set(id, deductRank + 1000);
+        deductCount++;
+        deductRank++;
+      }
+      if (deductCount >= 9) break;
+    }
+
+    return rankMap;
+  }
+
+  @Cron(CronExpression.EVERY_DAY_AT_2AM)
+  async precomputeHighFrequencyRulesForAllSchools() {
+    const schools = await this.prisma.school.findMany({ select: { id: true } });
+    for (const school of schools) {
+      await this.getHighFrequencyRuleIds(Number(school.id), null, true);
+    }
+  }
+
   async list(authorization: string | undefined, query: Record<string, string>) {
+    const user = authorization ? await this.authService.getAuthUserFromAuthorization(authorization).catch(() => null) : null;
     const moduleType =
       query.moduleType === ModuleType.general || query.moduleType === ModuleType.subject
         ? query.moduleType
         : undefined;
+    const isHighFrequencyQuery = query.isHighFrequency === undefined ? undefined : query.isHighFrequency === 'true';
 
     const rows = await this.prisma.scoreRule.findMany({
       where: {
@@ -75,20 +200,37 @@ export class ScoreRulesService {
       orderBy: [{ moduleType: 'asc' }, { subjectCode: 'asc' }, { sceneCode: 'asc' }, { name: 'asc' }],
     });
 
-    const filteredRows = await this.filterRowsForAuthorizedViewerContext(authorization, query, rows);
+    const highFreqRankMap = user ? await this.getHighFrequencyRuleIds(toNumber(user.schoolId) ?? 0, toNumber(user.id)) : new Map<number, number>();
+    let filteredRows = await this.filterRowsForAuthorizedViewerContext(authorization, query, rows);
+
+    let resultData = filteredRows.map((row) => {
+      const rowId = toNumber(row.id) ?? 0;
+      const rank = highFreqRankMap.get(rowId);
+      return {
+        ...this.serializeRow(row),
+        isHighFrequency: rank !== undefined || (row.isHighFrequency as boolean),
+        highFrequencyRank: rank,
+      };
+    });
+
+    if (isHighFrequencyQuery !== undefined) {
+      resultData = resultData.filter((r) => r.isHighFrequency === isHighFrequencyQuery);
+    }
 
     return {
       code: 0,
       message: 'ok',
-      data: filteredRows.map((row) => this.serializeRow(row)),
+      data: resultData,
     };
   }
 
   async tree(authorization: string | undefined, query: Record<string, string>) {
+    const user = authorization ? await this.authService.getAuthUserFromAuthorization(authorization).catch(() => null) : null;
     const moduleType =
       query.moduleType === ModuleType.general || query.moduleType === ModuleType.subject
         ? query.moduleType
         : undefined;
+    const isHighFrequencyQuery = query.isHighFrequency === undefined ? undefined : query.isHighFrequency === 'true';
 
     const rows = await this.prisma.scoreRule.findMany({
       where: {
@@ -99,14 +241,14 @@ export class ScoreRulesService {
         displayEnabled:
           query.displayEnabled === undefined ? undefined : query.displayEnabled === 'true',
         adminEnabled: query.adminEnabled === undefined ? undefined : query.adminEnabled === 'true',
-        isHighFrequency:
-          query.isHighFrequency === undefined ? undefined : query.isHighFrequency === 'true',
         deletedAt: null,
       },
       orderBy: [{ moduleType: 'asc' }, { subjectCode: 'asc' }, { sceneCode: 'asc' }, { name: 'asc' }],
     });
 
-    const filteredRows = await this.filterRowsForAuthorizedViewerContext(authorization, query, rows);
+    const highFreqRankMap = user ? await this.getHighFrequencyRuleIds(toNumber(user.schoolId) ?? 0, toNumber(user.id)) : new Map<number, number>();
+    let filteredRows = await this.filterRowsForAuthorizedViewerContext(authorization, query, rows);
+
     const moduleMap = new Map<
       string,
       {
@@ -121,13 +263,20 @@ export class ScoreRulesService {
             sceneCode: string;
             sceneLabel: string;
             count: number;
-            rules: ReturnType<ScoreRulesService['serializeRow']>[];
+            rules: (ReturnType<ScoreRulesService['serializeRow']> & { isHighFrequency?: boolean; highFrequencyRank?: number })[];
           }>;
         }>;
       }
     >();
 
     for (const row of filteredRows) {
+      const rowId = toNumber(row.id) ?? 0;
+      const rank = highFreqRankMap.get(rowId);
+      const isHighFrequency = rank !== undefined || (row.isHighFrequency as boolean);
+      if (isHighFrequencyQuery !== undefined && isHighFrequency !== isHighFrequencyQuery) {
+        continue;
+      }
+
       const moduleKey = row.moduleType;
       const subjectKey = row.subjectCode ?? '__general__';
       const sceneKey = row.sceneCode;
@@ -165,7 +314,8 @@ export class ScoreRulesService {
         subjectNode.scenes.push(sceneNode);
       }
 
-      const serialized = this.serializeRow(row);
+      const serialized = this.serializeRow(row) as any;
+      serialized.isHighFrequency = isHighFrequency;
       sceneNode.rules.push(serialized);
       sceneNode.count += 1;
       subjectNode.count += 1;

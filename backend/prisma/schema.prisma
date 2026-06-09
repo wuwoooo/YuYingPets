@@ -7,6 +7,1122 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model School {
+  id                              BigInt                       @id @default(autoincrement())
+  code                            String                       @unique @db.VarChar(64)
+  name                            String                       @db.VarChar(128)
+  englishName                     String?                      @map("english_name") @db.VarChar(255)
+  motto                           String?                      @db.VarChar(255)
+  logoUrl                         String?                      @map("logo_url") @db.VarChar(255)
+  emblemUrl                       String?                      @map("emblem_url") @db.VarChar(255)
+  phone                           String?                      @db.VarChar(32)
+  address                         String?                      @db.VarChar(255)
+  petGrowthThresholds             Json?                        @map("pet_growth_thresholds")
+  classScoreStudentLinkMultiplier Int                          @default(0) @map("class_score_student_link_multiplier")
+  status                          Status                       @default(enabled)
+  createdAt                       DateTime                     @default(now()) @map("created_at")
+  updatedAt                       DateTime                     @updatedAt @map("updated_at")
+  petDecoChangeCost               Int                          @default(10) @map("pet_deco_change_cost")
+  academicExams                   AcademicExam[]
+  academicScoreRecords            AcademicScoreRecord[]
+  aiStudentSnapshots              AiStudentSnapshot[]
+  classrooms                      Classroom[]
+  classGroupScoreRecords          ClassGroupScoreRecord[]
+  classScoreProfiles              ClassScoreProfile[]
+  classScoreRecords               ClassScoreRecord[]
+  classScoreBatches               ClassScoreRecordBatch[]
+  displayConfigs                  DisplayConfig[]
+  displayTerminals                DisplayTerminal[]
+  gradeConfigs                    GradeConfig[]
+  honors                          Honor[]
+  honorRecords                    HonorRecord[]
+  operationLogs                   OperationLog[]
+  pendingTeacherScheduleSlots     PendingTeacherScheduleSlot[]
+  pets                            Pet[]
+  petDecorations                  PetDecoration[]
+  rewards                         Reward[]
+  rewardOrders                    RewardOrder[]
+  roles                           Role[]
+  scoreRecords                    ScoreRecord[]
+  scoreRecordBatches              ScoreRecordBatch[]
+  scoreRules                      ScoreRule[]
+  semesters                       Semester[]
+  students                        Student[]
+  teacherClassAssignments         TeacherClassAssignment[]
+  teacherObservations             TeacherObservation[]
+  teacherOccupancyRules           TeacherOccupancyRule[]
+  teacherScheduleSlots            TeacherScheduleSlot[]
+  users                           User[]
+
+  @@map("school")
+}
+
+model Semester {
+  id                     BigInt                  @id @default(autoincrement())
+  schoolId               BigInt                  @map("school_id")
+  name                   String                  @db.VarChar(128)
+  startDate              DateTime                @map("start_date") @db.Date
+  endDate                DateTime                @map("end_date") @db.Date
+  isCurrent              Boolean                 @default(false) @map("is_current")
+  status                 Status                  @default(enabled)
+  createdAt              DateTime                @default(now()) @map("created_at")
+  updatedAt              DateTime                @updatedAt @map("updated_at")
+  academicExams          AcademicExam[]
+  academicScoreRecords   AcademicScoreRecord[]
+  aiStudentSnapshots     AiStudentSnapshot[]
+  classrooms             Classroom[]
+  classGroupScoreRecords ClassGroupScoreRecord[]
+  classScoreProfiles     ClassScoreProfile[]
+  classScoreRecords      ClassScoreRecord[]
+  scoreRecords           ScoreRecord[]
+  scoreRules             ScoreRule[]
+  school                 School                  @relation(fields: [schoolId], references: [id])
+
+  @@index([schoolId])
+  @@index([schoolId, isCurrent])
+  @@map("semester")
+}
+
+model Role {
+  id              BigInt              @id @default(autoincrement())
+  schoolId        BigInt              @map("school_id")
+  code            String              @db.VarChar(64)
+  name            String              @db.VarChar(64)
+  description     String?             @db.VarChar(255)
+  isSystem        Boolean             @default(false) @map("is_system")
+  createdAt       DateTime            @default(now()) @map("created_at")
+  updatedAt       DateTime            @updatedAt @map("updated_at")
+  school          School              @relation(fields: [schoolId], references: [id])
+  rolePermissions RolePermissionRel[]
+  users           User[]
+
+  @@index([schoolId])
+  @@map("role")
+}
+
+model Permission {
+  id              BigInt              @id @default(autoincrement())
+  code            String              @unique @db.VarChar(128)
+  name            String              @db.VarChar(128)
+  module          String              @db.VarChar(64)
+  description     String?             @db.VarChar(255)
+  createdAt       DateTime            @default(now()) @map("created_at")
+  updatedAt       DateTime            @updatedAt @map("updated_at")
+  rolePermissions RolePermissionRel[]
+
+  @@map("permission")
+}
+
+model RolePermissionRel {
+  id           BigInt     @id @default(autoincrement())
+  roleId       BigInt     @map("role_id")
+  permissionId BigInt     @map("permission_id")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  permission   Permission @relation(fields: [permissionId], references: [id])
+  role         Role       @relation(fields: [roleId], references: [id])
+
+  @@unique([roleId, permissionId])
+  @@index([permissionId], map: "role_permission_rel_permission_id_fkey")
+  @@map("role_permission_rel")
+}
+
+model User {
+  id                          BigInt                   @id @default(autoincrement())
+  schoolId                    BigInt                   @map("school_id")
+  roleId                      BigInt                   @map("role_id")
+  username                    String                   @unique @db.VarChar(64)
+  passwordHash                String                   @map("password_hash") @db.VarChar(255)
+  name                        String                   @db.VarChar(64)
+  phone                       String?                  @db.VarChar(32)
+  email                       String?                  @db.VarChar(128)
+  status                      Status                   @default(enabled)
+  lastLoginAt                 DateTime?                @map("last_login_at")
+  createdAt                   DateTime                 @default(now()) @map("created_at")
+  updatedAt                   DateTime                 @updatedAt @map("updated_at")
+  deletedAt                   DateTime?                @map("deleted_at")
+  dutyTags                    Json?                    @map("duty_tags")
+  passwordChangeRequired      Boolean                  @default(false) @map("password_change_required")
+  homeroomClasses             Classroom[]              @relation("HomeroomTeacherClasses")
+  classGroupScoreRecords      ClassGroupScoreRecord[]
+  classScoreRecords           ClassScoreRecord[]
+  reversedClassScoreRecords   ClassScoreRecord[]       @relation("ClassScoreRecordReversedBy")
+  classScoreBatches           ClassScoreRecordBatch[]
+  initializedDisplayTerminals DisplayTerminal[]        @relation("DisplayTerminalInitializedBy")
+  displayUnlockSessions       DisplayUnlockSession[]
+  honorRecords                HonorRecord[]
+  operationLogs               OperationLog[]
+  createdRewards              Reward[]                 @relation("RewardCreatedBy")
+  updatedRewards              Reward[]                 @relation("RewardUpdatedBy")
+  rewardOrders                RewardOrder[]
+  scoreRecords                ScoreRecord[]
+  reversedScoreRecords        ScoreRecord[]            @relation("ScoreRecordReversedBy")
+  createdScoreRules           ScoreRule[]              @relation("ScoreRuleCreatedBy")
+  updatedScoreRules           ScoreRule[]              @relation("ScoreRuleUpdatedBy")
+  adoptedStudentPets          StudentPet[]             @relation("StudentPetAdoptedBy")
+  teacherClassAssignments     TeacherClassAssignment[]
+  teacherObservations         TeacherObservation[]
+  teacherScheduleSlots        TeacherScheduleSlot[]
+  role                        Role                     @relation(fields: [roleId], references: [id])
+  school                      School                   @relation(fields: [schoolId], references: [id])
+  scopes                      UserScope[]
+
+  @@index([schoolId])
+  @@index([roleId])
+  @@map("user")
+}
+
+model UserScope {
+  id          BigInt     @id @default(autoincrement())
+  userId      BigInt     @map("user_id")
+  scopeType   ScopeType  @map("scope_type")
+  gradeCode   String?    @map("grade_code") @db.VarChar(32)
+  classId     BigInt?    @map("class_id")
+  subjectCode String?    @map("subject_code") @db.VarChar(32)
+  createdAt   DateTime   @default(now()) @map("created_at")
+  classroom   Classroom? @relation(fields: [classId], references: [id])
+  user        User       @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([classId], map: "user_scope_class_id_fkey")
+  @@map("user_scope")
+}
+
+model Classroom {
+  id                          BigInt                       @id @default(autoincrement())
+  schoolId                    BigInt                       @map("school_id")
+  semesterId                  BigInt                       @map("semester_id")
+  code                        String                       @db.VarChar(64)
+  gradeCode                   String                       @map("grade_code") @db.VarChar(32)
+  gradeName                   String                       @map("grade_name") @db.VarChar(32)
+  name                        String                       @db.VarChar(64)
+  homeroomTeacherId           BigInt?                      @map("homeroom_teacher_id")
+  slogan                      String?                      @db.VarChar(255)
+  targetScore                 Int?                         @map("target_score")
+  countdownTitle              String?                      @map("countdown_title") @db.VarChar(128)
+  countdownDeadlineAt         DateTime?                    @map("countdown_deadline_at")
+  displayStatus               String?                      @map("display_status") @db.VarChar(32)
+  sortOrder                   Int?                         @map("sort_order")
+  status                      Status                       @default(enabled)
+  createdAt                   DateTime                     @default(now()) @map("created_at")
+  updatedAt                   DateTime                     @updatedAt @map("updated_at")
+  deletedAt                   DateTime?                    @map("deleted_at")
+  academicScoreRecords        AcademicScoreRecord[]
+  aiStudentSnapshots          AiStudentSnapshot[]
+  homeroomTeacher             User?                        @relation("HomeroomTeacherClasses", fields: [homeroomTeacherId], references: [id])
+  school                      School                       @relation(fields: [schoolId], references: [id])
+  semester                    Semester                     @relation(fields: [semesterId], references: [id])
+  classGroups                 ClassGroup[]
+  classGroupScoreRecords      ClassGroupScoreRecord[]
+  classScoreProfile           ClassScoreProfile?
+  classScoreRecords           ClassScoreRecord[]
+  displayConfigs              DisplayConfig[]
+  displayTerminals            DisplayTerminal[]
+  displayUnlockSessions       DisplayUnlockSession[]
+  honorRecords                HonorRecord[]
+  pendingTeacherScheduleSlots PendingTeacherScheduleSlot[]
+  rewards                     Reward[]
+  rewardOrders                RewardOrder[]
+  scoreRecords                ScoreRecord[]
+  scoreRecordBatches          ScoreRecordBatch[]
+  students                    Student[]
+  studentProfiles             StudentProfile[]
+  teacherClassAssignments     TeacherClassAssignment[]
+  teacherObservations         TeacherObservation[]
+  teacherScheduleSlots        TeacherScheduleSlot[]
+  userScopes                  UserScope[]
+
+  @@index([schoolId, semesterId])
+  @@index([gradeCode])
+  @@index([homeroomTeacherId])
+  @@index([semesterId], map: "class_semester_id_fkey")
+  @@map("class")
+}
+
+model TeacherClassAssignment {
+  id          BigInt           @id @default(autoincrement())
+  schoolId    BigInt           @map("school_id")
+  teacherId   BigInt           @map("teacher_id")
+  classId     BigInt           @map("class_id")
+  roleInClass TeacherClassRole @map("role_in_class")
+  subjectCode String?          @map("subject_code") @db.VarChar(32)
+  isPrimary   Boolean          @default(false) @map("is_primary")
+  status      Status           @default(enabled)
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @updatedAt @map("updated_at")
+  classroom   Classroom        @relation(fields: [classId], references: [id])
+  school      School           @relation(fields: [schoolId], references: [id])
+  teacher     User             @relation(fields: [teacherId], references: [id])
+
+  @@index([schoolId, classId, roleInClass])
+  @@index([schoolId, teacherId])
+  @@index([teacherId, classId])
+  @@index([classId], map: "teacher_class_assignment_class_id_fkey")
+  @@map("teacher_class_assignment")
+}
+
+model TeacherScheduleSlot {
+  id         BigInt     @id @default(autoincrement())
+  schoolId   BigInt     @map("school_id")
+  teacherId  BigInt     @map("teacher_id")
+  classId    BigInt?    @map("class_id")
+  weekday    Int
+  periodNo   Int        @map("period_no")
+  startTime  String     @map("start_time") @db.VarChar(8)
+  endTime    String     @map("end_time") @db.VarChar(8)
+  subject    String     @db.VarChar(64)
+  className  String?    @map("class_name") @db.VarChar(32)
+  sourceFile String?    @map("source_file") @db.VarChar(255)
+  createdAt  DateTime   @default(now()) @map("created_at")
+  updatedAt  DateTime   @updatedAt @map("updated_at")
+  classroom  Classroom? @relation(fields: [classId], references: [id])
+  school     School     @relation(fields: [schoolId], references: [id])
+  teacher    User       @relation(fields: [teacherId], references: [id])
+
+  @@index([schoolId, teacherId, weekday])
+  @@index([schoolId, weekday, startTime, endTime])
+  @@index([schoolId, classId])
+  @@index([classId], map: "teacher_schedule_slot_class_id_fkey")
+  @@index([teacherId], map: "teacher_schedule_slot_teacher_id_fkey")
+  @@map("teacher_schedule_slot")
+}
+
+model PendingTeacherScheduleSlot {
+  id          BigInt     @id @default(autoincrement())
+  schoolId    BigInt     @map("school_id")
+  classId     BigInt?    @map("class_id")
+  teacherName String     @map("teacher_name") @db.VarChar(64)
+  weekday     Int
+  periodNo    Int        @map("period_no")
+  startTime   String     @map("start_time") @db.VarChar(8)
+  endTime     String     @map("end_time") @db.VarChar(8)
+  subject     String     @db.VarChar(64)
+  className   String?    @map("class_name") @db.VarChar(32)
+  sourceFile  String?    @map("source_file") @db.VarChar(255)
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+  classroom   Classroom? @relation(fields: [classId], references: [id])
+  school      School     @relation(fields: [schoolId], references: [id])
+
+  @@index([schoolId, teacherName])
+  @@index([schoolId, weekday, startTime, endTime])
+  @@index([schoolId, classId])
+  @@index([classId], map: "pending_teacher_schedule_slot_class_id_fkey")
+  @@map("pending_teacher_schedule_slot")
+}
+
+model TeacherOccupancyRule {
+  id           BigInt   @id @default(autoincrement())
+  schoolId     BigInt   @map("school_id")
+  ruleType     String   @default("research") @map("rule_type") @db.VarChar(32)
+  name         String   @db.VarChar(128)
+  weekdays     Json
+  subjectCodes Json     @map("subject_codes")
+  startTime    String   @map("start_time") @db.VarChar(8)
+  endTime      String   @map("end_time") @db.VarChar(8)
+  status       Status   @default(enabled)
+  remark       String?  @db.VarChar(255)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  school       School   @relation(fields: [schoolId], references: [id])
+
+  @@index([schoolId, ruleType, status])
+  @@map("teacher_occupancy_rule")
+}
+
+model GradeConfig {
+  id        BigInt    @id @default(autoincrement())
+  schoolId  BigInt    @map("school_id")
+  code      String    @db.VarChar(32)
+  name      String    @db.VarChar(32)
+  sortOrder Int?      @map("sort_order")
+  status    Status    @default(enabled)
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+  school    School    @relation(fields: [schoolId], references: [id])
+
+  @@unique([schoolId, code])
+  @@index([schoolId])
+  @@index([schoolId, status])
+  @@map("grade_config")
+}
+
+model Student {
+  id                    BigInt                 @id @default(autoincrement())
+  schoolId              BigInt                 @map("school_id")
+  classId               BigInt                 @map("class_id")
+  studentNo             String                 @map("student_no") @db.VarChar(64)
+  name                  String                 @db.VarChar(64)
+  gender                String?                @db.VarChar(16)
+  avatarUrl             String?                @map("avatar_url") @db.VarChar(255)
+  status                Status                 @default(enabled)
+  joinedAt              DateTime?              @map("joined_at") @db.Date
+  createdAt             DateTime               @default(now()) @map("created_at")
+  updatedAt             DateTime               @updatedAt @map("updated_at")
+  deletedAt             DateTime?              @map("deleted_at")
+  academicScoreRecords  AcademicScoreRecord[]
+  aiStudentSnapshots    AiStudentSnapshot[]
+  honorRecords          HonorRecord[]
+  petLevelLogs          PetLevelLog[]
+  rewardOrders          RewardOrder[]
+  scoreRecords          ScoreRecord[]
+  scoreRecordBatchItems ScoreRecordBatchItem[]
+  classroom             Classroom              @relation(fields: [classId], references: [id])
+  school                School                 @relation(fields: [schoolId], references: [id])
+  groupRel              StudentGroupRel?
+  studentPet            StudentPet?
+  profile               StudentProfile?
+  teacherObservations   TeacherObservation[]
+
+  @@unique([classId, studentNo])
+  @@index([schoolId])
+  @@index([classId])
+  @@map("student")
+}
+
+model StudentProfile {
+  id              BigInt    @id @default(autoincrement())
+  studentId       BigInt    @unique @map("student_id")
+  classId         BigInt    @map("class_id")
+  currentScore    Int       @default(0) @map("current_score")
+  totalScore      Int       @default(0) @map("total_score")
+  currentPetLevel Int       @default(1) @map("current_pet_level")
+  medalsCount     Int       @default(0) @map("medals_count")
+  honorsCount     Int       @default(0) @map("honors_count")
+  rewardsCount    Int       @default(0) @map("rewards_count")
+  positiveCount7d Int       @default(0) @map("positive_count_7d")
+  negativeCount7d Int       @default(0) @map("negative_count_7d")
+  lastScoreAt     DateTime? @map("last_score_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  classroom       Classroom @relation(fields: [classId], references: [id])
+  student         Student   @relation(fields: [studentId], references: [id])
+
+  @@index([classId])
+  @@map("student_profile")
+}
+
+model ClassGroup {
+  id                BigInt                  @id @default(autoincrement())
+  classId           BigInt                  @map("class_id")
+  groupNo           Int                     @map("group_no")
+  name              String                  @db.VarChar(64)
+  sortOrder         Int?                    @map("sort_order")
+  status            Status                  @default(enabled)
+  createdAt         DateTime                @default(now()) @map("created_at")
+  updatedAt         DateTime                @updatedAt @map("updated_at")
+  groupCurrentScore Int                     @default(0) @map("group_current_score")
+  groupTotalScore   Int                     @default(0) @map("group_total_score")
+  groupLastScoreAt  DateTime?               @map("group_last_score_at")
+  classroom         Classroom               @relation(fields: [classId], references: [id])
+  groupScoreRecords ClassGroupScoreRecord[]
+  scoreRecords      ScoreRecord[]
+  studentGroupRels  StudentGroupRel[]
+
+  @@unique([classId, groupNo])
+  @@map("class_group")
+}
+
+model ClassGroupScoreRecord {
+  id             BigInt       @id @default(autoincrement())
+  schoolId       BigInt       @map("school_id")
+  semesterId     BigInt       @map("semester_id")
+  classId        BigInt       @map("class_id")
+  classGroupId   BigInt       @map("class_group_id")
+  scoreDelta     Int          @map("score_delta")
+  remark         String?      @db.VarChar(255)
+  sourceTerminal TerminalType @map("source_terminal")
+  sourceRole     String?      @map("source_role") @db.VarChar(32)
+  operatorId     BigInt       @map("operator_id")
+  operatorName   String?      @map("operator_name") @db.VarChar(64)
+  occurredAt     DateTime     @default(now()) @map("occurred_at")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  classGroup     ClassGroup   @relation(fields: [classGroupId], references: [id])
+  classroom      Classroom    @relation(fields: [classId], references: [id])
+  operator       User         @relation(fields: [operatorId], references: [id])
+  school         School       @relation(fields: [schoolId], references: [id])
+  semester       Semester     @relation(fields: [semesterId], references: [id])
+
+  @@index([classId, classGroupId])
+  @@index([schoolId, semesterId])
+  @@index([classGroupId], map: "class_group_score_record_class_group_id_fkey")
+  @@index([operatorId], map: "class_group_score_record_operator_id_fkey")
+  @@index([semesterId], map: "class_group_score_record_semester_id_fkey")
+  @@map("class_group_score_record")
+}
+
+model StudentGroupRel {
+  id           BigInt     @id @default(autoincrement())
+  studentId    BigInt     @unique @map("student_id")
+  classGroupId BigInt     @map("class_group_id")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+  classGroup   ClassGroup @relation(fields: [classGroupId], references: [id])
+  student      Student    @relation(fields: [studentId], references: [id])
+
+  @@index([classGroupId], map: "student_group_rel_class_group_id_fkey")
+  @@map("student_group_rel")
+}
+
+model ScoreRule {
+  id                 BigInt                  @id @default(autoincrement())
+  schoolId           BigInt                  @map("school_id")
+  semesterId         BigInt                  @map("semester_id")
+  moduleType         ModuleType              @map("module_type")
+  subjectCode        String?                 @map("subject_code") @db.VarChar(32)
+  sceneCode          String                  @map("scene_code") @db.VarChar(32)
+  code               String                  @db.VarChar(64)
+  name               String                  @db.VarChar(128)
+  scoreType          ScoreType               @map("score_type")
+  scoreMode          ScoreMode               @default(fixed) @map("score_mode")
+  scoreTarget        ScoreTarget             @default(student) @map("score_target")
+  scoreValue         Int                     @map("score_value")
+  minScore           Int?                    @map("min_score")
+  maxScore           Int?                    @map("max_score")
+  dimension          String?                 @db.VarChar(64)
+  tag                String?                 @db.VarChar(64)
+  sentiment          Sentiment
+  weight             Decimal?                @db.Decimal(6, 2)
+  aiSummaryText      String?                 @map("ai_summary_text") @db.VarChar(255)
+  description        String?                 @db.VarChar(500)
+  allowedRoleCodes   String?                 @map("allowed_role_codes") @db.VarChar(255)
+  isHighFrequency    Boolean                 @default(false) @map("is_high_frequency")
+  displayEnabled     Boolean                 @default(false) @map("display_enabled")
+  adminEnabled       Boolean                 @default(true) @map("admin_enabled")
+  status             Status                  @default(enabled)
+  createdBy          BigInt?                 @map("created_by")
+  updatedBy          BigInt?                 @map("updated_by")
+  createdAt          DateTime                @default(now()) @map("created_at")
+  updatedAt          DateTime                @updatedAt @map("updated_at")
+  deletedAt          DateTime?               @map("deleted_at")
+  classScoreRecords  ClassScoreRecord[]
+  classScoreBatches  ClassScoreRecordBatch[]
+  scoreRecords       ScoreRecord[]
+  scoreRecordBatches ScoreRecordBatch[]
+  createdByUser      User?                   @relation("ScoreRuleCreatedBy", fields: [createdBy], references: [id])
+  school             School                  @relation(fields: [schoolId], references: [id])
+  semester           Semester                @relation(fields: [semesterId], references: [id])
+  updatedByUser      User?                   @relation("ScoreRuleUpdatedBy", fields: [updatedBy], references: [id])
+
+  @@index([schoolId, semesterId])
+  @@index([moduleType, subjectCode, sceneCode])
+  @@index([scoreTarget])
+  @@index([displayEnabled])
+  @@index([createdBy], map: "score_rule_created_by_fkey")
+  @@index([semesterId], map: "score_rule_semester_id_fkey")
+  @@index([updatedBy], map: "score_rule_updated_by_fkey")
+  @@map("score_rule")
+}
+
+model ClassScoreProfile {
+  id              BigInt    @id @default(autoincrement())
+  schoolId        BigInt    @map("school_id")
+  semesterId      BigInt    @map("semester_id")
+  classId         BigInt    @unique @map("class_id")
+  currentScore    Int       @default(0) @map("current_score")
+  totalScore      Int       @default(0) @map("total_score")
+  positiveCount7d Int       @default(0) @map("positive_count_7d")
+  negativeCount7d Int       @default(0) @map("negative_count_7d")
+  lastScoreAt     DateTime? @map("last_score_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  classroom       Classroom @relation(fields: [classId], references: [id])
+  school          School    @relation(fields: [schoolId], references: [id])
+  semester        Semester  @relation(fields: [semesterId], references: [id])
+
+  @@index([schoolId, semesterId])
+  @@index([semesterId], map: "class_score_profile_semester_id_fkey")
+  @@map("class_score_profile")
+}
+
+model ClassScoreRecord {
+  id             BigInt                 @id @default(autoincrement())
+  schoolId       BigInt                 @map("school_id")
+  semesterId     BigInt                 @map("semester_id")
+  classId        BigInt                 @map("class_id")
+  batchId        BigInt?                @map("batch_id")
+  ruleId         BigInt                 @map("rule_id")
+  subjectCode    String?                @map("subject_code") @db.VarChar(32)
+  sceneCode      String?                @map("scene_code") @db.VarChar(32)
+  dimension      String?                @db.VarChar(64)
+  tag            String?                @db.VarChar(64)
+  sentiment      Sentiment
+  scoreDelta     Int                    @map("score_delta")
+  remark         String?                @db.VarChar(255)
+  sourceTerminal TerminalType           @map("source_terminal")
+  sourceRole     String?                @map("source_role") @db.VarChar(32)
+  operatorId     BigInt                 @map("operator_id")
+  operatorName   String?                @map("operator_name") @db.VarChar(64)
+  createdAt      DateTime               @default(now()) @map("created_at")
+  reversedAt     DateTime?              @map("reversed_at")
+  reversedById   BigInt?                @map("reversed_by_id")
+  reverseRemark  String?                @map("reverse_remark") @db.VarChar(255)
+  batch          ClassScoreRecordBatch? @relation(fields: [batchId], references: [id])
+  classroom      Classroom              @relation(fields: [classId], references: [id])
+  operator       User                   @relation(fields: [operatorId], references: [id])
+  reversedBy     User?                  @relation("ClassScoreRecordReversedBy", fields: [reversedById], references: [id])
+  rule           ScoreRule              @relation(fields: [ruleId], references: [id])
+  school         School                 @relation(fields: [schoolId], references: [id])
+  semester       Semester               @relation(fields: [semesterId], references: [id])
+
+  @@index([classId, createdAt])
+  @@index([ruleId])
+  @@index([schoolId, semesterId])
+  @@index([batchId])
+  @@index([reversedAt])
+  @@index([operatorId], map: "class_score_record_operator_id_fkey")
+  @@index([reversedById], map: "class_score_record_reversed_by_id_fkey")
+  @@index([semesterId], map: "class_score_record_semester_id_fkey")
+  @@map("class_score_record")
+}
+
+model ClassScoreRecordBatch {
+  id             BigInt             @id @default(autoincrement())
+  schoolId       BigInt             @map("school_id")
+  ruleId         BigInt             @map("rule_id")
+  scoreDelta     Int                @map("score_delta")
+  remark         String?            @db.VarChar(255)
+  sourceTerminal TerminalType       @map("source_terminal")
+  sourceRole     String?            @map("source_role") @db.VarChar(32)
+  operatorId     BigInt             @map("operator_id")
+  operatorName   String?            @map("operator_name") @db.VarChar(64)
+  createdAt      DateTime           @default(now()) @map("created_at")
+  records        ClassScoreRecord[]
+  operator       User               @relation(fields: [operatorId], references: [id])
+  rule           ScoreRule          @relation(fields: [ruleId], references: [id])
+  school         School             @relation(fields: [schoolId], references: [id])
+
+  @@index([schoolId, createdAt])
+  @@index([ruleId])
+  @@index([operatorId], map: "class_score_record_batch_operator_id_fkey")
+  @@map("class_score_record_batch")
+}
+
+model ScoreRecord {
+  id             BigInt                 @id @default(autoincrement())
+  schoolId       BigInt                 @map("school_id")
+  semesterId     BigInt                 @map("semester_id")
+  classId        BigInt                 @map("class_id")
+  studentId      BigInt                 @map("student_id")
+  classGroupId   BigInt?                @map("class_group_id")
+  ruleId         BigInt                 @map("rule_id")
+  subjectCode    String?                @map("subject_code") @db.VarChar(32)
+  sceneCode      String?                @map("scene_code") @db.VarChar(32)
+  dimension      String?                @db.VarChar(64)
+  tag            String?                @db.VarChar(64)
+  sentiment      Sentiment
+  scoreDelta     Int                    @map("score_delta")
+  remark         String?                @db.VarChar(255)
+  sourceTerminal TerminalType           @map("source_terminal")
+  sourceRole     String?                @map("source_role") @db.VarChar(32)
+  operatorId     BigInt                 @map("operator_id")
+  operatorName   String?                @map("operator_name") @db.VarChar(64)
+  createdAt      DateTime               @default(now()) @map("created_at")
+  occurredAt     DateTime               @default(now()) @map("occurred_at")
+  affectsProfile Boolean                @default(true) @map("affects_profile")
+  reversedAt     DateTime?              @map("reversed_at")
+  reversedById   BigInt?                @map("reversed_by_id")
+  reverseRemark  String?                @map("reverse_remark") @db.VarChar(255)
+  petLevelLogs   PetLevelLog[]
+  classGroup     ClassGroup?            @relation(fields: [classGroupId], references: [id])
+  classroom      Classroom              @relation(fields: [classId], references: [id])
+  operator       User                   @relation(fields: [operatorId], references: [id])
+  reversedBy     User?                  @relation("ScoreRecordReversedBy", fields: [reversedById], references: [id])
+  rule           ScoreRule              @relation(fields: [ruleId], references: [id])
+  school         School                 @relation(fields: [schoolId], references: [id])
+  semester       Semester               @relation(fields: [semesterId], references: [id])
+  student        Student                @relation(fields: [studentId], references: [id])
+  batchItems     ScoreRecordBatchItem[]
+
+  @@index([studentId, createdAt])
+  @@index([classId, createdAt])
+  @@index([studentId, occurredAt])
+  @@index([classId, occurredAt])
+  @@index([ruleId])
+  @@index([subjectCode, sceneCode])
+  @@index([reversedAt])
+  @@index([classGroupId], map: "score_record_class_group_id_fkey")
+  @@index([operatorId], map: "score_record_operator_id_fkey")
+  @@index([reversedById], map: "score_record_reversed_by_id_fkey")
+  @@index([schoolId], map: "score_record_school_id_fkey")
+  @@index([semesterId], map: "score_record_semester_id_fkey")
+  @@map("score_record")
+}
+
+model ScoreRecordBatch {
+  id             BigInt                 @id @default(autoincrement())
+  schoolId       BigInt                 @map("school_id")
+  classId        BigInt                 @map("class_id")
+  actionType     String                 @map("action_type") @db.VarChar(16)
+  ruleId         BigInt                 @map("rule_id")
+  scoreDelta     Int                    @map("score_delta")
+  remark         String?                @db.VarChar(255)
+  sourceTerminal TerminalType           @map("source_terminal")
+  operatorId     BigInt                 @map("operator_id")
+  createdAt      DateTime               @default(now()) @map("created_at")
+  classroom      Classroom              @relation(fields: [classId], references: [id])
+  rule           ScoreRule              @relation(fields: [ruleId], references: [id])
+  school         School                 @relation(fields: [schoolId], references: [id])
+  items          ScoreRecordBatchItem[]
+
+  @@index([classId], map: "score_record_batch_class_id_fkey")
+  @@index([ruleId], map: "score_record_batch_rule_id_fkey")
+  @@index([schoolId], map: "score_record_batch_school_id_fkey")
+  @@map("score_record_batch")
+}
+
+model ScoreRecordBatchItem {
+  id            BigInt           @id @default(autoincrement())
+  batchId       BigInt           @map("batch_id")
+  scoreRecordId BigInt           @map("score_record_id")
+  studentId     BigInt           @map("student_id")
+  createdAt     DateTime         @default(now()) @map("created_at")
+  batch         ScoreRecordBatch @relation(fields: [batchId], references: [id])
+  scoreRecord   ScoreRecord      @relation(fields: [scoreRecordId], references: [id])
+  student       Student          @relation(fields: [studentId], references: [id])
+
+  @@index([batchId], map: "score_record_batch_item_batch_id_fkey")
+  @@index([scoreRecordId], map: "score_record_batch_item_score_record_id_fkey")
+  @@index([studentId], map: "score_record_batch_item_student_id_fkey")
+  @@map("score_record_batch_item")
+}
+
+model AcademicExam {
+  id             BigInt                @id @default(autoincrement())
+  schoolId       BigInt                @map("school_id")
+  semesterId     BigInt                @map("semester_id")
+  gradeName      String?               @map("grade_name") @db.VarChar(32)
+  name           String                @db.VarChar(255)
+  sourceFile     String?               @map("source_file") @db.VarChar(255)
+  importedBy     BigInt?               @map("imported_by")
+  importedByName String?               @map("imported_by_name") @db.VarChar(64)
+  importedAt     DateTime              @default(now()) @map("imported_at")
+  createdAt      DateTime              @default(now()) @map("created_at")
+  updatedAt      DateTime              @updatedAt @map("updated_at")
+  examDate       DateTime              @map("exam_date") @db.Date
+  periodLabel    String?               @map("period_label") @db.VarChar(128)
+  school         School                @relation(fields: [schoolId], references: [id])
+  semester       Semester              @relation(fields: [semesterId], references: [id])
+  records        AcademicScoreRecord[]
+
+  @@index([schoolId, semesterId])
+  @@index([schoolId, examDate])
+  @@index([gradeName])
+  @@index([semesterId], map: "academic_exam_semester_id_fkey")
+  @@map("academic_exam")
+}
+
+model AcademicScoreRecord {
+  id              BigInt       @id @default(autoincrement())
+  schoolId        BigInt       @map("school_id")
+  semesterId      BigInt       @map("semester_id")
+  examId          BigInt       @map("exam_id")
+  classId         BigInt       @map("class_id")
+  studentId       BigInt       @map("student_id")
+  studentNo       String       @map("student_no") @db.VarChar(64)
+  studentName     String       @map("student_name") @db.VarChar(64)
+  className       String       @map("class_name") @db.VarChar(64)
+  subjectCode     String       @map("subject_code") @db.VarChar(32)
+  subjectName     String       @map("subject_name") @db.VarChar(64)
+  score           Decimal?     @db.Decimal(8, 2)
+  jointRank       Int?         @map("joint_rank")
+  schoolRank      Int?         @map("school_rank")
+  schoolRankDelta Int?         @map("school_rank_delta")
+  classRank       Int?         @map("class_rank")
+  classRankDelta  Int?         @map("class_rank_delta")
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+  classroom       Classroom    @relation(fields: [classId], references: [id])
+  exam            AcademicExam @relation(fields: [examId], references: [id])
+  school          School       @relation(fields: [schoolId], references: [id])
+  semester        Semester     @relation(fields: [semesterId], references: [id])
+  student         Student      @relation(fields: [studentId], references: [id])
+
+  @@unique([examId, studentId, subjectCode])
+  @@index([studentId, subjectCode])
+  @@index([classId, subjectCode])
+  @@index([schoolId, semesterId])
+  @@index([semesterId], map: "academic_score_record_semester_id_fkey")
+  @@map("academic_score_record")
+}
+
+model Pet {
+  id          BigInt       @id @default(autoincrement())
+  schoolId    BigInt       @map("school_id")
+  code        String       @db.VarChar(64)
+  name        String       @db.VarChar(64)
+  category    String?      @db.VarChar(64)
+  rarity      String?      @db.VarChar(32)
+  sourceType  String       @default("custom") @map("source_type") @db.VarChar(32)
+  coverUrl    String?      @map("cover_url") @db.VarChar(255)
+  description String?      @db.VarChar(255)
+  status      Status       @default(enabled)
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+  school      School       @relation(fields: [schoolId], references: [id])
+  stages      PetStage[]
+  studentPets StudentPet[]
+
+  @@unique([schoolId, code])
+  @@index([schoolId])
+  @@map("pet")
+}
+
+model PetStage {
+  id             BigInt   @id @default(autoincrement())
+  petId          BigInt   @map("pet_id")
+  stageNo        Int      @map("stage_no")
+  levelNo        Int      @map("level_no")
+  name           String   @db.VarChar(64)
+  imageUrl       String   @map("image_url") @db.VarChar(255)
+  needScoreTotal Int      @map("need_score_total")
+  animationKey   String?  @map("animation_key") @db.VarChar(64)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  pet            Pet      @relation(fields: [petId], references: [id])
+
+  @@unique([petId, stageNo])
+  @@map("pet_stage")
+}
+
+model StudentPet {
+  id                  BigInt                 @id @default(autoincrement())
+  studentId           BigInt                 @unique @map("student_id")
+  petId               BigInt                 @map("pet_id")
+  currentLevel        Int                    @default(1) @map("current_level")
+  currentStageNo      Int                    @default(1) @map("current_stage_no")
+  totalScore          Int                    @default(0) @map("total_score")
+  unlockedAt          DateTime?              @map("unlocked_at")
+  adoptedBy           BigInt?                @map("adopted_by")
+  status              Status                 @default(enabled)
+  createdAt           DateTime               @default(now()) @map("created_at")
+  updatedAt           DateTime               @updatedAt @map("updated_at")
+  lastRenameAt        DateTime?              @map("last_rename_at")
+  nickname            String?                @db.VarChar(32)
+  decoFreeChangeLevel Int?                   @map("deco_free_change_level")
+  decoFreeChangeUsed  Boolean                @default(false) @map("deco_free_change_used")
+  levelLogs           PetLevelLog[]
+  adoptedByUser       User?                  @relation("StudentPetAdoptedBy", fields: [adoptedBy], references: [id])
+  pet                 Pet                    @relation(fields: [petId], references: [id])
+  student             Student                @relation(fields: [studentId], references: [id])
+  decorations         StudentPetDecoration[]
+
+  @@index([adoptedBy], map: "student_pet_adopted_by_fkey")
+  @@index([petId], map: "student_pet_pet_id_fkey")
+  @@map("student_pet")
+}
+
+model PetLevelLog {
+  id                   BigInt       @id @default(autoincrement())
+  studentPetId         BigInt       @map("student_pet_id")
+  studentId            BigInt       @map("student_id")
+  beforeLevel          Int          @map("before_level")
+  afterLevel           Int          @map("after_level")
+  beforeStageNo        Int          @map("before_stage_no")
+  afterStageNo         Int          @map("after_stage_no")
+  triggerScoreRecordId BigInt?      @map("trigger_score_record_id")
+  createdAt            DateTime     @default(now()) @map("created_at")
+  student              Student      @relation(fields: [studentId], references: [id])
+  studentPet           StudentPet   @relation(fields: [studentPetId], references: [id])
+  triggerScoreRecord   ScoreRecord? @relation(fields: [triggerScoreRecordId], references: [id])
+
+  @@index([studentId], map: "pet_level_log_student_id_fkey")
+  @@index([studentPetId], map: "pet_level_log_student_pet_id_fkey")
+  @@index([triggerScoreRecordId], map: "pet_level_log_trigger_score_record_id_fkey")
+  @@map("pet_level_log")
+}
+
+model PetDecoration {
+  id                 BigInt                 @id @default(autoincrement())
+  schoolId           BigInt                 @map("school_id")
+  code               String                 @db.VarChar(64)
+  name               String                 @db.VarChar(64)
+  type               String                 @db.VarChar(32)
+  imageUrl           String                 @map("image_url") @db.VarChar(255)
+  previewUrl         String?                @map("preview_url") @db.VarChar(255)
+  unlockLevel        Int                    @map("unlock_level")
+  sortOrder          Int?                   @map("sort_order")
+  status             Status                 @default(enabled)
+  createdAt          DateTime               @default(now()) @map("created_at")
+  updatedAt          DateTime               @updatedAt @map("updated_at")
+  themeFreeRule      Json?                  @map("theme_free_rule")
+  themeGroup         String?                @map("theme_group") @db.VarChar(64)
+  school             School                 @relation(fields: [schoolId], references: [id])
+  studentDecorations StudentPetDecoration[]
+
+  @@unique([schoolId, code])
+  @@index([schoolId, type])
+  @@index([schoolId, themeGroup])
+  @@map("pet_decoration")
+}
+
+model StudentPetDecoration {
+  id           BigInt        @id @default(autoincrement())
+  studentPetId BigInt        @map("student_pet_id")
+  decorationId BigInt        @map("decoration_id")
+  isEquipped   Boolean       @default(false) @map("is_equipped")
+  unlockedAt   DateTime      @default(now()) @map("unlocked_at")
+  createdAt    DateTime      @default(now()) @map("created_at")
+  decoration   PetDecoration @relation(fields: [decorationId], references: [id])
+  studentPet   StudentPet    @relation(fields: [studentPetId], references: [id])
+
+  @@unique([studentPetId, decorationId])
+  @@index([decorationId], map: "student_pet_decoration_decoration_id_fkey")
+  @@map("student_pet_decoration")
+}
+
+model Honor {
+  id              BigInt        @id @default(autoincrement())
+  schoolId        BigInt        @map("school_id")
+  code            String        @db.VarChar(64)
+  name            String        @db.VarChar(128)
+  category        HonorCategory
+  iconUrl         String?       @map("icon_url") @db.VarChar(255)
+  description     String?       @db.VarChar(255)
+  conditionType   String?       @map("condition_type") @db.VarChar(32)
+  conditionConfig Json?         @map("condition_config")
+  status          Status        @default(enabled)
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+  school          School        @relation(fields: [schoolId], references: [id])
+  honorRecords    HonorRecord[]
+
+  @@index([schoolId])
+  @@map("honor")
+}
+
+model HonorRecord {
+  id            BigInt    @id @default(autoincrement())
+  honorId       BigInt    @map("honor_id")
+  targetType    String    @map("target_type") @db.VarChar(16)
+  targetId      BigInt    @map("target_id")
+  schoolId      BigInt    @map("school_id")
+  classId       BigInt    @map("class_id")
+  studentId     BigInt?   @map("student_id")
+  grantedBy     BigInt?   @map("granted_by")
+  grantedAt     DateTime  @map("granted_at")
+  remark        String?   @db.VarChar(255)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  classroom     Classroom @relation(fields: [classId], references: [id])
+  grantedByUser User?     @relation(fields: [grantedBy], references: [id])
+  honor         Honor     @relation(fields: [honorId], references: [id])
+  school        School    @relation(fields: [schoolId], references: [id])
+  student       Student?  @relation(fields: [studentId], references: [id])
+
+  @@index([classId], map: "honor_record_class_id_fkey")
+  @@index([grantedBy], map: "honor_record_granted_by_fkey")
+  @@index([honorId], map: "honor_record_honor_id_fkey")
+  @@index([schoolId], map: "honor_record_school_id_fkey")
+  @@index([studentId], map: "honor_record_student_id_fkey")
+  @@map("honor_record")
+}
+
+model Reward {
+  id              BigInt        @id @default(autoincrement())
+  schoolId        BigInt        @map("school_id")
+  scopeType       String        @default("global") @map("scope_type") @db.VarChar(16)
+  classId         BigInt?       @map("class_id")
+  code            String        @db.VarChar(64)
+  name            String        @db.VarChar(128)
+  category        String?       @db.VarChar(32)
+  imageUrl        String?       @map("image_url") @db.VarChar(255)
+  scoreCost       Int           @map("score_cost")
+  stockQty        Int?          @map("stock_qty")
+  isInfiniteStock Boolean       @default(false) @map("is_infinite_stock")
+  status          Status        @default(enabled)
+  createdBy       BigInt?       @map("created_by")
+  updatedBy       BigInt?       @map("updated_by")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+  classroom       Classroom?    @relation(fields: [classId], references: [id])
+  createdByUser   User?         @relation("RewardCreatedBy", fields: [createdBy], references: [id])
+  school          School        @relation(fields: [schoolId], references: [id])
+  updatedByUser   User?         @relation("RewardUpdatedBy", fields: [updatedBy], references: [id])
+  rewardOrders    RewardOrder[]
+
+  @@index([schoolId])
+  @@index([schoolId, classId, status])
+  @@index([createdBy])
+  @@index([classId], map: "reward_class_id_fkey")
+  @@index([updatedBy], map: "reward_updated_by_fkey")
+  @@map("reward")
+}
+
+model RewardOrder {
+  id             BigInt            @id @default(autoincrement())
+  schoolId       BigInt            @map("school_id")
+  classId        BigInt            @map("class_id")
+  studentId      BigInt            @map("student_id")
+  rewardId       BigInt            @map("reward_id")
+  scoreCost      Int               @map("score_cost")
+  status         RewardOrderStatus @default(received)
+  sourceTerminal TerminalType      @map("source_terminal")
+  operatorId     BigInt            @map("operator_id")
+  operatorRole   String?           @map("operator_role") @db.VarChar(32)
+  createdAt      DateTime          @default(now()) @map("created_at")
+  classroom      Classroom         @relation(fields: [classId], references: [id])
+  operator       User              @relation(fields: [operatorId], references: [id])
+  reward         Reward            @relation(fields: [rewardId], references: [id])
+  school         School            @relation(fields: [schoolId], references: [id])
+  student        Student           @relation(fields: [studentId], references: [id])
+
+  @@index([classId])
+  @@index([studentId])
+  @@index([operatorId], map: "reward_order_operator_id_fkey")
+  @@index([rewardId], map: "reward_order_reward_id_fkey")
+  @@index([schoolId], map: "reward_order_school_id_fkey")
+  @@map("reward_order")
+}
+
+model DisplayTerminal {
+  id                BigInt     @id @default(autoincrement())
+  schoolId          BigInt     @map("school_id")
+  classId           BigInt?    @map("class_id")
+  terminalCode      String     @unique @map("terminal_code") @db.VarChar(128)
+  terminalName      String     @map("terminal_name") @db.VarChar(128)
+  initializedBy     BigInt?    @map("initialized_by")
+  initializedAt     DateTime?  @map("initialized_at")
+  lastBoundAt       DateTime?  @map("last_bound_at")
+  lastOnlineAt      DateTime?  @map("last_online_at")
+  status            Status     @default(enabled)
+  createdAt         DateTime   @default(now()) @map("created_at")
+  updatedAt         DateTime   @updatedAt @map("updated_at")
+  classroom         Classroom? @relation(fields: [classId], references: [id])
+  initializedByUser User?      @relation("DisplayTerminalInitializedBy", fields: [initializedBy], references: [id])
+  school            School     @relation(fields: [schoolId], references: [id])
+
+  @@index([schoolId])
+  @@index([classId])
+  @@index([initializedBy], map: "display_terminal_initialized_by_fkey")
+  @@map("display_terminal")
+}
+
+model DisplayConfig {
+  id                 BigInt     @id @default(autoincrement())
+  schoolId           BigInt     @map("school_id")
+  classId            BigInt?    @map("class_id")
+  bgImageUrl         String?    @map("bg_image_url") @db.VarChar(255)
+  title              String?    @db.VarChar(128)
+  subtitle           String?    @db.VarChar(255)
+  weatherLabel       String?    @map("weather_label") @db.VarChar(64)
+  weatherLatitude    Decimal?   @map("weather_latitude") @db.Decimal(10, 6)
+  weatherLongitude   Decimal?   @map("weather_longitude") @db.Decimal(10, 6)
+  animationSpeed     String?    @map("animation_speed") @db.VarChar(16)
+  allowSkipAnimation Boolean    @default(true) @map("allow_skip_animation")
+  defaultMode        String?    @map("default_mode") @db.VarChar(32)
+  createdAt          DateTime   @default(now()) @map("created_at")
+  updatedAt          DateTime   @updatedAt @map("updated_at")
+  classroom          Classroom? @relation(fields: [classId], references: [id])
+  school             School     @relation(fields: [schoolId], references: [id])
+
+  @@index([classId], map: "display_config_class_id_fkey")
+  @@index([schoolId], map: "display_config_school_id_fkey")
+  @@map("display_config")
+}
+
+model DisplayUnlockSession {
+  id                  BigInt              @id @default(autoincrement())
+  classId             BigInt              @map("class_id")
+  displayTerminalCode String              @map("display_terminal_code") @db.VarChar(64)
+  userId              BigInt              @map("user_id")
+  roleCode            String              @map("role_code") @db.VarChar(32)
+  unlockedAt          DateTime            @map("unlocked_at")
+  expiredAt           DateTime            @map("expired_at")
+  status              DisplayUnlockStatus @default(active)
+  createdAt           DateTime            @default(now()) @map("created_at")
+  classroom           Classroom           @relation(fields: [classId], references: [id])
+  user                User                @relation(fields: [userId], references: [id])
+
+  @@index([classId, displayTerminalCode])
+  @@index([userId], map: "display_unlock_session_user_id_fkey")
+  @@map("display_unlock_session")
+}
+
+model AiStudentSnapshot {
+  id               BigInt      @id @default(autoincrement())
+  schoolId         BigInt      @map("school_id")
+  semesterId       BigInt      @map("semester_id")
+  classId          BigInt      @map("class_id")
+  studentId        BigInt      @map("student_id")
+  snapshotDate     DateTime    @map("snapshot_date") @db.Date
+  periodType       PeriodType  @map("period_type")
+  positiveSummary  Json?       @map("positive_summary")
+  negativeSummary  Json?       @map("negative_summary")
+  dimensionSummary Json?       @map("dimension_summary")
+  trendSummary     Json?       @map("trend_summary")
+  aiSummary        String?     @map("ai_summary") @db.Text
+  aiSuggestion     String?     @map("ai_suggestion") @db.Text
+  generatedBy      GeneratedBy @default(manual) @map("generated_by")
+  createdAt        DateTime    @default(now()) @map("created_at")
+  classroom        Classroom   @relation(fields: [classId], references: [id])
+  school           School      @relation(fields: [schoolId], references: [id])
+  semester         Semester    @relation(fields: [semesterId], references: [id])
+  student          Student     @relation(fields: [studentId], references: [id])
+
+  @@index([studentId, snapshotDate])
+  @@index([classId, periodType])
+  @@index([schoolId], map: "ai_student_snapshot_school_id_fkey")
+  @@index([semesterId], map: "ai_student_snapshot_semester_id_fkey")
+  @@map("ai_student_snapshot")
+}
+
+model TeacherObservation {
+  id              BigInt    @id @default(autoincrement())
+  schoolId        BigInt    @map("school_id")
+  classId         BigInt    @map("class_id")
+  studentId       BigInt    @map("student_id")
+  teacherId       BigInt    @map("teacher_id")
+  observationType String?   @map("observation_type") @db.VarChar(32)
+  content         String    @db.Text
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  classroom       Classroom @relation(fields: [classId], references: [id])
+  school          School    @relation(fields: [schoolId], references: [id])
+  student         Student   @relation(fields: [studentId], references: [id])
+  teacher         User      @relation(fields: [teacherId], references: [id])
+
+  @@index([studentId, createdAt])
+  @@index([classId], map: "teacher_observation_class_id_fkey")
+  @@index([schoolId], map: "teacher_observation_school_id_fkey")
+  @@index([teacherId], map: "teacher_observation_teacher_id_fkey")
+  @@map("teacher_observation")
+}
+
+model OperationLog {
+  id           BigInt       @id @default(autoincrement())
+  schoolId     BigInt       @map("school_id")
+  userId       BigInt?      @map("user_id")
+  roleCode     String?      @map("role_code") @db.VarChar(32)
+  terminalType TerminalType @map("terminal_type")
+  module       String       @db.VarChar(64)
+  action       String       @db.VarChar(64)
+  targetType   String?      @map("target_type") @db.VarChar(32)
+  targetId     BigInt?      @map("target_id")
+  detail       Json?
+  createdAt    DateTime     @default(now()) @map("created_at")
+  school       School       @relation(fields: [schoolId], references: [id])
+  user         User?        @relation(fields: [userId], references: [id])
+
+  @@index([schoolId, createdAt])
+  @@index([userId, createdAt])
+  @@map("operation_log")
+}
+
+model CallQueue {
+  id             BigInt   @id @default(autoincrement())
+  schoolId       BigInt   @map("school_id")
+  classId        BigInt   @map("class_id")
+  location       String   @map("location") @db.VarChar(128)
+  callerId       BigInt   @map("caller_id")
+  callerName     String   @map("caller_name") @db.VarChar(64)
+  calledStudents Json     @map("called_students")
+  status         String   @default("pending") @db.VarChar(32)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@index([schoolId])
+  @@index([classId, status])
+  @@map("call_queue")
+}
+
 enum Status {
   enabled
   disabled
@@ -79,1106 +1195,4 @@ enum TeacherClassRole {
   homeroom
   co_homeroom
   subject_teacher
-}
-
-model School {
-  id                  BigInt   @id @default(autoincrement())
-  code                String   @unique @db.VarChar(64)
-  name                String   @db.VarChar(128)
-  englishName         String?  @map("english_name") @db.VarChar(255)
-  motto               String?  @db.VarChar(255)
-  logoUrl             String?  @map("logo_url") @db.VarChar(255)
-  emblemUrl           String?  @map("emblem_url") @db.VarChar(255)
-  phone               String?  @db.VarChar(32)
-  address             String?  @db.VarChar(255)
-  petGrowthThresholds Json?    @map("pet_growth_thresholds")
-  classScoreStudentLinkMultiplier Int @default(0) @map("class_score_student_link_multiplier")
-  petDecoChangeCost Int        @default(10) @map("pet_deco_change_cost")
-  status              Status   @default(enabled)
-  createdAt           DateTime @default(now()) @map("created_at")
-  updatedAt           DateTime @updatedAt @map("updated_at")
-
-  semesters                   Semester[]
-  roles                       Role[]
-  users                       User[]
-  classrooms                  Classroom[]
-  gradeConfigs                GradeConfig[]
-  students                    Student[]
-  scoreRules                  ScoreRule[]
-  scoreRecords                ScoreRecord[]
-  scoreRecordBatches          ScoreRecordBatch[]
-  academicExams               AcademicExam[]
-  academicScoreRecords        AcademicScoreRecord[]
-  classScoreProfiles          ClassScoreProfile[]
-  classScoreRecords           ClassScoreRecord[]
-  classScoreBatches           ClassScoreRecordBatch[]
-  classGroupScoreRecords      ClassGroupScoreRecord[]
-  pets                        Pet[]
-  petDecorations              PetDecoration[]
-  honors                      Honor[]
-  honorRecords                HonorRecord[]
-  rewards                     Reward[]
-  rewardOrders                RewardOrder[]
-  displayConfigs              DisplayConfig[]
-  displayTerminals            DisplayTerminal[]
-  aiStudentSnapshots          AiStudentSnapshot[]
-  teacherClassAssignments     TeacherClassAssignment[]
-  teacherObservations         TeacherObservation[]
-  teacherScheduleSlots        TeacherScheduleSlot[]
-  pendingTeacherScheduleSlots PendingTeacherScheduleSlot[]
-  teacherOccupancyRules       TeacherOccupancyRule[]
-  operationLogs               OperationLog[]
-
-  @@map("school")
-}
-
-model Semester {
-  id        BigInt   @id @default(autoincrement())
-  schoolId  BigInt   @map("school_id")
-  name      String   @db.VarChar(128)
-  startDate DateTime @map("start_date") @db.Date
-  endDate   DateTime @map("end_date") @db.Date
-  isCurrent Boolean  @default(false) @map("is_current")
-  status    Status   @default(enabled)
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  school               School                @relation(fields: [schoolId], references: [id])
-  classrooms           Classroom[]
-  scoreRules           ScoreRule[]
-  scoreRecords         ScoreRecord[]
-  academicExams        AcademicExam[]
-  academicScoreRecords AcademicScoreRecord[]
-  classScoreProfiles   ClassScoreProfile[]
-  classScoreRecords      ClassScoreRecord[]
-  classGroupScoreRecords ClassGroupScoreRecord[]
-  aiStudentSnapshots     AiStudentSnapshot[]
-
-  @@index([schoolId])
-  @@index([schoolId, isCurrent])
-  @@map("semester")
-}
-
-model Role {
-  id          BigInt   @id @default(autoincrement())
-  schoolId    BigInt   @map("school_id")
-  code        String   @db.VarChar(64)
-  name        String   @db.VarChar(64)
-  description String?  @db.VarChar(255)
-  isSystem    Boolean  @default(false) @map("is_system")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
-
-  school          School              @relation(fields: [schoolId], references: [id])
-  users           User[]
-  rolePermissions RolePermissionRel[]
-
-  @@index([schoolId])
-  @@map("role")
-}
-
-model Permission {
-  id          BigInt   @id @default(autoincrement())
-  code        String   @unique @db.VarChar(128)
-  name        String   @db.VarChar(128)
-  module      String   @db.VarChar(64)
-  description String?  @db.VarChar(255)
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
-
-  rolePermissions RolePermissionRel[]
-
-  @@map("permission")
-}
-
-model RolePermissionRel {
-  id           BigInt   @id @default(autoincrement())
-  roleId       BigInt   @map("role_id")
-  permissionId BigInt   @map("permission_id")
-  createdAt    DateTime @default(now()) @map("created_at")
-
-  role       Role       @relation(fields: [roleId], references: [id])
-  permission Permission @relation(fields: [permissionId], references: [id])
-
-  @@unique([roleId, permissionId])
-  @@map("role_permission_rel")
-}
-
-model User {
-  id           BigInt    @id @default(autoincrement())
-  schoolId     BigInt    @map("school_id")
-  roleId       BigInt    @map("role_id")
-  username     String    @unique @db.VarChar(64)
-  passwordHash String    @map("password_hash") @db.VarChar(255)
-  name         String    @db.VarChar(64)
-  phone        String?   @db.VarChar(32)
-  email        String?   @db.VarChar(128)
-  dutyTags     Json?     @map("duty_tags")
-  passwordChangeRequired Boolean   @default(false) @map("password_change_required")
-  status       Status    @default(enabled)
-  lastLoginAt  DateTime? @map("last_login_at")
-  createdAt    DateTime  @default(now()) @map("created_at")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
-  deletedAt    DateTime? @map("deleted_at")
-
-  school                      School                   @relation(fields: [schoolId], references: [id])
-  role                        Role                     @relation(fields: [roleId], references: [id])
-  scopes                      UserScope[]
-  homeroomClasses             Classroom[]              @relation("HomeroomTeacherClasses")
-  scoreRecords                ScoreRecord[]
-  classScoreRecords           ClassScoreRecord[]
-  classScoreBatches           ClassScoreRecordBatch[]
-  classGroupScoreRecords      ClassGroupScoreRecord[]
-  createdScoreRules           ScoreRule[]              @relation("ScoreRuleCreatedBy")
-  updatedScoreRules           ScoreRule[]              @relation("ScoreRuleUpdatedBy")
-  createdRewards             Reward[]                 @relation("RewardCreatedBy")
-  updatedRewards             Reward[]                 @relation("RewardUpdatedBy")
-  rewardOrders                RewardOrder[]
-  honorRecords                HonorRecord[]
-  displayUnlockSessions       DisplayUnlockSession[]
-  initializedDisplayTerminals DisplayTerminal[]        @relation("DisplayTerminalInitializedBy")
-  adoptedStudentPets          StudentPet[]             @relation("StudentPetAdoptedBy")
-  teacherClassAssignments     TeacherClassAssignment[]
-  teacherObservations         TeacherObservation[]
-  teacherScheduleSlots        TeacherScheduleSlot[]
-  operationLogs               OperationLog[]
-  reversedScoreRecords        ScoreRecord[]            @relation("ScoreRecordReversedBy")
-  reversedClassScoreRecords   ClassScoreRecord[]       @relation("ClassScoreRecordReversedBy")
-
-  @@index([schoolId])
-  @@index([roleId])
-  @@map("user")
-}
-
-model UserScope {
-  id          BigInt    @id @default(autoincrement())
-  userId      BigInt    @map("user_id")
-  scopeType   ScopeType @map("scope_type")
-  gradeCode   String?   @map("grade_code") @db.VarChar(32)
-  classId     BigInt?   @map("class_id")
-  subjectCode String?   @map("subject_code") @db.VarChar(32)
-  createdAt   DateTime  @default(now()) @map("created_at")
-
-  user      User       @relation(fields: [userId], references: [id])
-  classroom Classroom? @relation(fields: [classId], references: [id])
-
-  @@index([userId])
-  @@map("user_scope")
-}
-
-model Classroom {
-  id                  BigInt    @id @default(autoincrement())
-  schoolId            BigInt    @map("school_id")
-  semesterId          BigInt    @map("semester_id")
-  code                String    @db.VarChar(64)
-  gradeCode           String    @map("grade_code") @db.VarChar(32)
-  gradeName           String    @map("grade_name") @db.VarChar(32)
-  name                String    @db.VarChar(64)
-  homeroomTeacherId   BigInt?   @map("homeroom_teacher_id")
-  slogan              String?   @db.VarChar(255)
-  targetScore         Int?      @map("target_score")
-  countdownTitle      String?   @map("countdown_title") @db.VarChar(128)
-  countdownDeadlineAt DateTime? @map("countdown_deadline_at")
-  displayStatus       String?   @map("display_status") @db.VarChar(32)
-  sortOrder           Int?      @map("sort_order")
-  status              Status    @default(enabled)
-  createdAt           DateTime  @default(now()) @map("created_at")
-  updatedAt           DateTime  @updatedAt @map("updated_at")
-  deletedAt           DateTime? @map("deleted_at")
-
-  school                      School                       @relation(fields: [schoolId], references: [id])
-  semester                    Semester                     @relation(fields: [semesterId], references: [id])
-  homeroomTeacher             User?                        @relation("HomeroomTeacherClasses", fields: [homeroomTeacherId], references: [id])
-  students                    Student[]
-  userScopes                  UserScope[]
-  teacherClassAssignments     TeacherClassAssignment[]
-  classGroups                 ClassGroup[]
-  studentProfiles             StudentProfile[]
-  scoreRecords                ScoreRecord[]
-  scoreRecordBatches          ScoreRecordBatch[]
-  academicScoreRecords        AcademicScoreRecord[]
-  classScoreProfile           ClassScoreProfile?
-  classScoreRecords           ClassScoreRecord[]
-  classGroupScoreRecords      ClassGroupScoreRecord[]
-  honorRecords                HonorRecord[]
-  rewards                     Reward[]
-  rewardOrders                RewardOrder[]
-  displayConfigs              DisplayConfig[]
-  displayTerminals            DisplayTerminal[]
-  displayUnlockSessions       DisplayUnlockSession[]
-  aiStudentSnapshots          AiStudentSnapshot[]
-  teacherObservations         TeacherObservation[]
-  teacherScheduleSlots        TeacherScheduleSlot[]
-  pendingTeacherScheduleSlots PendingTeacherScheduleSlot[]
-
-  @@index([schoolId, semesterId])
-  @@index([gradeCode])
-  @@index([homeroomTeacherId])
-  @@map("class")
-}
-
-model TeacherClassAssignment {
-  id          BigInt           @id @default(autoincrement())
-  schoolId    BigInt           @map("school_id")
-  teacherId   BigInt           @map("teacher_id")
-  classId     BigInt           @map("class_id")
-  roleInClass TeacherClassRole @map("role_in_class")
-  subjectCode String?          @map("subject_code") @db.VarChar(32)
-  isPrimary   Boolean          @default(false) @map("is_primary")
-  status      Status           @default(enabled)
-  createdAt   DateTime         @default(now()) @map("created_at")
-  updatedAt   DateTime         @updatedAt @map("updated_at")
-
-  school    School    @relation(fields: [schoolId], references: [id])
-  teacher   User      @relation(fields: [teacherId], references: [id])
-  classroom Classroom @relation(fields: [classId], references: [id])
-
-  @@index([schoolId, classId, roleInClass])
-  @@index([schoolId, teacherId])
-  @@index([teacherId, classId])
-  @@map("teacher_class_assignment")
-}
-
-model TeacherScheduleSlot {
-  id         BigInt   @id @default(autoincrement())
-  schoolId   BigInt   @map("school_id")
-  teacherId  BigInt   @map("teacher_id")
-  classId    BigInt?  @map("class_id")
-  weekday    Int
-  periodNo   Int      @map("period_no")
-  startTime  String   @map("start_time") @db.VarChar(8)
-  endTime    String   @map("end_time") @db.VarChar(8)
-  subject    String   @db.VarChar(64)
-  className  String?  @map("class_name") @db.VarChar(32)
-  sourceFile String?  @map("source_file") @db.VarChar(255)
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @updatedAt @map("updated_at")
-
-  school    School     @relation(fields: [schoolId], references: [id])
-  teacher   User       @relation(fields: [teacherId], references: [id])
-  classroom Classroom? @relation(fields: [classId], references: [id])
-
-  @@index([schoolId, teacherId, weekday])
-  @@index([schoolId, weekday, startTime, endTime])
-  @@index([schoolId, classId])
-  @@map("teacher_schedule_slot")
-}
-
-model PendingTeacherScheduleSlot {
-  id          BigInt   @id @default(autoincrement())
-  schoolId    BigInt   @map("school_id")
-  classId     BigInt?  @map("class_id")
-  teacherName String   @map("teacher_name") @db.VarChar(64)
-  weekday     Int
-  periodNo    Int      @map("period_no")
-  startTime   String   @map("start_time") @db.VarChar(8)
-  endTime     String   @map("end_time") @db.VarChar(8)
-  subject     String   @db.VarChar(64)
-  className   String?  @map("class_name") @db.VarChar(32)
-  sourceFile  String?  @map("source_file") @db.VarChar(255)
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
-
-  school    School     @relation(fields: [schoolId], references: [id])
-  classroom Classroom? @relation(fields: [classId], references: [id])
-
-  @@index([schoolId, teacherName])
-  @@index([schoolId, weekday, startTime, endTime])
-  @@index([schoolId, classId])
-  @@map("pending_teacher_schedule_slot")
-}
-
-model TeacherOccupancyRule {
-  id           BigInt   @id @default(autoincrement())
-  schoolId     BigInt   @map("school_id")
-  ruleType     String   @default("research") @map("rule_type") @db.VarChar(32)
-  name         String   @db.VarChar(128)
-  weekdays     Json
-  subjectCodes Json     @map("subject_codes")
-  startTime    String   @map("start_time") @db.VarChar(8)
-  endTime      String   @map("end_time") @db.VarChar(8)
-  status       Status   @default(enabled)
-  remark       String?  @db.VarChar(255)
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
-
-  school School @relation(fields: [schoolId], references: [id])
-
-  @@index([schoolId, ruleType, status])
-  @@map("teacher_occupancy_rule")
-}
-
-model GradeConfig {
-  id        BigInt    @id @default(autoincrement())
-  schoolId  BigInt    @map("school_id")
-  code      String    @db.VarChar(32)
-  name      String    @db.VarChar(32)
-  sortOrder Int?      @map("sort_order")
-  status    Status    @default(enabled)
-  createdAt DateTime  @default(now()) @map("created_at")
-  updatedAt DateTime  @updatedAt @map("updated_at")
-  deletedAt DateTime? @map("deleted_at")
-
-  school School @relation(fields: [schoolId], references: [id])
-
-  @@unique([schoolId, code])
-  @@index([schoolId])
-  @@index([schoolId, status])
-  @@map("grade_config")
-}
-
-model Student {
-  id        BigInt    @id @default(autoincrement())
-  schoolId  BigInt    @map("school_id")
-  classId   BigInt    @map("class_id")
-  studentNo String    @map("student_no") @db.VarChar(64)
-  name      String    @db.VarChar(64)
-  gender    String?   @db.VarChar(16)
-  avatarUrl String?   @map("avatar_url") @db.VarChar(255)
-  status    Status    @default(enabled)
-  joinedAt  DateTime? @map("joined_at") @db.Date
-  createdAt DateTime  @default(now()) @map("created_at")
-  updatedAt DateTime  @updatedAt @map("updated_at")
-  deletedAt DateTime? @map("deleted_at")
-
-  school                School                 @relation(fields: [schoolId], references: [id])
-  classroom             Classroom              @relation(fields: [classId], references: [id])
-  profile               StudentProfile?
-  groupRel              StudentGroupRel?
-  scoreRecords          ScoreRecord[]
-  scoreRecordBatchItems ScoreRecordBatchItem[]
-  academicScoreRecords  AcademicScoreRecord[]
-  studentPet            StudentPet?
-  petLevelLogs          PetLevelLog[]
-  honorRecords          HonorRecord[]
-  rewardOrders          RewardOrder[]
-  aiStudentSnapshots    AiStudentSnapshot[]
-  teacherObservations   TeacherObservation[]
-
-  @@unique([classId, studentNo])
-  @@index([schoolId])
-  @@index([classId])
-  @@map("student")
-}
-
-model StudentProfile {
-  id              BigInt    @id @default(autoincrement())
-  studentId       BigInt    @unique @map("student_id")
-  classId         BigInt    @map("class_id")
-  currentScore    Int       @default(0) @map("current_score")
-  totalScore      Int       @default(0) @map("total_score")
-  currentPetLevel Int       @default(1) @map("current_pet_level")
-  medalsCount     Int       @default(0) @map("medals_count")
-  honorsCount     Int       @default(0) @map("honors_count")
-  rewardsCount    Int       @default(0) @map("rewards_count")
-  positiveCount7d Int       @default(0) @map("positive_count_7d")
-  negativeCount7d Int       @default(0) @map("negative_count_7d")
-  lastScoreAt     DateTime? @map("last_score_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
-
-  student   Student   @relation(fields: [studentId], references: [id])
-  classroom Classroom @relation(fields: [classId], references: [id])
-
-  @@index([classId])
-  @@map("student_profile")
-}
-
-model ClassGroup {
-  id                BigInt    @id @default(autoincrement())
-  classId           BigInt    @map("class_id")
-  groupNo           Int       @map("group_no")
-  name              String    @db.VarChar(64)
-  sortOrder         Int?      @map("sort_order")
-  groupCurrentScore Int       @default(0) @map("group_current_score")
-  groupTotalScore   Int       @default(0) @map("group_total_score")
-  groupLastScoreAt  DateTime? @map("group_last_score_at")
-  status            Status    @default(enabled)
-  createdAt         DateTime  @default(now()) @map("created_at")
-  updatedAt         DateTime  @updatedAt @map("updated_at")
-
-  classroom         Classroom              @relation(fields: [classId], references: [id])
-  studentGroupRels  StudentGroupRel[]
-  scoreRecords      ScoreRecord[]
-  groupScoreRecords ClassGroupScoreRecord[]
-
-  @@unique([classId, groupNo])
-  @@map("class_group")
-}
-
-model ClassGroupScoreRecord {
-  id             BigInt       @id @default(autoincrement())
-  schoolId       BigInt       @map("school_id")
-  semesterId     BigInt       @map("semester_id")
-  classId        BigInt       @map("class_id")
-  classGroupId   BigInt       @map("class_group_id")
-  scoreDelta     Int          @map("score_delta")
-  remark         String?      @db.VarChar(255)
-  sourceTerminal TerminalType @map("source_terminal")
-  sourceRole     String?      @map("source_role") @db.VarChar(32)
-  operatorId     BigInt       @map("operator_id")
-  operatorName   String?      @map("operator_name") @db.VarChar(64)
-  occurredAt     DateTime     @default(now()) @map("occurred_at")
-  createdAt      DateTime     @default(now()) @map("created_at")
-
-  school     School     @relation(fields: [schoolId], references: [id])
-  semester   Semester   @relation(fields: [semesterId], references: [id])
-  classroom  Classroom  @relation(fields: [classId], references: [id])
-  classGroup ClassGroup @relation(fields: [classGroupId], references: [id])
-  operator   User       @relation(fields: [operatorId], references: [id])
-
-  @@index([classId, classGroupId])
-  @@index([schoolId, semesterId])
-  @@map("class_group_score_record")
-}
-
-model StudentGroupRel {
-  id           BigInt   @id @default(autoincrement())
-  studentId    BigInt   @unique @map("student_id")
-  classGroupId BigInt   @map("class_group_id")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
-
-  student    Student    @relation(fields: [studentId], references: [id])
-  classGroup ClassGroup @relation(fields: [classGroupId], references: [id])
-
-  @@map("student_group_rel")
-}
-
-model ScoreRule {
-  id               BigInt      @id @default(autoincrement())
-  schoolId         BigInt      @map("school_id")
-  semesterId       BigInt      @map("semester_id")
-  moduleType       ModuleType  @map("module_type")
-  subjectCode      String?     @map("subject_code") @db.VarChar(32)
-  sceneCode        String      @map("scene_code") @db.VarChar(32)
-  code             String      @db.VarChar(64)
-  name             String      @db.VarChar(128)
-  scoreType        ScoreType   @map("score_type")
-  scoreMode        ScoreMode   @default(fixed) @map("score_mode")
-  scoreTarget      ScoreTarget @default(student) @map("score_target")
-  scoreValue       Int         @map("score_value")
-  minScore         Int?        @map("min_score")
-  maxScore         Int?        @map("max_score")
-  dimension        String?     @db.VarChar(64)
-  tag              String?     @db.VarChar(64)
-  sentiment        Sentiment
-  weight           Decimal?    @db.Decimal(6, 2)
-  aiSummaryText    String?     @map("ai_summary_text") @db.VarChar(255)
-  description      String?     @db.VarChar(500)
-  allowedRoleCodes String?     @map("allowed_role_codes") @db.VarChar(255)
-  isHighFrequency  Boolean     @default(false) @map("is_high_frequency")
-  displayEnabled   Boolean     @default(false) @map("display_enabled")
-  adminEnabled     Boolean     @default(true) @map("admin_enabled")
-  status           Status      @default(enabled)
-  createdBy        BigInt?     @map("created_by")
-  updatedBy        BigInt?     @map("updated_by")
-  createdAt        DateTime    @default(now()) @map("created_at")
-  updatedAt        DateTime    @updatedAt @map("updated_at")
-  deletedAt        DateTime?   @map("deleted_at")
-
-  school             School                  @relation(fields: [schoolId], references: [id])
-  semester           Semester                @relation(fields: [semesterId], references: [id])
-  createdByUser      User?                   @relation("ScoreRuleCreatedBy", fields: [createdBy], references: [id])
-  updatedByUser      User?                   @relation("ScoreRuleUpdatedBy", fields: [updatedBy], references: [id])
-  scoreRecords       ScoreRecord[]
-  scoreRecordBatches ScoreRecordBatch[]
-  classScoreRecords  ClassScoreRecord[]
-  classScoreBatches  ClassScoreRecordBatch[]
-
-  @@index([schoolId, semesterId])
-  @@index([moduleType, subjectCode, sceneCode])
-  @@index([scoreTarget])
-  @@index([displayEnabled])
-  @@map("score_rule")
-}
-
-model ClassScoreProfile {
-  id              BigInt    @id @default(autoincrement())
-  schoolId        BigInt    @map("school_id")
-  semesterId      BigInt    @map("semester_id")
-  classId         BigInt    @unique @map("class_id")
-  currentScore    Int       @default(0) @map("current_score")
-  totalScore      Int       @default(0) @map("total_score")
-  positiveCount7d Int       @default(0) @map("positive_count_7d")
-  negativeCount7d Int       @default(0) @map("negative_count_7d")
-  lastScoreAt     DateTime? @map("last_score_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
-
-  school    School    @relation(fields: [schoolId], references: [id])
-  semester  Semester  @relation(fields: [semesterId], references: [id])
-  classroom Classroom @relation(fields: [classId], references: [id])
-
-  @@index([schoolId, semesterId])
-  @@map("class_score_profile")
-}
-
-model ClassScoreRecord {
-  id             BigInt       @id @default(autoincrement())
-  schoolId       BigInt       @map("school_id")
-  semesterId     BigInt       @map("semester_id")
-  classId        BigInt       @map("class_id")
-  batchId        BigInt?      @map("batch_id")
-  ruleId         BigInt       @map("rule_id")
-  subjectCode    String?      @map("subject_code") @db.VarChar(32)
-  sceneCode      String?      @map("scene_code") @db.VarChar(32)
-  dimension      String?      @db.VarChar(64)
-  tag            String?      @db.VarChar(64)
-  sentiment      Sentiment
-  scoreDelta     Int          @map("score_delta")
-  remark         String?      @db.VarChar(255)
-  sourceTerminal TerminalType @map("source_terminal")
-  sourceRole     String?      @map("source_role") @db.VarChar(32)
-  operatorId     BigInt       @map("operator_id")
-  operatorName   String?      @map("operator_name") @db.VarChar(64)
-  reversedAt     DateTime?    @map("reversed_at")
-  reversedById   BigInt?      @map("reversed_by_id")
-  reverseRemark  String?      @map("reverse_remark") @db.VarChar(255)
-  createdAt      DateTime     @default(now()) @map("created_at")
-
-  school    School                 @relation(fields: [schoolId], references: [id])
-  semester  Semester               @relation(fields: [semesterId], references: [id])
-  classroom Classroom              @relation(fields: [classId], references: [id])
-  batch     ClassScoreRecordBatch? @relation(fields: [batchId], references: [id])
-  rule      ScoreRule              @relation(fields: [ruleId], references: [id])
-  operator  User                   @relation(fields: [operatorId], references: [id])
-  reversedBy User?                 @relation("ClassScoreRecordReversedBy", fields: [reversedById], references: [id])
-
-  @@index([classId, createdAt])
-  @@index([ruleId])
-  @@index([schoolId, semesterId])
-  @@index([batchId])
-  @@index([reversedAt])
-  @@map("class_score_record")
-}
-
-model ClassScoreRecordBatch {
-  id             BigInt       @id @default(autoincrement())
-  schoolId       BigInt       @map("school_id")
-  ruleId         BigInt       @map("rule_id")
-  scoreDelta     Int          @map("score_delta")
-  remark         String?      @db.VarChar(255)
-  sourceTerminal TerminalType @map("source_terminal")
-  sourceRole     String?      @map("source_role") @db.VarChar(32)
-  operatorId     BigInt       @map("operator_id")
-  operatorName   String?      @map("operator_name") @db.VarChar(64)
-  createdAt      DateTime     @default(now()) @map("created_at")
-
-  school   School             @relation(fields: [schoolId], references: [id])
-  rule     ScoreRule          @relation(fields: [ruleId], references: [id])
-  operator User               @relation(fields: [operatorId], references: [id])
-  records  ClassScoreRecord[]
-
-  @@index([schoolId, createdAt])
-  @@index([ruleId])
-  @@map("class_score_record_batch")
-}
-
-model ScoreRecord {
-  id             BigInt       @id @default(autoincrement())
-  schoolId       BigInt       @map("school_id")
-  semesterId     BigInt       @map("semester_id")
-  classId        BigInt       @map("class_id")
-  studentId      BigInt       @map("student_id")
-  classGroupId   BigInt?      @map("class_group_id")
-  ruleId         BigInt       @map("rule_id")
-  subjectCode    String?      @map("subject_code") @db.VarChar(32)
-  sceneCode      String?      @map("scene_code") @db.VarChar(32)
-  dimension      String?      @db.VarChar(64)
-  tag            String?      @db.VarChar(64)
-  sentiment      Sentiment
-  scoreDelta     Int          @map("score_delta")
-  remark         String?      @db.VarChar(255)
-  sourceTerminal TerminalType @map("source_terminal")
-  sourceRole     String?      @map("source_role") @db.VarChar(32)
-  operatorId     BigInt       @map("operator_id")
-  operatorName   String?      @map("operator_name") @db.VarChar(64)
-  occurredAt     DateTime     @default(now()) @map("occurred_at")
-  affectsProfile Boolean      @default(true) @map("affects_profile")
-  reversedAt     DateTime?    @map("reversed_at")
-  reversedById   BigInt?      @map("reversed_by_id")
-  reverseRemark  String?      @map("reverse_remark") @db.VarChar(255)
-  createdAt      DateTime     @default(now()) @map("created_at")
-
-  school       School                 @relation(fields: [schoolId], references: [id])
-  semester     Semester               @relation(fields: [semesterId], references: [id])
-  classroom    Classroom              @relation(fields: [classId], references: [id])
-  student      Student                @relation(fields: [studentId], references: [id])
-  classGroup   ClassGroup?            @relation(fields: [classGroupId], references: [id])
-  rule         ScoreRule              @relation(fields: [ruleId], references: [id])
-  operator     User                   @relation(fields: [operatorId], references: [id])
-  reversedBy   User?                  @relation("ScoreRecordReversedBy", fields: [reversedById], references: [id])
-  petLevelLogs PetLevelLog[]
-  batchItems   ScoreRecordBatchItem[]
-
-  @@index([studentId, createdAt])
-  @@index([classId, createdAt])
-  @@index([studentId, occurredAt])
-  @@index([classId, occurredAt])
-  @@index([ruleId])
-  @@index([subjectCode, sceneCode])
-  @@index([reversedAt])
-  @@map("score_record")
-}
-
-model ScoreRecordBatch {
-  id             BigInt       @id @default(autoincrement())
-  schoolId       BigInt       @map("school_id")
-  classId        BigInt       @map("class_id")
-  actionType     String       @map("action_type") @db.VarChar(16)
-  ruleId         BigInt       @map("rule_id")
-  scoreDelta     Int          @map("score_delta")
-  remark         String?      @db.VarChar(255)
-  sourceTerminal TerminalType @map("source_terminal")
-  operatorId     BigInt       @map("operator_id")
-  createdAt      DateTime     @default(now()) @map("created_at")
-
-  school    School                 @relation(fields: [schoolId], references: [id])
-  classroom Classroom              @relation(fields: [classId], references: [id])
-  rule      ScoreRule              @relation(fields: [ruleId], references: [id])
-  items     ScoreRecordBatchItem[]
-
-  @@map("score_record_batch")
-}
-
-model ScoreRecordBatchItem {
-  id            BigInt   @id @default(autoincrement())
-  batchId       BigInt   @map("batch_id")
-  scoreRecordId BigInt   @map("score_record_id")
-  studentId     BigInt   @map("student_id")
-  createdAt     DateTime @default(now()) @map("created_at")
-
-  batch       ScoreRecordBatch @relation(fields: [batchId], references: [id])
-  scoreRecord ScoreRecord      @relation(fields: [scoreRecordId], references: [id])
-  student     Student          @relation(fields: [studentId], references: [id])
-
-  @@map("score_record_batch_item")
-}
-
-model AcademicExam {
-  id             BigInt   @id @default(autoincrement())
-  schoolId       BigInt   @map("school_id")
-  semesterId     BigInt   @map("semester_id")
-  gradeName      String?  @map("grade_name") @db.VarChar(32)
-  name           String   @db.VarChar(255)
-  examDate       DateTime @map("exam_date") @db.Date
-  periodLabel    String?  @map("period_label") @db.VarChar(128)
-  sourceFile     String?  @map("source_file") @db.VarChar(255)
-  importedBy     BigInt?  @map("imported_by")
-  importedByName String?  @map("imported_by_name") @db.VarChar(64)
-  importedAt     DateTime @default(now()) @map("imported_at")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
-
-  school   School                @relation(fields: [schoolId], references: [id])
-  semester Semester              @relation(fields: [semesterId], references: [id])
-  records  AcademicScoreRecord[]
-
-  @@index([schoolId, semesterId])
-  @@index([schoolId, examDate])
-  @@index([gradeName])
-  @@map("academic_exam")
-}
-
-model AcademicScoreRecord {
-  id              BigInt   @id @default(autoincrement())
-  schoolId        BigInt   @map("school_id")
-  semesterId      BigInt   @map("semester_id")
-  examId          BigInt   @map("exam_id")
-  classId         BigInt   @map("class_id")
-  studentId       BigInt   @map("student_id")
-  studentNo       String   @map("student_no") @db.VarChar(64)
-  studentName     String   @map("student_name") @db.VarChar(64)
-  className       String   @map("class_name") @db.VarChar(64)
-  subjectCode     String   @map("subject_code") @db.VarChar(32)
-  subjectName     String   @map("subject_name") @db.VarChar(64)
-  score           Decimal? @db.Decimal(8, 2)
-  jointRank       Int?     @map("joint_rank")
-  schoolRank      Int?     @map("school_rank")
-  schoolRankDelta Int?     @map("school_rank_delta")
-  classRank       Int?     @map("class_rank")
-  classRankDelta  Int?     @map("class_rank_delta")
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
-
-  school    School       @relation(fields: [schoolId], references: [id])
-  semester  Semester     @relation(fields: [semesterId], references: [id])
-  exam      AcademicExam @relation(fields: [examId], references: [id])
-  classroom Classroom    @relation(fields: [classId], references: [id])
-  student   Student      @relation(fields: [studentId], references: [id])
-
-  @@unique([examId, studentId, subjectCode])
-  @@index([studentId, subjectCode])
-  @@index([classId, subjectCode])
-  @@index([schoolId, semesterId])
-  @@map("academic_score_record")
-}
-
-model Pet {
-  id          BigInt   @id @default(autoincrement())
-  schoolId    BigInt   @map("school_id")
-  code        String   @db.VarChar(64)
-  name        String   @db.VarChar(64)
-  category    String?  @db.VarChar(64)
-  rarity      String?  @db.VarChar(32)
-  sourceType  String   @default("custom") @map("source_type") @db.VarChar(32)
-  coverUrl    String?  @map("cover_url") @db.VarChar(255)
-  description String?  @db.VarChar(255)
-  status      Status   @default(enabled)
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
-
-  school      School       @relation(fields: [schoolId], references: [id])
-  stages      PetStage[]
-  studentPets StudentPet[]
-
-  @@unique([schoolId, code])
-  @@index([schoolId])
-  @@map("pet")
-}
-
-model PetStage {
-  id             BigInt   @id @default(autoincrement())
-  petId          BigInt   @map("pet_id")
-  stageNo        Int      @map("stage_no")
-  levelNo        Int      @map("level_no")
-  name           String   @db.VarChar(64)
-  imageUrl       String   @map("image_url") @db.VarChar(255)
-  needScoreTotal Int      @map("need_score_total")
-  animationKey   String?  @map("animation_key") @db.VarChar(64)
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
-
-  pet Pet @relation(fields: [petId], references: [id])
-
-  @@unique([petId, stageNo])
-  @@map("pet_stage")
-}
-
-model StudentPet {
-  id             BigInt    @id @default(autoincrement())
-  studentId      BigInt    @unique @map("student_id")
-  petId          BigInt    @map("pet_id")
-  currentLevel   Int       @default(1) @map("current_level")
-  currentStageNo Int       @default(1) @map("current_stage_no")
-  totalScore     Int       @default(0) @map("total_score")
-  nickname       String?   @db.VarChar(32)
-  lastRenameAt   DateTime? @map("last_rename_at")
-  decoFreeChangeLevel Int?    @map("deco_free_change_level")
-  decoFreeChangeUsed  Boolean @default(false) @map("deco_free_change_used")
-  unlockedAt     DateTime? @map("unlocked_at")
-  adoptedBy      BigInt?   @map("adopted_by")
-  status         Status    @default(enabled)
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
-
-  student       Student                @relation(fields: [studentId], references: [id])
-  pet           Pet                    @relation(fields: [petId], references: [id])
-  adoptedByUser User?                  @relation("StudentPetAdoptedBy", fields: [adoptedBy], references: [id])
-  levelLogs     PetLevelLog[]
-  decorations   StudentPetDecoration[]
-
-  @@map("student_pet")
-}
-
-model PetLevelLog {
-  id                   BigInt   @id @default(autoincrement())
-  studentPetId         BigInt   @map("student_pet_id")
-  studentId            BigInt   @map("student_id")
-  beforeLevel          Int      @map("before_level")
-  afterLevel           Int      @map("after_level")
-  beforeStageNo        Int      @map("before_stage_no")
-  afterStageNo         Int      @map("after_stage_no")
-  triggerScoreRecordId BigInt?  @map("trigger_score_record_id")
-  createdAt            DateTime @default(now()) @map("created_at")
-
-  studentPet         StudentPet   @relation(fields: [studentPetId], references: [id])
-  student            Student      @relation(fields: [studentId], references: [id])
-  triggerScoreRecord ScoreRecord? @relation(fields: [triggerScoreRecordId], references: [id])
-
-  @@map("pet_level_log")
-}
-
-model PetDecoration {
-  id            BigInt   @id @default(autoincrement())
-  schoolId      BigInt   @map("school_id")
-  code          String   @db.VarChar(64)
-  name          String   @db.VarChar(64)
-  type          String   @db.VarChar(32)
-  themeGroup    String?  @map("theme_group") @db.VarChar(64)
-  themeFreeRule Json?    @map("theme_free_rule")
-  imageUrl      String   @map("image_url") @db.VarChar(255)
-  previewUrl    String?  @map("preview_url") @db.VarChar(255)
-  unlockLevel   Int      @map("unlock_level")
-  sortOrder     Int?     @map("sort_order")
-  status        Status   @default(enabled)
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
-
-  school             School                 @relation(fields: [schoolId], references: [id])
-  studentDecorations StudentPetDecoration[]
-
-  @@unique([schoolId, code])
-  @@index([schoolId, type])
-  @@index([schoolId, themeGroup])
-  @@map("pet_decoration")
-}
-
-model StudentPetDecoration {
-  id           BigInt   @id @default(autoincrement())
-  studentPetId BigInt   @map("student_pet_id")
-  decorationId BigInt   @map("decoration_id")
-  isEquipped   Boolean  @default(false) @map("is_equipped")
-  unlockedAt   DateTime @default(now()) @map("unlocked_at")
-  createdAt    DateTime @default(now()) @map("created_at")
-
-  studentPet StudentPet    @relation(fields: [studentPetId], references: [id])
-  decoration PetDecoration @relation(fields: [decorationId], references: [id])
-
-  @@unique([studentPetId, decorationId])
-  @@map("student_pet_decoration")
-}
-
-model Honor {
-  id              BigInt        @id @default(autoincrement())
-  schoolId        BigInt        @map("school_id")
-  code            String        @db.VarChar(64)
-  name            String        @db.VarChar(128)
-  category        HonorCategory
-  iconUrl         String?       @map("icon_url") @db.VarChar(255)
-  description     String?       @db.VarChar(255)
-  conditionType   String?       @map("condition_type") @db.VarChar(32)
-  conditionConfig Json?         @map("condition_config")
-  status          Status        @default(enabled)
-  createdAt       DateTime      @default(now()) @map("created_at")
-  updatedAt       DateTime      @updatedAt @map("updated_at")
-
-  school       School        @relation(fields: [schoolId], references: [id])
-  honorRecords HonorRecord[]
-
-  @@index([schoolId])
-  @@map("honor")
-}
-
-model HonorRecord {
-  id         BigInt   @id @default(autoincrement())
-  honorId    BigInt   @map("honor_id")
-  targetType String   @map("target_type") @db.VarChar(16)
-  targetId   BigInt   @map("target_id")
-  schoolId   BigInt   @map("school_id")
-  classId    BigInt   @map("class_id")
-  studentId  BigInt?  @map("student_id")
-  grantedBy  BigInt?  @map("granted_by")
-  grantedAt  DateTime @map("granted_at")
-  remark     String?  @db.VarChar(255)
-  createdAt  DateTime @default(now()) @map("created_at")
-
-  honor         Honor     @relation(fields: [honorId], references: [id])
-  school        School    @relation(fields: [schoolId], references: [id])
-  classroom     Classroom @relation(fields: [classId], references: [id])
-  student       Student?  @relation(fields: [studentId], references: [id])
-  grantedByUser User?     @relation(fields: [grantedBy], references: [id])
-
-  @@map("honor_record")
-}
-
-model Reward {
-  id              BigInt    @id @default(autoincrement())
-  schoolId        BigInt    @map("school_id")
-  scopeType       String    @default("global") @map("scope_type") @db.VarChar(16)
-  classId         BigInt?   @map("class_id")
-  code            String    @db.VarChar(64)
-  name            String    @db.VarChar(128)
-  category        String?   @db.VarChar(32)
-  imageUrl        String?   @map("image_url") @db.VarChar(255)
-  scoreCost       Int       @map("score_cost")
-  stockQty        Int?      @map("stock_qty")
-  isInfiniteStock Boolean   @default(false) @map("is_infinite_stock")
-  status          Status    @default(enabled)
-  createdBy       BigInt?   @map("created_by")
-  updatedBy       BigInt?   @map("updated_by")
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
-
-  school        School        @relation(fields: [schoolId], references: [id])
-  classroom     Classroom?    @relation(fields: [classId], references: [id])
-  createdByUser User?         @relation("RewardCreatedBy", fields: [createdBy], references: [id])
-  updatedByUser User?         @relation("RewardUpdatedBy", fields: [updatedBy], references: [id])
-  rewardOrders  RewardOrder[]
-
-  @@index([schoolId])
-  @@index([schoolId, classId, status])
-  @@index([createdBy])
-  @@map("reward")
-}
-
-model RewardOrder {
-  id             BigInt            @id @default(autoincrement())
-  schoolId       BigInt            @map("school_id")
-  classId        BigInt            @map("class_id")
-  studentId      BigInt            @map("student_id")
-  rewardId       BigInt            @map("reward_id")
-  scoreCost      Int               @map("score_cost")
-  status         RewardOrderStatus @default(received)
-  sourceTerminal TerminalType      @map("source_terminal")
-  operatorId     BigInt            @map("operator_id")
-  operatorRole   String?           @map("operator_role") @db.VarChar(32)
-  createdAt      DateTime          @default(now()) @map("created_at")
-
-  school    School    @relation(fields: [schoolId], references: [id])
-  classroom Classroom @relation(fields: [classId], references: [id])
-  student   Student   @relation(fields: [studentId], references: [id])
-  reward    Reward    @relation(fields: [rewardId], references: [id])
-  operator  User      @relation(fields: [operatorId], references: [id])
-
-  @@index([classId])
-  @@index([studentId])
-  @@map("reward_order")
-}
-
-model DisplayTerminal {
-  id            BigInt    @id @default(autoincrement())
-  schoolId      BigInt    @map("school_id")
-  classId       BigInt?   @map("class_id")
-  terminalCode  String    @unique @map("terminal_code") @db.VarChar(128)
-  terminalName  String    @map("terminal_name") @db.VarChar(128)
-  initializedBy BigInt?   @map("initialized_by")
-  initializedAt DateTime? @map("initialized_at")
-  lastBoundAt   DateTime? @map("last_bound_at")
-  lastOnlineAt  DateTime? @map("last_online_at")
-  status        Status    @default(enabled)
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
-
-  school            School     @relation(fields: [schoolId], references: [id])
-  classroom         Classroom? @relation(fields: [classId], references: [id])
-  initializedByUser User?      @relation("DisplayTerminalInitializedBy", fields: [initializedBy], references: [id])
-
-  @@index([schoolId])
-  @@index([classId])
-  @@map("display_terminal")
-}
-
-model DisplayConfig {
-  id                 BigInt   @id @default(autoincrement())
-  schoolId           BigInt   @map("school_id")
-  classId            BigInt?  @map("class_id")
-  bgImageUrl         String?  @map("bg_image_url") @db.VarChar(255)
-  title              String?  @db.VarChar(128)
-  subtitle           String?  @db.VarChar(255)
-  weatherLabel       String?  @map("weather_label") @db.VarChar(64)
-  weatherLatitude    Decimal? @map("weather_latitude") @db.Decimal(10, 6)
-  weatherLongitude   Decimal? @map("weather_longitude") @db.Decimal(10, 6)
-  animationSpeed     String?  @map("animation_speed") @db.VarChar(16)
-  allowSkipAnimation Boolean  @default(true) @map("allow_skip_animation")
-  defaultMode        String?  @map("default_mode") @db.VarChar(32)
-  createdAt          DateTime @default(now()) @map("created_at")
-  updatedAt          DateTime @updatedAt @map("updated_at")
-
-  school    School     @relation(fields: [schoolId], references: [id])
-  classroom Classroom? @relation(fields: [classId], references: [id])
-
-  @@map("display_config")
-}
-
-model DisplayUnlockSession {
-  id                  BigInt              @id @default(autoincrement())
-  classId             BigInt              @map("class_id")
-  displayTerminalCode String              @map("display_terminal_code") @db.VarChar(64)
-  userId              BigInt              @map("user_id")
-  roleCode            String              @map("role_code") @db.VarChar(32)
-  unlockedAt          DateTime            @map("unlocked_at")
-  expiredAt           DateTime            @map("expired_at")
-  status              DisplayUnlockStatus @default(active)
-  createdAt           DateTime            @default(now()) @map("created_at")
-
-  classroom Classroom @relation(fields: [classId], references: [id])
-  user      User      @relation(fields: [userId], references: [id])
-
-  @@index([classId, displayTerminalCode])
-  @@map("display_unlock_session")
-}
-
-model AiStudentSnapshot {
-  id               BigInt      @id @default(autoincrement())
-  schoolId         BigInt      @map("school_id")
-  semesterId       BigInt      @map("semester_id")
-  classId          BigInt      @map("class_id")
-  studentId        BigInt      @map("student_id")
-  snapshotDate     DateTime    @map("snapshot_date") @db.Date
-  periodType       PeriodType  @map("period_type")
-  positiveSummary  Json?       @map("positive_summary")
-  negativeSummary  Json?       @map("negative_summary")
-  dimensionSummary Json?       @map("dimension_summary")
-  trendSummary     Json?       @map("trend_summary")
-  aiSummary        String?     @map("ai_summary") @db.Text
-  aiSuggestion     String?     @map("ai_suggestion") @db.Text
-  generatedBy      GeneratedBy @default(manual) @map("generated_by")
-  createdAt        DateTime    @default(now()) @map("created_at")
-
-  school    School    @relation(fields: [schoolId], references: [id])
-  semester  Semester  @relation(fields: [semesterId], references: [id])
-  classroom Classroom @relation(fields: [classId], references: [id])
-  student   Student   @relation(fields: [studentId], references: [id])
-
-  @@index([studentId, snapshotDate])
-  @@index([classId, periodType])
-  @@map("ai_student_snapshot")
-}
-
-model TeacherObservation {
-  id              BigInt   @id @default(autoincrement())
-  schoolId        BigInt   @map("school_id")
-  classId         BigInt   @map("class_id")
-  studentId       BigInt   @map("student_id")
-  teacherId       BigInt   @map("teacher_id")
-  observationType String?  @map("observation_type") @db.VarChar(32)
-  content         String   @db.Text
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
-
-  school    School    @relation(fields: [schoolId], references: [id])
-  classroom Classroom @relation(fields: [classId], references: [id])
-  student   Student   @relation(fields: [studentId], references: [id])
-  teacher   User      @relation(fields: [teacherId], references: [id])
-
-  @@index([studentId, createdAt])
-  @@map("teacher_observation")
-}
-
-model OperationLog {
-  id           BigInt       @id @default(autoincrement())
-  schoolId     BigInt       @map("school_id")
-  userId       BigInt?      @map("user_id")
-  roleCode     String?      @map("role_code") @db.VarChar(32)
-  terminalType TerminalType @map("terminal_type")
-  module       String       @db.VarChar(64)
-  action       String       @db.VarChar(64)
-  targetType   String?      @map("target_type") @db.VarChar(32)
-  targetId     BigInt?      @map("target_id")
-  detail       Json?
-  createdAt    DateTime     @default(now()) @map("created_at")
-
-  school School @relation(fields: [schoolId], references: [id])
-  user   User?  @relation(fields: [userId], references: [id])
-
-  @@index([schoolId, createdAt])
-  @@index([userId, createdAt])
-  @@map("operation_log")
-}
-
-model CallQueue {
-  id             BigInt   @id @default(autoincrement())
-  schoolId       BigInt   @map("school_id")
-  classId        BigInt   @map("class_id")
-  location       String   @map("location") @db.VarChar(128)
-  callerId       BigInt   @map("caller_id")
-  callerName     String   @map("caller_name") @db.VarChar(64)
-  calledStudents Json     @map("called_students")
-  status         String   @default("pending") @db.VarChar(32)
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
-
-  @@index([schoolId])
-  @@index([classId, status])
-  @@map("call_queue")
 }

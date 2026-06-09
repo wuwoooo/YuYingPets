@@ -4,6 +4,7 @@ import { PrismaService } from '@/prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { PeriodType } from '@prisma/client';
 import { toNumber } from '@/common/utils/bigint.util';
+import { behaviorScoreRecordWhere } from '@/common/utils/behavior-score-record.util';
 import { OperationLogService } from '../operation-log/operation-log.service';
 import { RealtimeService } from '../realtime/realtime.service';
 
@@ -199,6 +200,7 @@ export class AiService {
     const scoreRecords = await this.prisma.scoreRecord.findMany({
       where: {
         studentId: BigInt(studentId),
+        ...behaviorScoreRecordWhere(),
       },
       include: {
         rule: {
@@ -644,6 +646,7 @@ export class AiService {
                     '输出必须正式、克制、适合班主任与学校管理场景。',
                     '若 academicSummary 中存在 totalClassRankDelta、totalSchoolRankDelta 或各科 classRankDelta、schoolRankDelta，必须在总结或建议中体现排名上升/下降及其可能指向。',
                     '排名变化字段含义：正数代表排名上升，负数代表排名下降，0 或 null 代表无明显变化或暂无数据。',
+                    '行为评价数据已排除萌宠装扮、积分兑换等消费型扣分，不得把消费理解为负向表现。',
                     '请严格输出 JSON，字段只有 aiSummary 和 aiSuggestion，两个字段都必须是字符串。',
                     'aiSummary 控制在 120 字以内，aiSuggestion 控制在 80 字以内。',
                   ].join(' '),
