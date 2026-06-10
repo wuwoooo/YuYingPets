@@ -55,7 +55,7 @@ const ANALYTICS_RISK_THRESHOLDS = {
   mediumComboNegativeCount: 5,
   mediumComboScoreDelta: -12,
 } as const;
-const ANALYTICS_CACHE_VERSION = 'v3-behavior-score-only';
+const ANALYTICS_CACHE_VERSION = 'v4-behavior-score-only';
 
 type AnalyticsRiskLevel = 'high' | 'medium' | 'low';
 
@@ -387,12 +387,35 @@ export class AdminInsightsService {
     const averageScore = students.length > 0
       ? Math.round(students.reduce((sum, student) => sum + (student.profile?.currentScore ?? 0), 0) / students.length)
       : 0;
-    const activeDays = new Set(scopedScoreRecords.map((item) => item.createdAt.toISOString().slice(0, 10))).size;
+    const activeDaysSource = !filters?.skipHeatmap ? scopedHeatMapTimelineRecords : scopedScoreRecords;
+    const activeDays = new Set(activeDaysSource.map((item) => item.createdAt.toISOString().slice(0, 10))).size;
+    const behaviorScoreDeltaTotal = scopedScoreRecords.reduce((sum, record) => sum + record.scoreDelta, 0);
+    const behaviorAverageScoreDelta = students.length > 0
+      ? Math.round(behaviorScoreDeltaTotal / students.length)
+      : 0;
+    const behaviorScoreDeltaByClassId = scopedScoreRecords.reduce((map, record) => {
+      const classId = toNumber(record.classId) ?? 0;
+      if (!classId) return map;
+      map.set(classId, (map.get(classId) ?? 0) + record.scoreDelta);
+      return map;
+    }, new Map<number, number>());
 
     const gradeTrend = Array.from(
       classes.reduce((map, item) => {
         const current = map.get(item.gradeName) ?? { scoreSum: 0, studentCount: 0 };
         current.scoreSum += sumStudentScore(item.students);
+        current.studentCount += item.students.length;
+        map.set(item.gradeName, current);
+        return map;
+      }, new Map<string, { scoreSum: number; studentCount: number }>()),
+    ).map(([name, value]) => ({
+      name,
+      value: value.studentCount > 0 ? Math.round(value.scoreSum / value.studentCount) : 0,
+    }));
+    const aiGradeTrend = Array.from(
+      classes.reduce((map, item) => {
+        const current = map.get(item.gradeName) ?? { scoreSum: 0, studentCount: 0 };
+        current.scoreSum += behaviorScoreDeltaByClassId.get(toNumber(item.id) ?? 0) ?? 0;
         current.studentCount += item.students.length;
         map.set(item.gradeName, current);
         return map;
@@ -430,6 +453,18 @@ export class AdminInsightsService {
         name: item.name,
         studentScoreTotal: item.currentScoreTotal,
       }));
+    const aiTopClassesByStudentScore = classes
+      .map((item) => ({
+        id: toNumber(item.id),
+        name: item.name,
+        studentScoreTotal: behaviorScoreDeltaByClassId.get(toNumber(item.id) ?? 0) ?? 0,
+      }))
+      .sort(
+        (left, right) =>
+          right.studentScoreTotal - left.studentScoreTotal ||
+          left.name.localeCompare(right.name, 'zh-CN'),
+      )
+      .slice(0, 10);
 
     const topClassesByClassScore = topClasses
       .slice(0, 10)
@@ -618,8 +653,8 @@ export class AdminInsightsService {
       gradeName: filters?.gradeName,
       className: scopedClass?.name,
       dateRangeLabel: dateRange.label,
-      totalScore,
-      averageScore,
+      totalScore: behaviorScoreDeltaTotal,
+      averageScore: behaviorAverageScoreDelta,
       activeDays,
       positiveRuleCount,
       negativeRuleCount,
@@ -638,8 +673,8 @@ export class AdminInsightsService {
       gradeName: filters?.gradeName,
       className: scopedClass?.name,
       dateRangeLabel: dateRange.label,
-      totalScore,
-      averageScore,
+      totalScore: behaviorScoreDeltaTotal,
+      averageScore: behaviorAverageScoreDelta,
       activeDays,
       positiveRuleCount,
       negativeRuleCount,
@@ -660,16 +695,16 @@ export class AdminInsightsService {
             dateRangeKey: dateRange.key,
             reportDate: dateRange.endDate,
             regenerateAi: Boolean(filters?.regenerateAi),
-            totalScore,
-            averageScore,
+            totalScore: behaviorScoreDeltaTotal,
+            averageScore: behaviorAverageScoreDelta,
             activeDays,
             positiveRuleCount,
             negativeRuleCount,
-            gradeTrend,
+            gradeTrend: aiGradeTrend,
             ruleDistribution,
             subjectDistribution,
             topClasses,
-            topClassesByStudentScore,
+            topClassesByStudentScore: aiTopClassesByStudentScore,
             topClassesByClassScore,
             riskStudents: allRiskStudents,
             fallbackSummary,
@@ -685,16 +720,16 @@ export class AdminInsightsService {
             dateRangeKey: dateRange.key,
             reportDate: dateRange.endDate,
             regenerateAi: Boolean(filters?.regenerateAi),
-            totalScore,
-            averageScore,
+            totalScore: behaviorScoreDeltaTotal,
+            averageScore: behaviorAverageScoreDelta,
             activeDays,
             positiveRuleCount,
             negativeRuleCount,
-            gradeTrend,
+            gradeTrend: aiGradeTrend,
             ruleDistribution,
             subjectDistribution,
             topClasses,
-            topClassesByStudentScore,
+            topClassesByStudentScore: aiTopClassesByStudentScore,
             topClassesByClassScore,
             riskStudents: allRiskStudents,
             fallbackSummary,
@@ -1187,7 +1222,7 @@ export class AdminInsightsService {
     const topRule = input.ruleDistribution[0]?.name ?? '未分类';
     const topSubject = input.subjectDistribution[0]?.name ?? '通用';
     const riskCount = input.riskStudents.length;
-    return `${scopeLabel}在${input.dateRangeLabel}累计积分 ${input.totalScore} 分，人均积分 ${input.averageScore} 分，活跃评价日 ${input.activeDays} 天，正向/负向事件分别为 ${input.positiveRuleCount}/${input.negativeRuleCount}。当前高频行为维度集中在“${topRule}”，主要发生在“${topSubject}”相关学习场景，需重点关注 ${riskCount} 名存在负向聚集信号的学生。`;
+    return `${scopeLabel}在${input.dateRangeLabel}行为净积分 ${input.totalScore} 分，人均行为净变化 ${input.averageScore} 分，活跃评价日 ${input.activeDays} 天，正向/负向事件分别为 ${input.positiveRuleCount}/${input.negativeRuleCount}。当前高频行为维度集中在“${topRule}”，主要发生在“${topSubject}”相关学习场景，需重点关注 ${riskCount} 名存在负向聚集信号的学生。`;
   }
 
   private buildAnalyticsSuggestion(input: {
@@ -1236,7 +1271,7 @@ export class AdminInsightsService {
         ? `需要重点关注的学生包括${highRiskStudents.map((item) => `${item.className}${item.studentName}`).join('、')}。`
         : '当前未发现高风险学生聚集现象。';
 
-    return `${scopeLabel}在${input.dateRangeLabel}累计积分为 ${input.totalScore} 分，人均积分 ${input.averageScore} 分，活跃评价日 ${input.activeDays} 天，正向/负向事件为 ${input.positiveRuleCount}/${input.negativeRuleCount}。行为记录主要集中在“${topRule}”维度，学科事件以“${topSubject}”为主。${riskLine}整体上，当前数据能够支撑学校开展阶段性汇报与班级跟进。`;
+    return `${scopeLabel}在${input.dateRangeLabel}行为净积分为 ${input.totalScore} 分，人均行为净变化 ${input.averageScore} 分，活跃评价日 ${input.activeDays} 天，正向/负向事件为 ${input.positiveRuleCount}/${input.negativeRuleCount}。行为记录主要集中在“${topRule}”维度，学科事件以“${topSubject}”为主。${riskLine}整体上，当前数据能够支撑学校开展阶段性汇报与班级跟进。`;
   }
 
   private async resolveClassAnalyticsInsight(input: {
@@ -1548,7 +1583,7 @@ export class AdminInsightsService {
                     'suggestion 必须是可执行动作，至少 2 条动作意图（可写在一句中），并标明优先关注对象。',
                     'reportSummary 需要能直接用于校务汇报：先结论，再依据，再行动建议。',
                     '若 academicFacts.latestImportedExamLabel 存在：说明最近一次教务全科成绩导入快照；须在 summary/reportSummary/suggestion 中同步提及学业侧的要点，但必须严格遵从 academicFacts 数字，禁止臆造分值或名单。',
-                    '积分口径：studentScoreTotal 与 averageStudentScore 均指学生个人当前积分；classScore 指班级积分账户，与个人积分独立；行为统计、风险学生与正负向事件已排除萌宠装扮和积分兑换等消费型扣分，不得把消费当作行为风险。',
+                    '积分口径：studentScoreTotal 与 averageStudentScore 均指区间内学生个体行为评价净积分，不是学生当前积分账户余额；classScore 指班级积分账户，与个人行为评价独立；行为统计、风险学生与正负向事件已排除萌宠装扮、积分兑换、班级评价联动等非个体行为扣/加分，不得把消费或班级联动当作学生个体学情风险。',
                   ].join(' '),
                 },
               ],
@@ -1561,10 +1596,10 @@ export class AdminInsightsService {
                   text: JSON.stringify(
                     {
                       metricsGuide: {
-                        studentScoreTotal: '全校/范围内学生个人当前积分合计',
-                        averageStudentScore: '学生个人积分人均值',
-                        gradeAverageStudentScore: '各年级学生个人积分人均值',
-                        topClassesByStudentScore: '按班内学生积分合计排序',
+                        studentScoreTotal: '全校/范围内学生个体行为评价净积分合计，已排除非个体行为扣/加分',
+                        averageStudentScore: '学生个体行为评价净积分人均值，已排除非个体行为扣/加分',
+                        gradeAverageStudentScore: '各年级学生个体行为评价净积分人均值',
+                        topClassesByStudentScore: '按班内学生个体行为评价净积分合计排序',
                         topClassesByClassScore: '按班级积分账户排序，与个人积分独立',
                       },
                       scope: {

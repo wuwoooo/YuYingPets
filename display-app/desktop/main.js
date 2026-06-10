@@ -608,7 +608,10 @@ async function createSplashWindow() {
   const display = screen.getPrimaryDisplay();
   const bounds = display.bounds;
   splashWindow = new BrowserWindow({
-    ...bounds,
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
     frame: false,
     resizable: false,
     movable: false,
@@ -617,7 +620,7 @@ async function createSplashWindow() {
     fullscreenable: false,
     skipTaskbar: true,
     show: false,
-    backgroundColor: DEFAULT_BACKGROUND,
+    backgroundColor: '#091e3a',
     webPreferences: {
       contextIsolation: true,
       sandbox: true,
@@ -635,6 +638,14 @@ async function createSplashWindow() {
   }
 
   await showStartupPlaceholder(splashWindow);
+
+  // Windows 大屏场景：启动引导必须与主界面一样全屏，避免四周露出桌面或主窗口底色。
+  if (process.platform === 'win32') {
+    splashWindow.setFullScreen(true);
+  } else {
+    splashWindow.setBounds(bounds);
+  }
+
   splashWindow.show();
   splashWindow.focus();
   return splashWindow;

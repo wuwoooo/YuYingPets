@@ -153,8 +153,12 @@
       }
 
       /* 确认框关闭后的短窗口：防止触控穿透误触下层规则按钮/学生卡片 */
-      body.display-input-guard .point-modal-overlay,
-      body.display-input-guard .pm-btn,
+      body.display-input-guard .point-modal-overlay:not(.active) {
+        pointer-events: none;
+      }
+      body.display-input-guard .point-modal-overlay.active {
+        pointer-events: auto;
+      }
       body.display-input-guard #studentGrid .student-card {
         pointer-events: none;
       }
@@ -3952,6 +3956,7 @@
       }
       .modal-panel-overlay.active {
         display: flex;
+        pointer-events: auto;
       }
       .modal-panel-overlay.modal-panel-overlay-stacked {
         z-index: 13000;
@@ -11624,6 +11629,7 @@
       .point-modal-overlay.active {
         opacity: 1;
         visibility: visible;
+        pointer-events: auto;
       }
       .point-modal {
         background: #fff;

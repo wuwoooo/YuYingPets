@@ -219,9 +219,8 @@
     bindConfirmModalButton(cancelBtn, () => closeConfirmModal(false));
     bindConfirmModalButton(confirmBtn, () => closeConfirmModal(true));
     overlay.onclick = (event) => {
-      if (event.target === overlay) {
-        closeConfirmModal(alertOnly ? true : false);
-      }
+      if (!isOverlayBackdropClick(overlay, event)) return;
+      closeConfirmModal(alertOnly ? true : false);
     };
 
     const sessionId = ++confirmModalSessionId;
@@ -258,20 +257,43 @@
     return style.display === "flex" || style.display === "block";
   }
 
-  /** 点击遮罩层关闭弹窗（仅 event.target 为 overlay 自身时触发） */
+  const MODAL_PANEL_SELECTOR =
+    ".point-modal, .modal-panel, .ex-modal-content, .confirm-modal, .toolbox-settings-panel, .toolbox-result-panel, .academic-ai-modal, .pet-deco-panel, .pet-profile-modal, .pet-fullview-stage, .pet-fullview-back-btn, .pm-all-history-modal";
+
+  function isOverlayBackdropClick(overlay, event) {
+    if (!overlay || !event?.target) return false;
+    if (event.target === overlay) return true;
+    if (!overlay.contains(event.target)) return false;
+    const panel = overlay.querySelector(MODAL_PANEL_SELECTOR);
+    if (!panel) return false;
+    return !panel.contains(event.target);
+  }
+
+  /** 点击遮罩层关闭弹窗（仅点击面板外区域时触发） */
   function bindOverlayBackdropDismiss(registrations = []) {
     registrations.forEach(({ id, onClose, isVisible }) => {
       const overlay = document.getElementById(id);
       if (!overlay || overlay.dataset.backdropDismissBound === "1") return;
       overlay.dataset.backdropDismissBound = "1";
-      overlay.addEventListener("click", (event) => {
-        if (event.target !== overlay) return;
-        const visible = typeof isVisible === "function"
-          ? isVisible(overlay)
-          : isOverlayVisible(overlay);
+
+      let lastDismissAt = 0;
+      const tryDismiss = (event) => {
+        if (!isOverlayBackdropClick(overlay, event)) return;
+        const visible =
+          typeof isVisible === "function"
+            ? isVisible(overlay)
+            : isOverlayVisible(overlay);
         if (!visible) return;
+        const now = Date.now();
+        if (now - lastDismissAt < 320) return;
+        lastDismissAt = now;
+        event.preventDefault();
+        event.stopPropagation();
         onClose(event);
-      });
+      };
+
+      overlay.addEventListener("pointerup", tryDismiss);
+      overlay.addEventListener("click", tryDismiss);
     });
   }
 

@@ -775,6 +775,7 @@ export class ScoreRecordsService {
     if (params.rule.scoreTarget === 'class' && !params.allowClassRuleLinkage) {
       throw new ForbiddenException('班级积分规则不能用于学生评价');
     }
+    const isClassScoreLinkage = params.rule.scoreTarget === 'class' && params.allowClassRuleLinkage;
 
     const profile = await tx.studentProfile.upsert({
       where: { studentId: params.studentId },
@@ -790,8 +791,8 @@ export class ScoreRecordsService {
         classId: params.classId,
         currentScore: { increment: scoreDelta },
         totalScore: { increment: Math.max(scoreDelta, 0) },
-        positiveCount7d: params.rule.sentiment === 'positive' ? { increment: 1 } : undefined,
-        negativeCount7d: params.rule.sentiment === 'negative' ? { increment: 1 } : undefined,
+        positiveCount7d: !isClassScoreLinkage && params.rule.sentiment === 'positive' ? { increment: 1 } : undefined,
+        negativeCount7d: !isClassScoreLinkage && params.rule.sentiment === 'negative' ? { increment: 1 } : undefined,
         lastScoreAt: new Date(),
       },
     });

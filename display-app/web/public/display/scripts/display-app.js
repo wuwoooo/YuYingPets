@@ -15274,15 +15274,15 @@ function bindDisplayOverlayBackdropDismiss() {
     { id: "exModal", onClose: () => closeExchangeSuccess() },
     {
       id: "toolboxSettingsOverlay",
-      onClose: (event) => closeToolboxSettings(event),
+      onClose: () => closeToolboxSettings(),
     },
     {
       id: "toolboxEnergyResultOverlay",
-      onClose: (event) => closeEnergyResultOverlay(event),
+      onClose: () => closeEnergyResultOverlay(),
     },
     {
       id: "toolboxGardenResultOverlay",
-      onClose: (event) => closeGardenResultOverlay(event),
+      onClose: () => closeGardenResultOverlay(),
     },
   ]);
 }

@@ -449,20 +449,100 @@ export function parseAcademicScoreRows(rows: CellValue[][], sourceFile?: string)
 
 export async function parseAcademicScoreWorkbook(file: File): Promise<AcademicScoreImportPayload> {
   const lowerName = file.name.toLowerCase();
-  if (!lowerName.endsWith('.xlsx')) {
-    throw new Error('历史成绩导入仅支持 .xlsx 文件，请先将旧版 .xls 转换为 .xlsx');
+  let rows: CellValue[][] | undefined;
+
+  if (lowerName.endsWith('.xlsx')) {
+    [rows] = await readXlsxWorkbookRows(file);
+  } else if (lowerName.endsWith('.xls')) {
+    rows = await parseLegacyXlsRows(await file.arrayBuffer());
+  } else {
+    throw new Error('历史成绩导入仅支持 .xlsx 和 .xls 文件');
   }
 
-  const [rows] = await readXlsxWorkbookRows(file);
-  if (!rows) {
+  if (!rows || !rows.length) {
     throw new Error('Excel 文件中没有可读取的工作表');
   }
   return parseAcademicScoreRows(rows, file.name);
 }
 
-async function parseLegacyXlsRows(buffer: ArrayBuffer) {
-  void buffer;
-  throw new Error('旧版 .xls 解析已停用，请先转换为 .xlsx 后再导入');
+export async function parseLegacyXlsRows(buffer: ArrayBuffer): Promise<CellValue[][]> {
+  let bytes = new Uint8Array(buffer);
+  
+  if (readU32(bytes, 0) === 0xE011CFD0) {
+    const sectorShift = readU16(bytes, 30);
+    const sectorSize = 1 << sectorShift;
+    const dirSectorStart = readU32(bytes, 48);
+    const miniCutoff = readU32(bytes, 56);
+    
+    const fat: number[] = [];
+    for (let i = 0; i < 109; i++) {
+      const sec = readU32(bytes, 76 + i * 4);
+      if (sec !== 0xFFFFFFFF) {
+        const offset = (sec + 1) * sectorSize;
+        for (let j = 0; j < sectorSize / 4; j++) {
+          fat.push(readU32(bytes, offset + j * 4));
+        }
+      }
+    }
+    
+    let workbookStart = -1;
+    let workbookSize = 0;
+    
+    let dirSec = dirSectorStart;
+    while (dirSec !== 0xFFFFFFFE && dirSec !== 0xFFFFFFFF && dirSec !== 0) {
+      const dirOffset = (dirSec + 1) * sectorSize;
+      for (let i = 0; i < sectorSize / 128; i++) {
+        const entryOffset = dirOffset + i * 128;
+        const nameLen = readU16(bytes, entryOffset + 64);
+        if (nameLen > 0) {
+          let name = '';
+          for (let c = 0; c < nameLen - 2; c += 2) {
+            name += String.fromCharCode(readU16(bytes, entryOffset + c));
+          }
+          if (name === 'Workbook' || name === 'Book') {
+            workbookStart = readU32(bytes, entryOffset + 116);
+            workbookSize = readU32(bytes, entryOffset + 120);
+          }
+        }
+      }
+      dirSec = fat[dirSec];
+    }
+    
+    if (workbookStart === -1) {
+      throw new Error('未在 .xls 中找到 Workbook 数据流');
+    }
+    
+    if (workbookSize < miniCutoff) {
+      throw new Error('不支持读取 MiniFAT 存储的微型 .xls 文件，请转换为 .xlsx');
+    }
+    
+    const out = new Uint8Array(workbookSize);
+    let outOffset = 0;
+    let currentSec = workbookStart;
+    while (currentSec !== 0xFFFFFFFE && currentSec !== 0xFFFFFFFF && outOffset < workbookSize) {
+      const secOffset = (currentSec + 1) * sectorSize;
+      const toCopy = Math.min(sectorSize, workbookSize - outOffset);
+      out.set(bytes.subarray(secOffset, secOffset + toCopy), outOffset);
+      outOffset += toCopy;
+      currentSec = fat[currentSec];
+    }
+    
+    bytes = out;
+  }
+
+  const { sheetOffset, sharedStrings } = parseWorkbookGlobals(bytes);
+  if (sheetOffset === null) {
+    throw new Error('无法在旧版 .xls 文件中找到有效的工作表');
+  }
+  const cells = parseSheetCells(bytes, sheetOffset, sharedStrings);
+  const rows: CellValue[][] = [];
+  if (cells.size > 0) {
+    const maxRow = Math.max(...cells.keys());
+    for (let i = 0; i <= maxRow; i++) {
+      rows.push(rowToArray(cells, i));
+    }
+  }
+  return rows;
 }
 
 function parseWorkbookGlobals(workbook: Uint8Array) {
@@ -546,6 +626,7 @@ class SegmentReader {
 
   readU8() {
     this.ensureSegment();
+    if (this.segmentIndex >= this.segments.length) return 0;
     return this.segments[this.segmentIndex][this.offset++] ?? 0;
   }
 
@@ -565,6 +646,7 @@ class SegmentReader {
     let result = '';
     while (remaining > 0) {
       this.ensureSegment();
+      if (this.segmentIndex >= this.segments.length) break;
       const current = this.segments[this.segmentIndex];
       const width = isUnicode ? 2 : 1;
       const availableChars = Math.floor((current.length - this.offset) / width);

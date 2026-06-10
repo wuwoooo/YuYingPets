@@ -183,7 +183,7 @@ export class AcademicRecordsService {
         select: { id: true, semesterId: true, code: true, gradeCode: true, gradeName: true, name: true, sortOrder: true },
       });
       const existingStudents = await tx.student.findMany({
-        where: { schoolId: user.schoolId, deletedAt: null, status: 'enabled' },
+        where: { schoolId: user.schoolId },
         select: { id: true, classId: true, studentNo: true, name: true },
       });
       const studentByNo = new Map(existingStudents.map((item) => [`${item.classId}:${this.normalizeText(item.studentNo)}`, item]));

@@ -34,7 +34,7 @@ import {
 } from '../utils/adminForms';
 import { canDeleteAcademicExams, canEditStudents, canImportStudents } from '../utils/adminPermissions';
 import { canShowScoreRecordReverse } from '../utils/scoreRecordReverse';
-import { parseAcademicScoreWorkbook, inferAcademicPeriodLabel, resolveAcademicImportDraft } from '../utils/academicImport';
+import { parseAcademicScoreWorkbook, inferAcademicPeriodLabel, resolveAcademicImportDraft, parseLegacyXlsRows } from '../utils/academicImport';
 import { parseCsvRows, readXlsxWorkbookRows } from '../utils/workbookRows';
 import { parseStudentImportRows,parseStudentImportText } from '../utils/studentImport';
 
@@ -1400,9 +1400,14 @@ export function StudentsPage({
 
     try {
       const lowerName = file.name.toLowerCase();
-      const workbookRows = lowerName.endsWith('.csv')
-        ? [parseCsvRows(await file.text())]
-        : await readXlsxWorkbookRows(file);
+      let workbookRows;
+      if (lowerName.endsWith('.csv')) {
+        workbookRows = [parseCsvRows(await file.text())];
+      } else if (lowerName.endsWith('.xls')) {
+        workbookRows = [await parseLegacyXlsRows(await file.arrayBuffer())];
+      } else {
+        workbookRows = await readXlsxWorkbookRows(file);
+      }
       if (!workbookRows.length) {
         throw new Error('Excel 文件中没有可读取的工作表');
       }
@@ -2393,9 +2398,9 @@ export function StudentsPage({
               <>
                 <label className="span-2">
                   <span>Excel 导入</span>
-                  <input type="file" accept=".xlsx,.csv" onChange={(event) => void handleExcelImport(event)} />
+                  <input type="file" accept=".xlsx,.xls,.csv" onChange={(event) => void handleExcelImport(event)} />
                   <div className="settings-note">
-                    支持 `.xlsx/.csv`，可使用表头：准考证号、姓名、年级、班级、性别、头像地址。表格中有班级时按行内班级导入。
+                    支持 `.xlsx/.xls/.csv`，可使用表头：准考证号、姓名、年级、班级、性别、头像地址。表格中有班级时按行内班级导入。
                     {importFileName ? ` 当前文件：${importFileName}` : ''}
                   </div>
                 </label>
@@ -2578,10 +2583,10 @@ export function StudentsPage({
             <label className="span-2">
               <span>成绩汇总表</span>
               <div className="academic-upload-field">
-                <input type="file" accept=".xlsx" onChange={(event) => void handleAcademicExcelImport(event)} />
+                <input type="file" accept=".xlsx,.xls" onChange={(event) => void handleAcademicExcelImport(event)} />
                 <div className="settings-note">
                   支持两层表头：准考证号、班级、姓名，以及语文/数学/英语等科目的得分、联考排名、校次、班次和进退步。
-                  {academicImportFileName ? ` 当前文件：${academicImportFileName}` : ' 请选择 .xlsx 文件。'}
+                  {academicImportFileName ? ` 当前文件：${academicImportFileName}` : ' 请选择 .xlsx 或 .xls 文件。'}
                 </div>
               </div>
             </label>

@@ -50,8 +50,10 @@ export function AnalyticsPage({
 
   const [gradeFilter, setGradeFilter] = useState('all');
   const [classFilter, setClassFilter] = useState('all');
-  const today = new Date().toISOString().slice(0, 10);
-  const defaultStartDate = new Date(Date.now() - 29 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const startD = new Date(now.getTime() - 29 * 24 * 60 * 60 * 1000);
+  const defaultStartDate = `${startD.getFullYear()}-${String(startD.getMonth() + 1).padStart(2, '0')}-${String(startD.getDate()).padStart(2, '0')}`;
   const [startDate, setStartDate] = useState(defaultStartDate);
   const [endDate, setEndDate] = useState(today);
   const [pendingStartDate, setPendingStartDate] = useState(defaultStartDate);
@@ -661,7 +663,10 @@ export function AnalyticsPage({
   function shiftDate(date: string, offsetDays: number) {
     const d = new Date(`${date}T00:00:00`);
     d.setDate(d.getDate() + offsetDays);
-    return d.toISOString().slice(0, 10);
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
   }
 
   function diffDaysInclusive(start: string, end: string) {
@@ -1264,7 +1269,7 @@ export function AnalyticsPage({
         <div className="a-summary-card">
           <div className="a-s-icon">◌</div>
           <div className="a-s-label">活跃天数</div>
-          <div className="a-s-value">{isAnalyticsDataLoading ? <span className="val-loading">...</span> : activeDays}<span className="a-s-inline">/60</span></div>
+          <div className="a-s-value">{isAnalyticsDataLoading ? <span className="val-loading">...</span> : activeDays}<span className="a-s-inline">/{diffDaysInclusive(startDate, endDate)}</span></div>
           <div className="a-s-sub">按当前班级活跃推估</div>
         </div>
       </div>

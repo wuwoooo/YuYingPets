@@ -2023,6 +2023,7 @@
 }
 
 .projection-heat-footnote {
+  display: none;
   margin-top: 4px;
   color: rgba(220, 250, 255, .48);
   font-size: 9px;
