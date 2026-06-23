@@ -9,5 +9,6 @@ import { AdminConfigService } from './admin-config.service';
   imports: [PrismaModule, AuthModule, OperationLogModule],
   controllers: [AdminConfigController],
   providers: [AdminConfigService],
+  exports: [AdminConfigService],
 })
 export class AdminConfigModule {}

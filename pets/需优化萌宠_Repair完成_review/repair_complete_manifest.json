@@ -1,0 +1,652 @@
+[
+  {
+    "source": "pets/需优化萌宠_Repair完成/056_森歌獭_1 拷贝.png",
+    "target_1024": "backend/public/assets/pets/1024/056_森歌獭_1.png",
+    "target_400": "backend/public/assets/pets/400/056_森歌獭_1.png",
+    "source_size": [
+      1024,
+      1024
+    ],
+    "normalized_to_1024": false,
+    "alpha_px": 383238,
+    "low_alpha_green": 196,
+    "sha256_1024": "daedaebda2c16cb583165910e97560018ea24a82a3134977684b645eb69f7df1"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/056_森歌獭_10 拷贝.png",
+    "target_1024": "backend/public/assets/pets/1024/056_森歌獭_10.png",
+    "target_400": "backend/public/assets/pets/400/056_森歌獭_10.png",
+    "source_size": [
+      1024,
+      1024
+    ],
+    "normalized_to_1024": false,
+    "alpha_px": 383408,
+    "low_alpha_green": 1584,
+    "sha256_1024": "d73db93e54343e195f437d2fa28aed8a9b9846f88dafe020d18a3eb62ad5fe61"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/056_森歌獭_2 拷贝.png",
+    "target_1024": "backend/public/assets/pets/1024/056_森歌獭_2.png",
+    "target_400": "backend/public/assets/pets/400/056_森歌獭_2.png",
+    "source_size": [
+      1024,
+      1024
+    ],
+    "normalized_to_1024": false,
+    "alpha_px": 364347,
+    "low_alpha_green": 87,
+    "sha256_1024": "10099ee7da16f77e102fb9e9666f5059a739382dc15b11d5204c5ac87aaee601"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/056_森歌獭_3 拷贝.png",
+    "target_1024": "backend/public/assets/pets/1024/056_森歌獭_3.png",
+    "target_400": "backend/public/assets/pets/400/056_森歌獭_3.png",
+    "source_size": [
+      1024,
+      1024
+    ],
+    "normalized_to_1024": false,
+    "alpha_px": 358408,
+    "low_alpha_green": 260,
+    "sha256_1024": "b6d5ca7a668911b8697aa1c185abda712b701995fe8b5c001f2007cbf2bb3fe3"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/056_森歌獭_4 拷贝.png",
+    "target_1024": "backend/public/assets/pets/1024/056_森歌獭_4.png",
+    "target_400": "backend/public/assets/pets/400/056_森歌獭_4.png",
+    "source_size": [
+      1024,
+      1024
+    ],
+    "normalized_to_1024": false,
+    "alpha_px": 367692,
+    "low_alpha_green": 246,
+    "sha256_1024": "a0c5ff1ddb4d24f901e4869e441758de6144e2e6231163ad06d95db173b30fde"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/056_森歌獭_5 拷贝.png",
+    "target_1024": "backend/public/assets/pets/1024/056_森歌獭_5.png",
+    "target_400": "backend/public/assets/pets/400/056_森歌獭_5.png",
+    "source_size": [
+      1024,
+      1024
+    ],
+    "normalized_to_1024": false,
+    "alpha_px": 375863,
+    "low_alpha_green": 290,
+    "sha256_1024": "7eae0264c3ca02e8425f1e80c9a731da35d55b4e5d6f0a8527d83ee469175701"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/056_森歌獭_6 拷贝.png",
+    "target_1024": "backend/public/assets/pets/1024/056_森歌獭_6.png",
+    "target_400": "backend/public/assets/pets/400/056_森歌獭_6.png",
+    "source_size": [
+      1024,
+      1024
+    ],
+    "normalized_to_1024": false,
+    "alpha_px": 373060,
+    "low_alpha_green": 246,
+    "sha256_1024": "8861840a74ff58a8ec012c5e8d914e9b52773c6afedfc1b1ab888b448fd6056d"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/056_森歌獭_7 拷贝.png",
+    "target_1024": "backend/public/assets/pets/1024/056_森歌獭_7.png",
+    "target_400": "backend/public/assets/pets/400/056_森歌獭_7.png",
+    "source_size": [
+      1024,
+      1024
+    ],
+    "normalized_to_1024": false,
+    "alpha_px": 434306,
+    "low_alpha_green": 260,
+    "sha256_1024": "160764a0e7251d1a5536f72fc328386e89cc74395df463e17ea3a877a74ece86"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/056_森歌獭_8 拷贝.png",
+    "target_1024": "backend/public/assets/pets/1024/056_森歌獭_8.png",
+    "target_400": "backend/public/assets/pets/400/056_森歌獭_8.png",
+    "source_size": [
+      1024,
+      1024
+    ],
+    "normalized_to_1024": false,
+    "alpha_px": 377046,
+    "low_alpha_green": 1296,
+    "sha256_1024": "7f1d79b7f6a95991b9f8e394674a5f9bd9d80fa5602e33cbe9bbee9900faabc0"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/056_森歌獭_9 拷贝.png",
+    "target_1024": "backend/public/assets/pets/1024/056_森歌獭_9.png",
+    "target_400": "backend/public/assets/pets/400/056_森歌獭_9.png",
+    "source_size": [
+      1024,
+      1024
+    ],
+    "normalized_to_1024": false,
+    "alpha_px": 376945,
+    "low_alpha_green": 1155,
+    "sha256_1024": "3b0f098de9522a9136c832336429e8a4d62d51674a6c1ba0b80f7f0a95c80a38"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/061_玉麒团_1.png",
+    "target_1024": "backend/public/assets/pets/1024/061_玉麒团_1.png",
+    "target_400": "backend/public/assets/pets/400/061_玉麒团_1.png",
+    "source_size": [
+      1024,
+      1024
+    ],
+    "normalized_to_1024": false,
+    "alpha_px": 349080,
+    "low_alpha_green": 3936,
+    "sha256_1024": "df3563cd82600d125f20bec8368e5fbd87511effc7798ec94de0492e8ad2431e"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/061_玉麒团_10 拷贝.png",
+    "target_1024": "backend/public/assets/pets/1024/061_玉麒团_10.png",
+    "target_400": "backend/public/assets/pets/400/061_玉麒团_10.png",
+    "source_size": [
+      1024,
+      1024
+    ],
+    "normalized_to_1024": false,
+    "alpha_px": 483566,
+    "low_alpha_green": 3663,
+    "sha256_1024": "68ab08a9e731b7f269eb44622dbc1d15e02eedd7d932aa3b4eb9183ffea929c9"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/061_玉麒团_2 拷贝.png",
+    "target_1024": "backend/public/assets/pets/1024/061_玉麒团_2.png",
+    "target_400": "backend/public/assets/pets/400/061_玉麒团_2.png",
+    "source_size": [
+      1024,
+      1024
+    ],
+    "normalized_to_1024": false,
+    "alpha_px": 413419,
+    "low_alpha_green": 1256,
+    "sha256_1024": "aaa85eca29a59853c85880e872b617b72e684c66e00c8b6377b4439596fbd1b5"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/061_玉麒团_3 拷贝.png",
+    "target_1024": "backend/public/assets/pets/1024/061_玉麒团_3.png",
+    "target_400": "backend/public/assets/pets/400/061_玉麒团_3.png",
+    "source_size": [
+      1024,
+      1024
+    ],
+    "normalized_to_1024": false,
+    "alpha_px": 401145,
+    "low_alpha_green": 1538,
+    "sha256_1024": "4396d34d26dac05e273cee6cd04a5c3209819011adab22b87ac90a194a5df47e"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/061_玉麒团_4 拷贝.png",
+    "target_1024": "backend/public/assets/pets/1024/061_玉麒团_4.png",
+    "target_400": "backend/public/assets/pets/400/061_玉麒团_4.png",
+    "source_size": [
+      1024,
+      1024
+    ],
+    "normalized_to_1024": false,
+    "alpha_px": 416736,
+    "low_alpha_green": 1560,
+    "sha256_1024": "d426ac88c3197a3295af0f0afa29d643ef9e7379fbc3aedcdc922505265affca"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/061_玉麒团_5 拷贝.png",
+    "target_1024": "backend/public/assets/pets/1024/061_玉麒团_5.png",
+    "target_400": "backend/public/assets/pets/400/061_玉麒团_5.png",
+    "source_size": [
+      1024,
+      1024
+    ],
+    "normalized_to_1024": false,
+    "alpha_px": 412415,
+    "low_alpha_green": 1693,
+    "sha256_1024": "89a36d07c339bf134723b8e55bec8d12db99879235f63274a43d350cdc83ed5c"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/061_玉麒团_6 拷贝.png",
+    "target_1024": "backend/public/assets/pets/1024/061_玉麒团_6.png",
+    "target_400": "backend/public/assets/pets/400/061_玉麒团_6.png",
+    "source_size": [
+      1024,
+      1024
+    ],
+    "normalized_to_1024": false,
+    "alpha_px": 444186,
+    "low_alpha_green": 2096,
+    "sha256_1024": "610d9d12de21b0bc9ef8d90e2dadc90d87d706f0d892222c747c6c508c169165"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/061_玉麒团_7 拷贝.png",
+    "target_1024": "backend/public/assets/pets/1024/061_玉麒团_7.png",
+    "target_400": "backend/public/assets/pets/400/061_玉麒团_7.png",
+    "source_size": [
+      1024,
+      1024
+    ],
+    "normalized_to_1024": false,
+    "alpha_px": 454063,
+    "low_alpha_green": 1428,
+    "sha256_1024": "9be16741b07ddf38c2748aec95be0f2bd61d3c0108842dcb909285f483243c87"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/061_玉麒团_8 拷贝.png",
+    "target_1024": "backend/public/assets/pets/1024/061_玉麒团_8.png",
+    "target_400": "backend/public/assets/pets/400/061_玉麒团_8.png",
+    "source_size": [
+      1024,
+      1024
+    ],
+    "normalized_to_1024": false,
+    "alpha_px": 471242,
+    "low_alpha_green": 1744,
+    "sha256_1024": "9b986f56f20a5143d41a6fa6e9f24f4b143360140e1683b432aa294c0150597c"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/061_玉麒团_9 拷贝.png",
+    "target_1024": "backend/public/assets/pets/1024/061_玉麒团_9.png",
+    "target_400": "backend/public/assets/pets/400/061_玉麒团_9.png",
+    "source_size": [
+      1024,
+      1024
+    ],
+    "normalized_to_1024": false,
+    "alpha_px": 463585,
+    "low_alpha_green": 2471,
+    "sha256_1024": "ec593f105950697b31059a1b83a89950062b71014ac9318bcb406734cb73368f"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/063_竹团貘_1 拷贝.png",
+    "target_1024": "backend/public/assets/pets/1024/063_竹团貘_1.png",
+    "target_400": "backend/public/assets/pets/400/063_竹团貘_1.png",
+    "source_size": [
+      1024,
+      1024
+    ],
+    "normalized_to_1024": false,
+    "alpha_px": 480455,
+    "low_alpha_green": 172,
+    "sha256_1024": "cdf043099c51cda5b04d2d392f83d2e1f18df0990920820e78d0e98b55a33a22"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/063_竹团貘_10 拷贝.png",
+    "target_1024": "backend/public/assets/pets/1024/063_竹团貘_10.png",
+    "target_400": "backend/public/assets/pets/400/063_竹团貘_10.png",
+    "source_size": [
+      1024,
+      1024
+    ],
+    "normalized_to_1024": false,
+    "alpha_px": 459219,
+    "low_alpha_green": 580,
+    "sha256_1024": "8a152562ff276d1ad1351b3726edff38b0c25fff248684b4c1fae0886976f27e"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/063_竹团貘_2 拷贝.png",
+    "target_1024": "backend/public/assets/pets/1024/063_竹团貘_2.png",
+    "target_400": "backend/public/assets/pets/400/063_竹团貘_2.png",
+    "source_size": [
+      1024,
+      1024
+    ],
+    "normalized_to_1024": false,
+    "alpha_px": 428177,
+    "low_alpha_green": 216,
+    "sha256_1024": "de617f227513c7beed73bb52d13587d32bde6dcd5064297f0047ef6026bc1e6c"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/063_竹团貘_3 拷贝.png",
+    "target_1024": "backend/public/assets/pets/1024/063_竹团貘_3.png",
+    "target_400": "backend/public/assets/pets/400/063_竹团貘_3.png",
+    "source_size": [
+      1024,
+      1024
+    ],
+    "normalized_to_1024": false,
+    "alpha_px": 419108,
+    "low_alpha_green": 297,
+    "sha256_1024": "3e3a7713e68a5a9933296d8d8527de36cc97f0531bb9dab168c7f3117e1a18e7"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/063_竹团貘_4 拷贝.png",
+    "target_1024": "backend/public/assets/pets/1024/063_竹团貘_4.png",
+    "target_400": "backend/public/assets/pets/400/063_竹团貘_4.png",
+    "source_size": [
+      1024,
+      1024
+    ],
+    "normalized_to_1024": false,
+    "alpha_px": 417964,
+    "low_alpha_green": 242,
+    "sha256_1024": "68dabf3d16ea234efbd0b03fda100807de454a40944fa892c0dec096132cd783"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/063_竹团貘_5_raw.png",
+    "target_1024": "backend/public/assets/pets/1024/063_竹团貘_5.png",
+    "target_400": "backend/public/assets/pets/400/063_竹团貘_5.png",
+    "source_size": [
+      1254,
+      1254
+    ],
+    "normalized_to_1024": true,
+    "alpha_px": 483010,
+    "low_alpha_green": 839,
+    "sha256_1024": "e4e8767b3c3d68db9c5e17d0da8a308c67744271cc8c493587302c3f4ff63386"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/063_竹团貘_6 拷贝.png",
+    "target_1024": "backend/public/assets/pets/1024/063_竹团貘_6.png",
+    "target_400": "backend/public/assets/pets/400/063_竹团貘_6.png",
+    "source_size": [
+      1024,
+      1024
+    ],
+    "normalized_to_1024": false,
+    "alpha_px": 410572,
+    "low_alpha_green": 616,
+    "sha256_1024": "0ec363e89dccecfa0b3f4b9b347f7d926372b7706e8c902c608f9c36b222199d"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/063_竹团貘_7 拷贝.png",
+    "target_1024": "backend/public/assets/pets/1024/063_竹团貘_7.png",
+    "target_400": "backend/public/assets/pets/400/063_竹团貘_7.png",
+    "source_size": [
+      1024,
+      1024
+    ],
+    "normalized_to_1024": false,
+    "alpha_px": 414201,
+    "low_alpha_green": 377,
+    "sha256_1024": "6abd7b059323f17262019f2362345439e1a4706a6fb774c87942713eb0942f76"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/063_竹团貘_8 拷贝.png",
+    "target_1024": "backend/public/assets/pets/1024/063_竹团貘_8.png",
+    "target_400": "backend/public/assets/pets/400/063_竹团貘_8.png",
+    "source_size": [
+      1024,
+      1024
+    ],
+    "normalized_to_1024": false,
+    "alpha_px": 414657,
+    "low_alpha_green": 750,
+    "sha256_1024": "67beeb45e124f365c5d16cb1607fcbcee5cf2569c01e59b5e70190f32b34215b"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/063_竹团貘_9 拷贝.png",
+    "target_1024": "backend/public/assets/pets/1024/063_竹团貘_9.png",
+    "target_400": "backend/public/assets/pets/400/063_竹团貘_9.png",
+    "source_size": [
+      1024,
+      1024
+    ],
+    "normalized_to_1024": false,
+    "alpha_px": 456329,
+    "low_alpha_green": 307,
+    "sha256_1024": "70a9ba5a54c110df13aee3b8cc13d95dfe9e369172cea79477c622619822b56d"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/078_辰龙宝_1 拷贝.png",
+    "target_1024": "backend/public/assets/pets/1024/078_辰龙宝_1.png",
+    "target_400": "backend/public/assets/pets/400/078_辰龙宝_1.png",
+    "source_size": [
+      1024,
+      1024
+    ],
+    "normalized_to_1024": false,
+    "alpha_px": 436990,
+    "low_alpha_green": 4105,
+    "sha256_1024": "88cd7532e7f9f5d82aae33e0ca0a74ff4c3db0a68206b519e144d8c80fe072ce"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/078_辰龙宝_10 拷贝.png",
+    "target_1024": "backend/public/assets/pets/1024/078_辰龙宝_10.png",
+    "target_400": "backend/public/assets/pets/400/078_辰龙宝_10.png",
+    "source_size": [
+      1024,
+      1024
+    ],
+    "normalized_to_1024": false,
+    "alpha_px": 353170,
+    "low_alpha_green": 6793,
+    "sha256_1024": "1066371a2212af350efd4b85e304bbe1382a3e1bc1051b338a0820cde27c920d"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/078_辰龙宝_2 拷贝.png",
+    "target_1024": "backend/public/assets/pets/1024/078_辰龙宝_2.png",
+    "target_400": "backend/public/assets/pets/400/078_辰龙宝_2.png",
+    "source_size": [
+      1024,
+      1024
+    ],
+    "normalized_to_1024": false,
+    "alpha_px": 348250,
+    "low_alpha_green": 5531,
+    "sha256_1024": "ddeda4f62dee874aafde004adeaccb2dd18859a27f5698d306900f2ba0b77707"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/078_辰龙宝_3 拷贝.png",
+    "target_1024": "backend/public/assets/pets/1024/078_辰龙宝_3.png",
+    "target_400": "backend/public/assets/pets/400/078_辰龙宝_3.png",
+    "source_size": [
+      1024,
+      1024
+    ],
+    "normalized_to_1024": false,
+    "alpha_px": 362505,
+    "low_alpha_green": 5278,
+    "sha256_1024": "4463ee4418ef9baab98c31b13734c834f3a53884d81717438835ab23ef607086"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/078_辰龙宝_4 拷贝.png",
+    "target_1024": "backend/public/assets/pets/1024/078_辰龙宝_4.png",
+    "target_400": "backend/public/assets/pets/400/078_辰龙宝_4.png",
+    "source_size": [
+      1024,
+      1024
+    ],
+    "normalized_to_1024": false,
+    "alpha_px": 365473,
+    "low_alpha_green": 5320,
+    "sha256_1024": "c8059ab275b1eb789bbee1858dea4c3aee2acf3c73e2a2f13791009ae9547244"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/078_辰龙宝_5 拷贝.png",
+    "target_1024": "backend/public/assets/pets/1024/078_辰龙宝_5.png",
+    "target_400": "backend/public/assets/pets/400/078_辰龙宝_5.png",
+    "source_size": [
+      1024,
+      1024
+    ],
+    "normalized_to_1024": false,
+    "alpha_px": 367987,
+    "low_alpha_green": 6496,
+    "sha256_1024": "800099fa21c2d8504a43b793bd9d076cbc997e148500d77f57a6e559576a4012"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/078_辰龙宝_6 拷贝.png",
+    "target_1024": "backend/public/assets/pets/1024/078_辰龙宝_6.png",
+    "target_400": "backend/public/assets/pets/400/078_辰龙宝_6.png",
+    "source_size": [
+      1024,
+      1024
+    ],
+    "normalized_to_1024": false,
+    "alpha_px": 392043,
+    "low_alpha_green": 4984,
+    "sha256_1024": "2ed27d38ad75c27fb039cf42c2fdae4adc63917619fb9bed19e15044e4c51830"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/078_辰龙宝_7 拷贝.png",
+    "target_1024": "backend/public/assets/pets/1024/078_辰龙宝_7.png",
+    "target_400": "backend/public/assets/pets/400/078_辰龙宝_7.png",
+    "source_size": [
+      1024,
+      1024
+    ],
+    "normalized_to_1024": false,
+    "alpha_px": 391124,
+    "low_alpha_green": 4515,
+    "sha256_1024": "c9447215e76612f54b1438d7eaa3a56587ddb01b159fd771f806759c0ecbcf55"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/078_辰龙宝_8_raw.png",
+    "target_1024": "backend/public/assets/pets/1024/078_辰龙宝_8.png",
+    "target_400": "backend/public/assets/pets/400/078_辰龙宝_8.png",
+    "source_size": [
+      1254,
+      1254
+    ],
+    "normalized_to_1024": true,
+    "alpha_px": 497206,
+    "low_alpha_green": 4366,
+    "sha256_1024": "7356af21253fe5ee25d68a8b27fc48623b4cda3f197c9aaca2d23b0cbcecd30f"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/078_辰龙宝_9_raw.png",
+    "target_1024": "backend/public/assets/pets/1024/078_辰龙宝_9.png",
+    "target_400": "backend/public/assets/pets/400/078_辰龙宝_9.png",
+    "source_size": [
+      1254,
+      1254
+    ],
+    "normalized_to_1024": true,
+    "alpha_px": 570173,
+    "low_alpha_green": 5091,
+    "sha256_1024": "6b98eec83f38fa66b4798e74209d7fe2bdd4eaaf3a0752ca6ab3690774f752ba"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/079_巳蛇宝_1 拷贝.png",
+    "target_1024": "backend/public/assets/pets/1024/079_巳蛇宝_1.png",
+    "target_400": "backend/public/assets/pets/400/079_巳蛇宝_1.png",
+    "source_size": [
+      1024,
+      1024
+    ],
+    "normalized_to_1024": false,
+    "alpha_px": 377916,
+    "low_alpha_green": 290,
+    "sha256_1024": "9710a34d9e593f36fd1b424578b32d733296a97abfe70a355c6828ee99417d13"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/079_巳蛇宝_10 拷贝.png",
+    "target_1024": "backend/public/assets/pets/1024/079_巳蛇宝_10.png",
+    "target_400": "backend/public/assets/pets/400/079_巳蛇宝_10.png",
+    "source_size": [
+      1024,
+      1024
+    ],
+    "normalized_to_1024": false,
+    "alpha_px": 401536,
+    "low_alpha_green": 2451,
+    "sha256_1024": "76d48f7a3cfd857a776bb9ecbbf5141d87c90d68864b6d8ca007d018e9faec10"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/079_巳蛇宝_2 拷贝.png",
+    "target_1024": "backend/public/assets/pets/1024/079_巳蛇宝_2.png",
+    "target_400": "backend/public/assets/pets/400/079_巳蛇宝_2.png",
+    "source_size": [
+      1024,
+      1024
+    ],
+    "normalized_to_1024": false,
+    "alpha_px": 340050,
+    "low_alpha_green": 2173,
+    "sha256_1024": "fe1e0450df949356cf0186b9790cf381d7cf86aa15ebe0e7d7292b71a3e7546e"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/079_巳蛇宝_3 拷贝.png",
+    "target_1024": "backend/public/assets/pets/1024/079_巳蛇宝_3.png",
+    "target_400": "backend/public/assets/pets/400/079_巳蛇宝_3.png",
+    "source_size": [
+      1024,
+      1024
+    ],
+    "normalized_to_1024": false,
+    "alpha_px": 369132,
+    "low_alpha_green": 2491,
+    "sha256_1024": "0308809ddb6a0f399d594d4feb5057cdedd2274882d0fbc91eda486a65123f5b"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/079_巳蛇宝_4 拷贝.png",
+    "target_1024": "backend/public/assets/pets/1024/079_巳蛇宝_4.png",
+    "target_400": "backend/public/assets/pets/400/079_巳蛇宝_4.png",
+    "source_size": [
+      1024,
+      1024
+    ],
+    "normalized_to_1024": false,
+    "alpha_px": 328449,
+    "low_alpha_green": 1147,
+    "sha256_1024": "e58a4ae424e1b11dce3cc0484bfcfd57616da894fcae67362af227e45b12bf0e"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/079_巳蛇宝_5 拷贝.png",
+    "target_1024": "backend/public/assets/pets/1024/079_巳蛇宝_5.png",
+    "target_400": "backend/public/assets/pets/400/079_巳蛇宝_5.png",
+    "source_size": [
+      1024,
+      1024
+    ],
+    "normalized_to_1024": false,
+    "alpha_px": 381027,
+    "low_alpha_green": 1642,
+    "sha256_1024": "85b361311b9fc285f34f16b88f071c5da53cb98efe0ebc5d0489af6e238d2179"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/079_巳蛇宝_6 拷贝.png",
+    "target_1024": "backend/public/assets/pets/1024/079_巳蛇宝_6.png",
+    "target_400": "backend/public/assets/pets/400/079_巳蛇宝_6.png",
+    "source_size": [
+      1024,
+      1024
+    ],
+    "normalized_to_1024": false,
+    "alpha_px": 321611,
+    "low_alpha_green": 896,
+    "sha256_1024": "ec7748171aee96f7fe48e3530de3f0ca75b612f1269c2cdf4d58bdc531f65719"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/079_巳蛇宝_7 拷贝.png",
+    "target_1024": "backend/public/assets/pets/1024/079_巳蛇宝_7.png",
+    "target_400": "backend/public/assets/pets/400/079_巳蛇宝_7.png",
+    "source_size": [
+      1024,
+      1024
+    ],
+    "normalized_to_1024": false,
+    "alpha_px": 330049,
+    "low_alpha_green": 1694,
+    "sha256_1024": "e455b271f2e6d72d3114c43b5591f0558ad8b72fc586a9f09a020c95b630e5e4"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/079_巳蛇宝_8 拷贝.png",
+    "target_1024": "backend/public/assets/pets/1024/079_巳蛇宝_8.png",
+    "target_400": "backend/public/assets/pets/400/079_巳蛇宝_8.png",
+    "source_size": [
+      1024,
+      1024
+    ],
+    "normalized_to_1024": false,
+    "alpha_px": 326472,
+    "low_alpha_green": 1195,
+    "sha256_1024": "fa92f8cf67a1c22461a48df347f2d89fb7825b9074a74f141f2b1e03efb2daac"
+  },
+  {
+    "source": "pets/需优化萌宠_Repair完成/079_巳蛇宝_9_raw.png",
+    "target_1024": "backend/public/assets/pets/1024/079_巳蛇宝_9.png",
+    "target_400": "backend/public/assets/pets/400/079_巳蛇宝_9.png",
+    "source_size": [
+      1254,
+      1254
+    ],
+    "normalized_to_1024": true,
+    "alpha_px": 415266,
+    "low_alpha_green": 3583,
+    "sha256_1024": "2f747410576c4eafe101e84ae7dcb622de87086aa335abe803ee159f0c1bd881"
+  }
+]

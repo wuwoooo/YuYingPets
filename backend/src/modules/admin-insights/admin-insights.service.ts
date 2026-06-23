@@ -15,6 +15,7 @@ import { normalizePetGrowthThresholds, resolveStageNeedScoreTotal } from '@/comm
 import { behaviorScoreRecordWhere } from '@/common/utils/behavior-score-record.util';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, extname, resolve } from 'node:path';
+import { createClient, type RedisClientType } from 'redis';
 
 type CachedAnalyticsInsight = {
   summary: string;
@@ -56,8 +57,41 @@ const ANALYTICS_RISK_THRESHOLDS = {
   mediumComboScoreDelta: -12,
 } as const;
 const ANALYTICS_CACHE_VERSION = 'v4-behavior-score-only';
+const DEFAULT_ANALYTICS_SUMMARY_CACHE_TTL_MS = 90_000;
+const DEFAULT_ANALYTICS_HEATMAP_CACHE_TTL_MS = 180_000;
+const DEFAULT_ANALYTICS_AI_CACHE_TTL_MS = 300_000;
+const DEFAULT_ANALYTICS_LOCK_TTL_MS = 15_000;
+const ANALYTICS_LOCK_WAIT_MS = 2_000;
+const ANALYTICS_LOCK_POLL_MS = 160;
 
 type AnalyticsRiskLevel = 'high' | 'medium' | 'low';
+type AnalyticsFilters = {
+  gradeName?: string;
+  classId?: number;
+  subjectCode?: string;
+  regenerateAi?: boolean;
+  startDate?: string;
+  endDate?: string;
+  skipAi?: boolean;
+  skipHeatmap?: boolean;
+  skipSummary?: boolean;
+  skipDetailSummary?: boolean;
+};
+
+type AnalyticsRiskStudentAggregate = {
+  studentId: number;
+  studentName: string;
+  className: string;
+  positiveCount: number;
+  negativeCount: number;
+  scoreDelta: number;
+};
+
+type AnalyticsHeatMapBucket = {
+  rowIndex: number;
+  colIndex: number;
+  value: number;
+};
 
 function qualifiesAnalyticsRiskStudent(input: { negativeCount: number; scoreDelta: number }) {
   return (
@@ -120,6 +154,9 @@ function comparePetCatalogOrder(
 
 @Injectable()
 export class AdminInsightsService {
+  private activeAnalyticsQueries = new Map<string, Promise<any>>();
+  private redisClientPromise: Promise<RedisClientType | null> | null = null;
+
   constructor(
     @Inject(CACHE_MANAGER) private cacheManager: Cache,
     private readonly prisma: PrismaService,
@@ -128,29 +165,417 @@ export class AdminInsightsService {
     private readonly configService: ConfigService,
   ) {}
 
+  private getConfigNumber(key: string, fallback: number) {
+    const raw = this.configService.get<string>(key);
+    const value = Number(raw);
+    return Number.isFinite(value) && value > 0 ? value : fallback;
+  }
+
+  private getConfigDurationMs(msKey: string, secondsKey: string, fallbackMs: number) {
+    const msValue = this.getConfigNumber(msKey, 0);
+    if (msValue > 0) return msValue;
+    const secondsValue = this.getConfigNumber(secondsKey, 0);
+    if (secondsValue > 0) return secondsValue * 1000;
+    return fallbackMs;
+  }
+
+  private getAnalyticsCacheTtlMs(filters?: AnalyticsFilters) {
+    if (filters?.skipSummary) {
+      return this.getConfigDurationMs(
+        'ANALYTICS_HEATMAP_CACHE_TTL_MS',
+        'ANALYTICS_HEATMAP_CACHE_TTL_SECONDS',
+        DEFAULT_ANALYTICS_HEATMAP_CACHE_TTL_MS,
+      );
+    }
+    if (!filters?.skipAi && filters?.skipHeatmap) {
+      return this.getConfigDurationMs(
+        'ANALYTICS_AI_CACHE_TTL_MS',
+        'ANALYTICS_AI_CACHE_TTL_SECONDS',
+        DEFAULT_ANALYTICS_AI_CACHE_TTL_MS,
+      );
+    }
+    return this.getConfigDurationMs(
+      'ANALYTICS_SUMMARY_CACHE_TTL_MS',
+      'ANALYTICS_SUMMARY_CACHE_TTL_SECONDS',
+      DEFAULT_ANALYTICS_SUMMARY_CACHE_TTL_MS,
+    );
+  }
+
+  private getAnalyticsLockTtlMs() {
+    return this.getConfigDurationMs(
+      'ANALYTICS_LOCK_TTL_MS',
+      'ANALYTICS_CACHE_LOCK_TTL_SECONDS',
+      DEFAULT_ANALYTICS_LOCK_TTL_MS,
+    );
+  }
+
+  private buildAnalyticsCacheKey(user: AuthUser, filters?: AnalyticsFilters) {
+    return [
+      ANALYTICS_CACHE_VERSION,
+      'analytics',
+      `school:${user.schoolId.toString()}`,
+      `user:${user.id.toString()}`,
+      `class:${filters?.classId || ''}`,
+      `grade:${filters?.gradeName || ''}`,
+      `start:${filters?.startDate || ''}`,
+      `end:${filters?.endDate || ''}`,
+      `subject:${filters?.subjectCode || ''}`,
+      `regen:${filters?.regenerateAi || ''}`,
+      `skipAi:${filters?.skipAi || ''}`,
+      `skipHeatmap:${filters?.skipHeatmap || ''}`,
+      `skipSummary:${filters?.skipSummary || ''}`,
+      `skipDetail:${filters?.skipDetailSummary || ''}`,
+    ].join(':');
+  }
+
+  private async getRedisClient() {
+    const redisUrl = this.configService.get<string>('REDIS_URL')?.trim();
+    if (!redisUrl) return null;
+    if (!this.redisClientPromise) {
+      this.redisClientPromise = (async () => {
+        try {
+          const client = createClient({ url: redisUrl });
+          client.on('error', () => {
+            // Redis 是 analytics 共享缓存增强项，连接失败时保留内存缓存兜底。
+          });
+          await client.connect();
+          return client as RedisClientType;
+        } catch {
+          return null;
+        }
+      })();
+    }
+    return this.redisClientPromise;
+  }
+
+  private async getAnalyticsCachedResponse<T>(cacheKey: string): Promise<T | null> {
+    const redisClient = await this.getRedisClient();
+    if (redisClient) {
+      const raw = await redisClient.get(cacheKey).catch(() => null);
+      if (raw) {
+        try {
+          return JSON.parse(raw) as T;
+        } catch {
+          // Redis 中的坏缓存直接忽略，继续读内存缓存或重算。
+        }
+      }
+    }
+    return (await this.cacheManager.get<T>(cacheKey)) ?? null;
+  }
+
+  private async setAnalyticsCachedResponse(cacheKey: string, value: unknown, ttlMs: number) {
+    await this.cacheManager.set(cacheKey, value, ttlMs);
+    const redisClient = await this.getRedisClient();
+    if (!redisClient) return;
+    const ttlSeconds = Math.max(1, Math.ceil(ttlMs / 1000));
+    await redisClient.set(cacheKey, JSON.stringify(value), { EX: ttlSeconds }).catch(() => undefined);
+  }
+
+  private async acquireAnalyticsLock(cacheKey: string) {
+    const redisClient = await this.getRedisClient();
+    if (!redisClient) return null;
+    const lockKey = `${cacheKey}:lock`;
+    const lockToken = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const result = await redisClient
+      .set(lockKey, lockToken, { NX: true, PX: this.getAnalyticsLockTtlMs() })
+      .catch(() => null);
+    return result === 'OK' ? { lockKey, lockToken } : null;
+  }
+
+  private async releaseAnalyticsLock(lock: { lockKey: string; lockToken: string } | null) {
+    if (!lock) return;
+    const redisClient = await this.getRedisClient();
+    if (!redisClient) return;
+    const currentToken = await redisClient.get(lock.lockKey).catch(() => null);
+    if (currentToken === lock.lockToken) {
+      await redisClient.del(lock.lockKey).catch(() => undefined);
+    }
+  }
+
+  private async waitForAnalyticsCachedResponse<T>(cacheKey: string): Promise<T | null> {
+    const deadline = Date.now() + ANALYTICS_LOCK_WAIT_MS;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, ANALYTICS_LOCK_POLL_MS));
+      const cached = await this.getAnalyticsCachedResponse<T>(cacheKey);
+      if (cached) return cached;
+    }
+    return null;
+  }
+
   async analyticsSummary(
     authorization: string | undefined,
-    filters?: { gradeName?: string; classId?: number; subjectCode?: string; startDate?: string; endDate?: string },
+    filters?: { gradeName?: string; classId?: number; subjectCode?: string; startDate?: string; endDate?: string; skipHeatmap?: boolean; skipDetailSummary?: boolean },
   ) {
     return this.analytics(authorization, { ...filters, skipAi: true });
   }
 
+  async realtimeMonitorStats(authorization: string | undefined) {
+    const user = await this.authService.getAuthUserFromAuthorization(authorization);
+    const accessibleClassIds = await this.getAccessibleClassIds(user);
+    const classWhere: Prisma.ClassroomWhereInput = {
+      schoolId: user.schoolId,
+      deletedAt: null,
+      status: 'enabled',
+      ...(accessibleClassIds === null ? {} : { id: { in: accessibleClassIds.map((id) => BigInt(id)) } }),
+    };
+    const classes = await this.prisma.classroom.findMany({
+      where: classWhere,
+      select: { id: true },
+    });
+    const classIds = classes.map((item) => item.id);
+    const classScope = classIds.length > 0 ? { classId: { in: classIds } } : { classId: BigInt(-1) };
+    const todayDate = this.getLocalDateString();
+    const todayStartAt = new Date(`${todayDate}T00:00:00.000Z`);
+    const todayEndAt = new Date(`${this.shiftDateString(todayDate, 1)}T00:00:00.000Z`);
+    const recent24hStartAt = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const scoreRecordWhereBase: Prisma.ScoreRecordWhereInput = {
+      schoolId: user.schoolId,
+      ...classScope,
+      ...behaviorScoreRecordWhere(),
+    };
+
+    const [todayScoreRecordCount, todayPositiveCount, todayNegativeCount, todayActiveClassRows, recent24hScoreRecordCount] =
+      await Promise.all([
+        this.prisma.scoreRecord.count({
+          where: {
+            AND: [
+              scoreRecordWhereBase,
+              { createdAt: { gte: todayStartAt, lt: todayEndAt } },
+            ],
+          },
+        }),
+        this.prisma.scoreRecord.count({
+          where: {
+            AND: [
+              scoreRecordWhereBase,
+              {
+                createdAt: { gte: todayStartAt, lt: todayEndAt },
+                scoreDelta: { gte: 0 },
+                NOT: { sentiment: 'negative' },
+              },
+            ],
+          },
+        }),
+        this.prisma.scoreRecord.count({
+          where: {
+            AND: [
+              scoreRecordWhereBase,
+              {
+                createdAt: { gte: todayStartAt, lt: todayEndAt },
+                OR: [{ scoreDelta: { lt: 0 } }, { sentiment: 'negative' }],
+              },
+            ],
+          },
+        }),
+        this.prisma.scoreRecord.groupBy({
+          by: ['classId'],
+          where: {
+            AND: [
+              scoreRecordWhereBase,
+              { createdAt: { gte: todayStartAt, lt: todayEndAt } },
+            ],
+          },
+        }),
+        this.prisma.scoreRecord.count({
+          where: {
+            AND: [
+              scoreRecordWhereBase,
+              { createdAt: { gte: recent24hStartAt } },
+            ],
+          },
+        }),
+      ]);
+
+    return {
+      code: 0,
+      message: 'ok',
+      data: {
+        todayScoreRecordCount,
+        todayPositiveCount,
+        todayNegativeCount,
+        todayActiveClassCount: todayActiveClassRows.length,
+        recent24hScoreRecordCount,
+      },
+    };
+  }
+
   async analyticsHeatmap(
     authorization: string | undefined,
-    filters?: { gradeName?: string; classId?: number; subjectCode?: string; startDate?: string; endDate?: string },
+    filters?: { gradeName?: string; classId?: number; subjectCode?: string; startDate?: string; endDate?: string; skipDetailSummary?: boolean },
   ) {
     return this.analytics(authorization, { ...filters, skipAi: true, skipSummary: true });
   }
 
   async analyticsAi(
     authorization: string | undefined,
-    filters?: { gradeName?: string; classId?: number; subjectCode?: string; regenerateAi?: boolean; startDate?: string; endDate?: string },
+    filters?: { gradeName?: string; classId?: number; subjectCode?: string; regenerateAi?: boolean; startDate?: string; endDate?: string; skipDetailSummary?: boolean },
   ) {
     return this.analytics(authorization, { ...filters, skipHeatmap: true });
   }
 
-  async analytics(
-    authorization: string | undefined,
+  private async fetchAnalyticsRiskStudentAggregates(
+    schoolId: bigint,
+    classIds: bigint[],
+    semesterId: bigint,
+    subjectFilterRaw?: string,
+  ): Promise<AnalyticsRiskStudentAggregate[]> {
+    if (!classIds.length) return [];
+
+    const subjectCodes = subjectFilterRaw
+      ? this.expandAnalyticsSubjectCodes([subjectFilterRaw]).filter(Boolean)
+      : [];
+    const subjectFilterSql = subjectCodes.length
+      ? Prisma.sql`
+          AND (
+            (
+              r.module_type = 'subject'
+              AND COALESCE(r.subject_code, '') <> ''
+              AND r.subject_code IN (${Prisma.join(subjectCodes)})
+            )
+            OR (
+              (r.module_type <> 'subject' OR COALESCE(r.subject_code, '') = '')
+              AND sr.subject_code IN (${Prisma.join(subjectCodes)})
+            )
+          )
+        `
+      : Prisma.empty;
+
+    const rows = await this.prisma.$queryRaw<Array<{
+      studentId: bigint;
+      studentName: string;
+      className: string;
+      positiveCount: bigint | number;
+      negativeCount: bigint | number;
+      scoreDelta: bigint | number | null;
+    }>>(Prisma.sql`
+      SELECT
+        sr.student_id AS studentId,
+        s.name AS studentName,
+        c.name AS className,
+        SUM(CASE WHEN sr.sentiment = 'positive' THEN 1 ELSE 0 END) AS positiveCount,
+        SUM(CASE WHEN sr.sentiment = 'negative' THEN 1 ELSE 0 END) AS negativeCount,
+        COALESCE(SUM(sr.score_delta), 0) AS scoreDelta
+      FROM score_record sr
+      INNER JOIN student s ON s.id = sr.student_id
+      INNER JOIN class c ON c.id = sr.class_id
+      INNER JOIN score_rule r ON r.id = sr.rule_id
+      WHERE sr.school_id = ${schoolId}
+        AND sr.semester_id = ${semesterId}
+        AND sr.class_id IN (${Prisma.join(classIds)})
+        AND s.deleted_at IS NULL
+        AND s.status = 'enabled'
+        AND COALESCE(sr.scene_code, '') NOT IN ('pet_deco')
+        AND COALESCE(sr.dimension, '') NOT IN ('萌宠装扮')
+        AND COALESCE(r.scene_code, '') NOT IN ('pet_deco')
+        AND COALESCE(r.code, '') NOT IN ('PET_DECO_CHANGE')
+        AND COALESCE(r.dimension, '') NOT IN ('萌宠装扮')
+        AND COALESCE(r.name, '') NOT IN ('更换萌宠装扮')
+        AND COALESCE(r.score_target, '') <> 'class'
+        AND COALESCE(sr.remark, '') NOT LIKE '%班级评价联动%'
+        ${subjectFilterSql}
+      GROUP BY sr.student_id, s.name, c.name
+      HAVING negativeCount >= ${ANALYTICS_RISK_THRESHOLDS.entryNegativeCount}
+        OR scoreDelta <= ${ANALYTICS_RISK_THRESHOLDS.entryScoreDelta}
+      ORDER BY negativeCount DESC, scoreDelta ASC
+    `);
+
+    return rows.map((row) => ({
+      studentId: Number(row.studentId),
+      studentName: row.studentName,
+      className: row.className,
+      positiveCount: Number(row.positiveCount),
+      negativeCount: Number(row.negativeCount),
+      scoreDelta: Number(row.scoreDelta ?? 0),
+    }));
+  }
+
+  private async fetchAnalyticsHeatMapData(
+    schoolId: bigint,
+    classIds: bigint[],
+    dateRange: { startAt: Date; endAtExclusive: Date },
+    subjectFilterRaw?: string,
+  ): Promise<{ buckets: AnalyticsHeatMapBucket[]; activeDayCount: number }> {
+    if (!classIds.length) return { buckets: [], activeDayCount: 0 };
+
+    const subjectCodes = subjectFilterRaw
+      ? this.expandAnalyticsSubjectCodes([subjectFilterRaw]).filter(Boolean)
+      : [];
+    const subjectFilterSql = subjectCodes.length
+      ? Prisma.sql`
+          AND (
+            (
+              r.module_type = 'subject'
+              AND COALESCE(r.subject_code, '') <> ''
+              AND r.subject_code IN (${Prisma.join(subjectCodes)})
+            )
+            OR (
+              (r.module_type <> 'subject' OR COALESCE(r.subject_code, '') = '')
+              AND sr.subject_code IN (${Prisma.join(subjectCodes)})
+            )
+          )
+        `
+      : Prisma.empty;
+
+    const commonWhere = Prisma.sql`
+      sr.school_id = ${schoolId}
+      AND sr.class_id IN (${Prisma.join(classIds)})
+      AND sr.created_at >= ${dateRange.startAt}
+      AND sr.created_at < ${dateRange.endAtExclusive}
+      AND COALESCE(sr.scene_code, '') NOT IN ('pet_deco')
+      AND COALESCE(sr.dimension, '') NOT IN ('萌宠装扮')
+      AND COALESCE(r.scene_code, '') NOT IN ('pet_deco')
+      AND COALESCE(r.code, '') NOT IN ('PET_DECO_CHANGE')
+      AND COALESCE(r.dimension, '') NOT IN ('萌宠装扮')
+      AND COALESCE(r.name, '') NOT IN ('更换萌宠装扮')
+      AND COALESCE(r.score_target, '') <> 'class'
+      AND COALESCE(sr.remark, '') NOT LIKE '%班级评价联动%'
+      ${subjectFilterSql}
+    `;
+
+    const [bucketRows, activeRows] = await Promise.all([
+      this.prisma.$queryRaw<Array<{
+        rowIndex: bigint | number;
+        colIndex: bigint | number;
+        value: bigint | number;
+      }>>(Prisma.sql`
+        SELECT
+          CASE
+            WHEN HOUR(DATE_ADD(COALESCE(sr.occurred_at, sr.created_at), INTERVAL 8 HOUR)) < 9 THEN 0
+            WHEN HOUR(DATE_ADD(COALESCE(sr.occurred_at, sr.created_at), INTERVAL 8 HOUR)) < 12 THEN 1
+            WHEN HOUR(DATE_ADD(COALESCE(sr.occurred_at, sr.created_at), INTERVAL 8 HOUR)) < 17 THEN 2
+            ELSE 3
+          END AS rowIndex,
+          WEEKDAY(DATE_ADD(COALESCE(sr.occurred_at, sr.created_at), INTERVAL 8 HOUR)) AS colIndex,
+          COUNT(*) AS value
+        FROM score_record sr
+        INNER JOIN score_rule r ON r.id = sr.rule_id
+        WHERE ${commonWhere}
+        GROUP BY rowIndex, colIndex
+        HAVING colIndex BETWEEN 0 AND 4
+        ORDER BY rowIndex ASC, colIndex ASC
+      `),
+      this.prisma.$queryRaw<Array<{ activeDayCount: bigint | number }>>(Prisma.sql`
+        SELECT COUNT(DISTINCT DATE(DATE_ADD(sr.created_at, INTERVAL 8 HOUR))) AS activeDayCount
+        FROM score_record sr
+        INNER JOIN score_rule r ON r.id = sr.rule_id
+        WHERE ${commonWhere}
+      `),
+    ]);
+
+    return {
+      buckets: bucketRows.map((row) => ({
+        rowIndex: Number(row.rowIndex),
+        colIndex: Number(row.colIndex),
+        value: Number(row.value),
+      })),
+      activeDayCount: Number(activeRows[0]?.activeDayCount ?? 0),
+    };
+  }
+
+  private async fetchAnalyticsDbData(
+    schoolId: bigint,
+    classWhere: Prisma.ClassroomWhereInput,
+    dateRange: { startAt: Date; endAtExclusive: Date; label: string; key: string; endDate: string },
     filters?: {
       gradeName?: string;
       classId?: number;
@@ -161,44 +586,47 @@ export class AdminInsightsService {
       skipAi?: boolean;
       skipHeatmap?: boolean;
       skipSummary?: boolean;
+      skipDetailSummary?: boolean;
     },
   ) {
-    const user = await this.authService.getAuthUserFromAuthorization(authorization);
-
-    const cacheKey = `${ANALYTICS_CACHE_VERSION}:analytics:${user.id}:${filters?.classId || ''}:${filters?.gradeName || ''}:${filters?.startDate || ''}:${filters?.endDate || ''}:${filters?.subjectCode || ''}:${filters?.regenerateAi || ''}:${filters?.skipAi || ''}:${filters?.skipHeatmap || ''}:${filters?.skipSummary || ''}`;
-    const cachedData = await this.cacheManager.get(cacheKey);
-    if (cachedData) {
-      return cachedData;
-    }
-
-    const accessibleClassIds = await this.getAccessibleClassIds(user);
-    const classWhere: Prisma.ClassroomWhereInput = {
-      schoolId: user.schoolId,
-      deletedAt: null,
-      status: 'enabled',
-      ...(accessibleClassIds === null ? {} : { id: { in: accessibleClassIds.map((id) => BigInt(id)) } }),
-      ...(filters?.gradeName ? { gradeName: filters.gradeName } : {}),
-      ...(filters?.classId ? { id: BigInt(filters.classId) } : {}),
-    };
-
-    const classes = await this.prisma.classroom.findMany({
-      where: classWhere,
-      include: {
-        students: {
-          where: { deletedAt: null, status: 'enabled' },
-          include: { profile: true },
-        },
-        classScoreProfile: true,
-      },
-      orderBy: [{ gradeCode: 'asc' }, { code: 'asc' }],
-    });
+    const classes = filters?.skipSummary
+      ? await this.prisma.classroom.findMany({
+          where: classWhere,
+          select: {
+            id: true,
+            name: true,
+            gradeName: true,
+          },
+          orderBy: [{ gradeCode: 'asc' }, { code: 'asc' }],
+        })
+      : await this.prisma.classroom.findMany({
+          where: classWhere,
+          select: {
+            id: true,
+            name: true,
+            gradeName: true,
+            students: {
+              where: { deletedAt: null, status: 'enabled' },
+              select: {
+                id: true,
+                name: true,
+                profile: {
+                  select: { currentScore: true },
+                },
+              },
+            },
+            classScoreProfile: {
+              select: { currentScore: true },
+            },
+          },
+          orderBy: [{ gradeCode: 'asc' }, { code: 'asc' }],
+        });
 
     const resolvedClassIds = classes.map((item) => item.id);
     const hasClassScope = resolvedClassIds.length > 0;
 
-    const dateRange = this.resolveAnalyticsDateRange(filters?.startDate, filters?.endDate);
     const scoreRecordWhereBase = {
-      schoolId: user.schoolId,
+      schoolId,
       ...(hasClassScope ? { classId: { in: resolvedClassIds } } : { classId: BigInt(-1) }),
       ...behaviorScoreRecordWhere(),
     };
@@ -207,49 +635,21 @@ export class AdminInsightsService {
     const rollingStartAt = new Date(`${rollingStartDate}T00:00:00.000Z`);
     const todayStartAt = new Date(`${todayDate}T00:00:00.000Z`);
     const todayEndAt = new Date(`${this.shiftDateString(todayDate, 1)}T00:00:00.000Z`);
+    const subjectFilterRaw = filters?.subjectCode?.trim();
+    const shouldLoadScoreRecordDetails = !filters?.skipSummary && (!filters?.skipDetailSummary || Boolean(subjectFilterRaw));
 
     const [
-      students,
-      rules,
       scoreRecords,
-      heatMapTimelineRecords,
+      heatMapData,
       pulseTimelineRecords,
       totalScoreRecordCount,
       todayScoreRecordCount,
       currentSemester,
+      classScoreDeltaRows,
+      ruleDistributionRows,
+      subjectDistributionRows,
     ] = await Promise.all([
-      this.prisma.student.findMany({
-        where: {
-          schoolId: user.schoolId,
-          deletedAt: null,
-          status: 'enabled',
-          ...(hasClassScope ? { classId: { in: resolvedClassIds } } : { classId: BigInt(-1) }),
-        },
-        include: { profile: true },
-      }),
-      this.prisma.scoreRule.findMany({
-        where: {
-          schoolId: user.schoolId,
-          status: 'enabled',
-        },
-      }),
-      this.prisma.scoreRecord.findMany({
-        where: {
-          ...scoreRecordWhereBase,
-          createdAt: {
-            gte: dateRange.startAt,
-            lt: dateRange.endAtExclusive,
-          },
-        },
-        include: {
-          rule: true,
-          classroom: true,
-          student: true,
-        },
-        orderBy: { createdAt: 'desc' },
-        take: 8000,
-      }),
-      filters?.skipHeatmap ? Promise.resolve([]) : this.prisma.scoreRecord.findMany({
+      shouldLoadScoreRecordDetails ? this.prisma.scoreRecord.findMany({
         where: {
           ...scoreRecordWhereBase,
           createdAt: {
@@ -258,18 +658,40 @@ export class AdminInsightsService {
           },
         },
         select: {
-          occurredAt: true,
+          id: true,
+          classId: true,
+          studentId: true,
+          scoreDelta: true,
+          sentiment: true,
           createdAt: true,
           subjectCode: true,
+          dimension: true,
+          sceneCode: true,
+          tag: true,
+          remark: true,
+          operatorName: true,
           rule: {
             select: {
+              name: true,
+              dimension: true,
               subjectCode: true,
               moduleType: true,
             },
           },
+          ...(!filters?.skipDetailSummary
+            ? {
+                classroom: { select: { name: true } },
+                student: { select: { name: true } },
+              }
+            : {}),
         },
-      }),
-      this.prisma.scoreRecord.findMany({
+        orderBy: { createdAt: 'desc' },
+        take: 8000,
+      }) : Promise.resolve([]),
+      filters?.skipHeatmap
+        ? Promise.resolve({ buckets: [] as AnalyticsHeatMapBucket[], activeDayCount: 0 })
+        : this.fetchAnalyticsHeatMapData(schoolId, resolvedClassIds, dateRange, subjectFilterRaw),
+      filters?.skipSummary ? Promise.resolve([]) : this.prisma.scoreRecord.findMany({
         where: {
           ...scoreRecordWhereBase,
           createdAt: {
@@ -291,8 +713,8 @@ export class AdminInsightsService {
         },
         orderBy: { createdAt: 'asc' },
       }),
-      this.prisma.scoreRecord.count({ where: scoreRecordWhereBase }),
-      this.prisma.scoreRecord.count({
+      filters?.skipSummary ? Promise.resolve(0) : this.prisma.scoreRecord.count({ where: scoreRecordWhereBase }),
+      filters?.skipSummary ? Promise.resolve(0) : this.prisma.scoreRecord.count({
         where: {
           ...scoreRecordWhereBase,
           createdAt: {
@@ -301,9 +723,9 @@ export class AdminInsightsService {
           },
         },
       }),
-      this.prisma.semester.findFirst({
+      filters?.skipSummary ? Promise.resolve(null) : this.prisma.semester.findFirst({
         where: {
-          schoolId: user.schoolId,
+          schoolId,
           isCurrent: true,
           status: 'enabled',
         },
@@ -314,60 +736,340 @@ export class AdminInsightsService {
           endDate: true,
         },
       }),
+      filters?.skipSummary || shouldLoadScoreRecordDetails
+        ? Promise.resolve([])
+        : this.prisma.scoreRecord.groupBy({
+            by: ['classId'],
+            where: {
+              ...scoreRecordWhereBase,
+              createdAt: {
+                gte: dateRange.startAt,
+                lt: dateRange.endAtExclusive,
+              },
+            },
+            _sum: { scoreDelta: true },
+          }),
+      filters?.skipSummary || shouldLoadScoreRecordDetails
+        ? Promise.resolve([])
+        : this.prisma.scoreRecord.groupBy({
+            by: ['dimension', 'sceneCode'],
+            where: {
+              ...scoreRecordWhereBase,
+              createdAt: {
+                gte: dateRange.startAt,
+                lt: dateRange.endAtExclusive,
+              },
+            },
+            _count: { _all: true },
+          }),
+      filters?.skipSummary || shouldLoadScoreRecordDetails
+        ? Promise.resolve([])
+        : this.prisma.scoreRecord.groupBy({
+            by: ['subjectCode'],
+            where: {
+              ...scoreRecordWhereBase,
+              createdAt: {
+                gte: dateRange.startAt,
+                lt: dateRange.endAtExclusive,
+              },
+            },
+            _count: { _all: true },
+          }),
     ]);
 
-    const riskScoreRecords = currentSemester
-      ? await this.prisma.scoreRecord.findMany({
+    const riskStudentAggregates = (currentSemester && !filters?.skipSummary)
+      ? await this.fetchAnalyticsRiskStudentAggregates(
+          schoolId,
+          resolvedClassIds,
+          currentSemester.id,
+          subjectFilterRaw,
+        )
+      : [];
+
+    let dbPositiveCount: number | null = null;
+    let dbNegativeCount: number | null = null;
+    let dbScoreDeltaSum: number | null = null;
+
+    if (!subjectFilterRaw && !filters?.skipSummary) {
+      const [posCount, negCount, deltaAgg] = await Promise.all([
+        this.prisma.scoreRecord.count({
           where: {
             ...scoreRecordWhereBase,
-            semesterId: currentSemester.id,
-            student: {
-              deletedAt: null,
-              status: 'enabled',
+            sentiment: 'positive',
+            createdAt: {
+              gte: dateRange.startAt,
+              lt: dateRange.endAtExclusive,
+                },
+              },
+            }),
+        this.prisma.scoreRecord.count({
+          where: {
+            ...scoreRecordWhereBase,
+            sentiment: 'negative',
+            createdAt: {
+              gte: dateRange.startAt,
+              lt: dateRange.endAtExclusive,
             },
           },
-          select: {
-            studentId: true,
+        }),
+        this.prisma.scoreRecord.aggregate({
+          where: {
+            ...scoreRecordWhereBase,
+            createdAt: {
+              gte: dateRange.startAt,
+              lt: dateRange.endAtExclusive,
+            },
+          },
+          _sum: {
             scoreDelta: true,
-            sentiment: true,
-            subjectCode: true,
-            rule: {
-              select: {
-                subjectCode: true,
-                moduleType: true,
-              },
+          },
+        }),
+      ]);
+      dbPositiveCount = posCount;
+      dbNegativeCount = negCount;
+      dbScoreDeltaSum = deltaAgg._sum.scoreDelta !== null ? Number(deltaAgg._sum.scoreDelta) : 0;
+    }
+
+    return {
+      classes,
+      scoreRecords,
+      heatMapData,
+      pulseTimelineRecords,
+      totalScoreRecordCount,
+      todayScoreRecordCount,
+      currentSemester,
+      riskStudentAggregates,
+      dbPositiveCount,
+      dbNegativeCount,
+      dbScoreDeltaSum,
+      classScoreDeltaRows,
+      ruleDistributionRows,
+      subjectDistributionRows,
+      todayDate,
+      rollingStartDate,
+      rollingStartAt,
+      todayStartAt,
+      todayEndAt,
+      scoreRecordWhereBase,
+    };
+  }
+
+  async analytics(
+    authorization: string | undefined,
+    filters?: {
+      gradeName?: string;
+      classId?: number;
+      subjectCode?: string;
+      regenerateAi?: boolean;
+      startDate?: string;
+      endDate?: string;
+      skipAi?: boolean;
+      skipHeatmap?: boolean;
+      skipSummary?: boolean;
+      skipDetailSummary?: boolean;
+    },
+  ) {
+    const user = await this.authService.getAuthUserFromAuthorization(authorization);
+
+    const cacheKey = this.buildAnalyticsCacheKey(user, filters);
+    const cachedData = await this.getAnalyticsCachedResponse(cacheKey);
+    if (cachedData) {
+      return cachedData;
+    }
+    const analyticsLock = filters?.regenerateAi ? null : await this.acquireAnalyticsLock(cacheKey);
+    if (!analyticsLock && !filters?.regenerateAi) {
+      const waitedCache = await this.waitForAnalyticsCachedResponse(cacheKey);
+      if (waitedCache) return waitedCache;
+    }
+
+    const dateRange = this.resolveAnalyticsDateRange(filters?.startDate, filters?.endDate);
+
+    // AI 概览缓存短路优化：
+    // 当本次请求仅需要 AI 报告（!skipAi && skipHeatmap 且不为主动重新生成时），
+    // 可以直接尝试去读磁盘/文件已有的 AI 报告缓存。
+    // 如果已有，直接返回，不再执行后续任何高负载数据库 SQL 查询与统计聚合计算！
+    try {
+    if (!filters?.skipAi && !filters?.regenerateAi && filters?.skipHeatmap) {
+      const scopeKey = filters?.classId
+        ? this.buildAnalyticsScopeKey(Number(filters.classId), undefined, dateRange.key, filters?.subjectCode)
+        : this.buildAnalyticsScopeKey(null, filters?.gradeName, dateRange.key);
+      
+      const cachedAi = await this.readCachedAnalyticsInsight(
+        toNumber(user.schoolId) ?? 0,
+        scopeKey,
+        dateRange.endDate,
+      );
+
+      if (cachedAi) {
+        const response = {
+          code: 0,
+          message: 'ok',
+          data: {
+            totalScore: 0,
+            positiveRuleCount: 0,
+            negativeRuleCount: 0,
+            totalScoreRecordCount: 0,
+            todayScoreRecordCount: 0,
+            todayPositiveCount: 0,
+            todayNegativeCount: 0,
+            recent24hScoreRecordCount: 0,
+            dailyTrend: [],
+            averageScore: 0,
+            activeDays: 0,
+            gradeTrend: [],
+            ruleDistribution: [],
+            subjectDistribution: [],
+            topClasses: [],
+            topStudents: [],
+            riskStudents: [],
+            scoreDetailSummary: [],
+            riskStudentStats: { entryCount: 0, mediumCount: 0, highCount: 0 },
+            aiInsight: {
+              summary: cachedAi.summary,
+              suggestion: cachedAi.suggestion,
+              reportSummary: cachedAi.reportSummary,
+              source: cachedAi.source,
+              generatedAt: cachedAi.generatedAt,
+              reportDate: cachedAi.reportDate,
+              classId: filters?.classId ? Number(filters.classId) : null,
+              className: cachedAi.className,
+              isCached: true,
             },
-            student: {
-              select: {
-                name: true,
-              },
-            },
-            classroom: {
-              select: {
-                name: true,
-              },
+            heatMap: {
+              rows: [],
+              cols: [],
+              data: [],
             },
           },
-        })
-      : [];
+        };
+        await this.setAnalyticsCachedResponse(cacheKey, response, this.getAnalyticsCacheTtlMs(filters));
+        return response;
+      }
+    }
+
+    const accessibleClassIds = await this.getAccessibleClassIds(user);
+    const classWhere: Prisma.ClassroomWhereInput = {
+      schoolId: user.schoolId,
+      deletedAt: null,
+      status: 'enabled',
+      ...(accessibleClassIds === null ? {} : { id: { in: accessibleClassIds.map((id) => BigInt(id)) } }),
+      ...(filters?.gradeName ? { gradeName: filters.gradeName } : {}),
+      ...(filters?.classId ? { id: BigInt(filters.classId) } : {}),
+    };
+
+    const dbQueryKey = [
+      'db',
+      user.schoolId.toString(),
+      user.id.toString(),
+      filters?.classId || '',
+      filters?.gradeName || '',
+      filters?.startDate || '',
+      filters?.endDate || '',
+      filters?.subjectCode || '',
+      filters?.skipAi || '',
+      filters?.skipHeatmap || '',
+      filters?.skipSummary || '',
+      filters?.skipDetailSummary || '',
+    ].join(':');
+
+    let dbPromise = this.activeAnalyticsQueries.get(dbQueryKey) as ReturnType<AdminInsightsService['fetchAnalyticsDbData']> | undefined;
+    if (!dbPromise) {
+      dbPromise = this.fetchAnalyticsDbData(user.schoolId, classWhere, dateRange, filters);
+      this.activeAnalyticsQueries.set(dbQueryKey, dbPromise);
+      dbPromise.finally(() => {
+        this.activeAnalyticsQueries.delete(dbQueryKey);
+      });
+    }
+
+    const dbResults = await dbPromise;
+    const {
+      classes,
+      scoreRecords,
+      heatMapData,
+      pulseTimelineRecords,
+      totalScoreRecordCount,
+      todayScoreRecordCount,
+      currentSemester,
+      riskStudentAggregates,
+      dbPositiveCount,
+      dbNegativeCount,
+      dbScoreDeltaSum,
+      classScoreDeltaRows,
+      ruleDistributionRows,
+      subjectDistributionRows,
+      todayDate,
+      rollingStartDate,
+      rollingStartAt,
+      todayStartAt,
+      todayEndAt,
+      scoreRecordWhereBase,
+    } = dbResults;
+
+    const scopedClass = filters?.classId
+      ? classes.find((item) => (toNumber(item.id) ?? 0) === filters.classId)
+      : null;
 
     const subjectFilterRaw = filters?.subjectCode?.trim();
     if (subjectFilterRaw) {
       this.ensureSubjectAnalyticsScope(user, filters?.classId, subjectFilterRaw);
     }
+    const heatMapRows = ['早读', '上午', '午后', '晚辅'];
+    const heatMapCols = ['一', '二', '三', '四', '五'];
     const scopedScoreRecords = subjectFilterRaw
       ? scoreRecords.filter((record) => this.recordMatchesAnalyticsSubject(record, subjectFilterRaw))
       : scoreRecords;
-    const scopedHeatMapTimelineRecords = subjectFilterRaw
-      ? heatMapTimelineRecords.filter((record) =>
-          this.recordMatchesAnalyticsSubject(record, subjectFilterRaw),
-        )
-      : heatMapTimelineRecords;
-    const scopedRiskScoreRecords = subjectFilterRaw
-      ? riskScoreRecords.filter((record) =>
-          this.recordMatchesAnalyticsSubject(record, subjectFilterRaw),
-        )
-      : riskScoreRecords;
+
+    if (filters?.skipSummary) {
+      const response = {
+        code: 0,
+        message: 'ok',
+        data: {
+          totalScore: 0,
+          positiveRuleCount: 0,
+          negativeRuleCount: 0,
+          totalScoreRecordCount: 0,
+          todayScoreRecordCount: 0,
+          todayPositiveCount: 0,
+          todayNegativeCount: 0,
+          recent24hScoreRecordCount: 0,
+          dailyTrend: [],
+          averageScore: 0,
+          activeDays: heatMapData.activeDayCount,
+          gradeTrend: [],
+          ruleDistribution: [],
+          subjectDistribution: [],
+          topClasses: [],
+          topStudents: [],
+          riskStudents: [],
+          scoreDetailSummary: [],
+          riskStudentStats: { high: 0, medium: 0, low: 0, total: 0 },
+          aiInsight: null,
+          heatMap: {
+            rows: heatMapRows,
+            cols: heatMapCols,
+            data: this.buildHeatMapFromBuckets(heatMapData.buckets, heatMapRows, heatMapCols),
+          },
+        },
+      };
+      if (!filters?.regenerateAi) {
+        await this.setAnalyticsCachedResponse(cacheKey, response, this.getAnalyticsCacheTtlMs(filters));
+      }
+      return response;
+    }
+
+    const summaryClasses = classes as Array<{
+      id: bigint;
+      name: string;
+      gradeName: string;
+      students: Array<{
+        id: bigint;
+        name: string;
+        profile: { currentScore: number } | null;
+      }>;
+      classScoreProfile: { currentScore: number } | null;
+    }>;
+    const summaryStudentCount = summaryClasses.reduce((sum, item) => sum + item.students.length, 0);
+
     const scopedPulseTimelineRecords = subjectFilterRaw
       ? pulseTimelineRecords.filter((record) =>
           this.recordMatchesAnalyticsSubject(record, subjectFilterRaw),
@@ -378,30 +1080,53 @@ export class AdminInsightsService {
     const sumStudentScore = (studentsOfClass: Array<{ profile: { currentScore: number } | null }>) =>
       studentsOfClass.reduce((sum, student) => sum + (student.profile?.currentScore ?? 0), 0);
 
-    const getClassScore = (classroom: (typeof classes)[number]) => classroom.classScoreProfile?.currentScore ?? 0;
+    const getClassScore = (classroom: (typeof summaryClasses)[number]) => classroom.classScoreProfile?.currentScore ?? 0;
 
-    // 全校总积分 = 全体学生个人当前积分之和，而非班级积分（classScoreProfile）之和
-    const totalScore = students.reduce((sum, student) => sum + (student.profile?.currentScore ?? 0), 0);
-    const positiveRuleCount = scopedScoreRecords.filter((item) => item.sentiment === 'positive').length;
-    const negativeRuleCount = scopedScoreRecords.filter((item) => item.sentiment === 'negative').length;
-    const averageScore = students.length > 0
-      ? Math.round(students.reduce((sum, student) => sum + (student.profile?.currentScore ?? 0), 0) / students.length)
+    // 正向事件数、负向事件数及积分变化总量（优先使用无 8000 条截断限制 of 数据库直接统计）
+    const positiveRuleCount = dbPositiveCount !== null
+      ? dbPositiveCount
+      : scopedScoreRecords.filter((item) => item.sentiment === 'positive').length;
+
+    const negativeRuleCount = dbNegativeCount !== null
+      ? dbNegativeCount
+      : scopedScoreRecords.filter((item) => item.sentiment === 'negative').length;
+
+    const behaviorScoreDeltaTotal = dbScoreDeltaSum !== null
+      ? dbScoreDeltaSum
+      : scopedScoreRecords.reduce((sum, record) => sum + record.scoreDelta, 0);
+
+    // 总积分改为选定时间内的积分总量变化
+    const totalScore = behaviorScoreDeltaTotal;
+
+    const behaviorAverageScoreDelta = summaryStudentCount > 0
+      ? Math.round(behaviorScoreDeltaTotal / summaryStudentCount)
       : 0;
-    const activeDaysSource = !filters?.skipHeatmap ? scopedHeatMapTimelineRecords : scopedScoreRecords;
-    const activeDays = new Set(activeDaysSource.map((item) => item.createdAt.toISOString().slice(0, 10))).size;
-    const behaviorScoreDeltaTotal = scopedScoreRecords.reduce((sum, record) => sum + record.scoreDelta, 0);
-    const behaviorAverageScoreDelta = students.length > 0
-      ? Math.round(behaviorScoreDeltaTotal / students.length)
-      : 0;
-    const behaviorScoreDeltaByClassId = scopedScoreRecords.reduce((map, record) => {
-      const classId = toNumber(record.classId) ?? 0;
-      if (!classId) return map;
-      map.set(classId, (map.get(classId) ?? 0) + record.scoreDelta);
-      return map;
-    }, new Map<number, number>());
+
+    // averageScore 改为选定时间内的平均积分变化，即人均净积分变化值
+    const averageScore = behaviorAverageScoreDelta;
+
+    const activeDaysSource = scopedScoreRecords.length
+        ? scopedScoreRecords
+        : scopedPulseTimelineRecords;
+    const activeDays = !filters?.skipHeatmap
+      ? heatMapData.activeDayCount
+      : new Set(activeDaysSource.map((item) => item.createdAt.toISOString().slice(0, 10))).size;
+    const behaviorScoreDeltaByClassId = classScoreDeltaRows.length
+      ? classScoreDeltaRows.reduce((map, row) => {
+          const classId = toNumber(row.classId) ?? 0;
+          if (!classId) return map;
+          map.set(classId, Number(row._sum.scoreDelta ?? 0));
+          return map;
+        }, new Map<number, number>())
+      : scopedScoreRecords.reduce((map, record) => {
+          const classId = toNumber(record.classId) ?? 0;
+          if (!classId) return map;
+          map.set(classId, (map.get(classId) ?? 0) + record.scoreDelta);
+          return map;
+        }, new Map<number, number>());
 
     const gradeTrend = Array.from(
-      classes.reduce((map, item) => {
+      summaryClasses.reduce((map, item) => {
         const current = map.get(item.gradeName) ?? { scoreSum: 0, studentCount: 0 };
         current.scoreSum += sumStudentScore(item.students);
         current.studentCount += item.students.length;
@@ -413,7 +1138,7 @@ export class AdminInsightsService {
       value: value.studentCount > 0 ? Math.round(value.scoreSum / value.studentCount) : 0,
     }));
     const aiGradeTrend = Array.from(
-      classes.reduce((map, item) => {
+      summaryClasses.reduce((map, item) => {
         const current = map.get(item.gradeName) ?? { scoreSum: 0, studentCount: 0 };
         current.scoreSum += behaviorScoreDeltaByClassId.get(toNumber(item.id) ?? 0) ?? 0;
         current.studentCount += item.students.length;
@@ -425,7 +1150,7 @@ export class AdminInsightsService {
       value: value.studentCount > 0 ? Math.round(value.scoreSum / value.studentCount) : 0,
     }));
 
-    const topClasses = classes
+    const topClasses = summaryClasses
       .map((item) => ({
         id: toNumber(item.id),
         name: item.name,
@@ -453,7 +1178,7 @@ export class AdminInsightsService {
         name: item.name,
         studentScoreTotal: item.currentScoreTotal,
       }));
-    const aiTopClassesByStudentScore = classes
+    const aiTopClassesByStudentScore = summaryClasses
       .map((item) => ({
         id: toNumber(item.id),
         name: item.name,
@@ -474,29 +1199,37 @@ export class AdminInsightsService {
         classScore: item.classScore,
       }));
 
-    const ruleDistribution = Array.from(
-      scopedScoreRecords.reduce((map, item) => {
-        const key = item.dimension || item.rule.dimension || item.sceneCode || '未分类';
-        map.set(key, (map.get(key) ?? 0) + 1);
-        return map;
-      }, new Map<string, number>()),
-    )
-      .sort((left, right) => right[1] - left[1])
-      .slice(0, 6)
-      .map(([name, value]) => ({ name, value }));
+    const ruleDistribution = (ruleDistributionRows.length
+      ? ruleDistributionRows.map((row) => ({
+          name: row.dimension || row.sceneCode || '未分类',
+          value: row._count._all,
+        }))
+      : Array.from(
+          scopedScoreRecords.reduce((map, item) => {
+            const key = item.dimension || item.rule.dimension || item.sceneCode || '未分类';
+            map.set(key, (map.get(key) ?? 0) + 1);
+            return map;
+          }, new Map<string, number>()),
+        ).map(([name, value]) => ({ name, value })))
+      .sort((left, right) => right.value - left.value)
+      .slice(0, 6);
 
-    const subjectDistribution = Array.from(
-      scopedScoreRecords.reduce((map, item) => {
-        const key = item.subjectCode || item.rule.subjectCode || '通用';
-        map.set(key, (map.get(key) ?? 0) + 1);
-        return map;
-      }, new Map<string, number>()),
-    )
-      .sort((left, right) => right[1] - left[1])
-      .slice(0, 6)
-      .map(([name, value]) => ({ name, value }));
+    const subjectDistribution = (subjectDistributionRows.length
+      ? subjectDistributionRows.map((row) => ({
+          name: row.subjectCode || '通用',
+          value: row._count._all,
+        }))
+      : Array.from(
+          scopedScoreRecords.reduce((map, item) => {
+            const key = item.subjectCode || item.rule.subjectCode || '通用';
+            map.set(key, (map.get(key) ?? 0) + 1);
+            return map;
+          }, new Map<string, number>()),
+        ).map(([name, value]) => ({ name, value })))
+      .sort((left, right) => right.value - left.value)
+      .slice(0, 6);
 
-    const topStudents = classes
+    const topStudents = summaryClasses
       .flatMap((item) =>
         item.students.map((student) => ({
           studentId: toNumber(student.id) ?? 0,
@@ -509,35 +1242,9 @@ export class AdminInsightsService {
       .sort((left, right) => right.currentScore - left.currentScore)
       .slice(0, 15);
 
-    const heatMapRows = ['早读', '上午', '午后', '晚辅'];
-    const heatMapCols = ['一', '二', '三', '四', '五'];
-    const heatMap = this.buildHeatMap(scopedHeatMapTimelineRecords, heatMapRows, heatMapCols);
+    const heatMap = this.buildHeatMapFromBuckets(heatMapData.buckets, heatMapRows, heatMapCols);
 
-    const riskStudentMap = scopedRiskScoreRecords.reduce((map, item) => {
-      const studentId = toNumber(item.studentId) ?? 0;
-      const current = map.get(studentId) ?? {
-        studentId,
-        studentName: item.student.name,
-        className: item.classroom.name,
-        positiveCount: 0,
-        negativeCount: 0,
-        scoreDelta: 0,
-      };
-      current.scoreDelta += item.scoreDelta;
-      if (item.sentiment === 'positive') current.positiveCount += 1;
-      if (item.sentiment === 'negative') current.negativeCount += 1;
-      map.set(studentId, current);
-      return map;
-    }, new Map<number, {
-      studentId: number;
-      studentName: string;
-      className: string;
-      positiveCount: number;
-      negativeCount: number;
-      scoreDelta: number;
-    }>());
-
-    const allRiskStudents = Array.from(riskStudentMap.values())
+    const allRiskStudents = riskStudentAggregates
       .map((item) => {
         const riskLevel = classifyAnalyticsRiskLevel(item);
         if (!riskLevel) return null;
@@ -563,84 +1270,84 @@ export class AdminInsightsService {
 
     // 与 riskStudentStats.total 保持一致，驾驶舱「更多」弹窗需展示全量名单
     const riskStudents = allRiskStudents;
-    const scoreDetailSummary = Array.from(
-      scopedScoreRecords.reduce((map, record) => {
-        const studentId = toNumber(record.studentId) ?? 0;
-        if (!studentId) return map;
-        const current = map.get(studentId) ?? {
-          studentId,
-          studentName: record.student?.name ?? `学生#${studentId}`,
-          classId: toNumber(record.classId) ?? 0,
-          className: record.classroom?.name ?? '当前班级',
-          totalScoreDelta: 0,
-          positiveCount: 0,
-          negativeCount: 0,
-          recordCount: 0,
-          records: [] as Array<{
-            id: number;
-            scoreDelta: number;
-            ruleName: string | null;
-            dimension: string | null;
-            tag: string | null;
-            remark: string | null;
-            subjectCode: string | null;
-            operatorName: string | null;
-            createdAt: Date;
-          }>,
-        };
-        current.totalScoreDelta += record.scoreDelta;
-        current.recordCount += 1;
-        if (record.scoreDelta > 0) current.positiveCount += 1;
-        if (record.scoreDelta < 0) current.negativeCount += 1;
-        current.records.push({
-          id: toNumber(record.id) ?? 0,
-          scoreDelta: record.scoreDelta,
-          ruleName: record.rule?.name ?? null,
-          dimension: record.dimension,
-          tag: record.tag,
-          remark: record.remark,
-          subjectCode: record.subjectCode,
-          operatorName: record.operatorName,
-          createdAt: record.createdAt,
-        });
-        map.set(studentId, current);
-        return map;
-      }, new Map<number, {
-        studentId: number;
-        studentName: string;
-        classId: number;
-        className: string;
-        totalScoreDelta: number;
-        positiveCount: number;
-        negativeCount: number;
-        recordCount: number;
-        records: Array<{
-          id: number;
-          scoreDelta: number;
-          ruleName: string | null;
-          dimension: string | null;
-          tag: string | null;
-          remark: string | null;
-          subjectCode: string | null;
-          operatorName: string | null;
-          createdAt: Date;
-        }>;
-      }>()),
-    )
-      .map(([, item]) => ({
-        ...item,
-        records: item.records.sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime() || right.id - left.id),
-      }))
-      .sort(
-        (left, right) =>
-          right.totalScoreDelta - left.totalScoreDelta ||
-          right.recordCount - left.recordCount ||
-          left.studentName.localeCompare(right.studentName, 'zh-CN'),
-      );
+    const scoreDetailSummary = filters?.skipDetailSummary
+      ? []
+      : Array.from(
+          scopedScoreRecords.reduce((map, record) => {
+            const studentId = toNumber(record.studentId) ?? 0;
+            if (!studentId) return map;
+            const current = map.get(studentId) ?? {
+              studentId,
+              studentName: record.student?.name ?? `学生#${studentId}`,
+              classId: toNumber(record.classId) ?? 0,
+              className: record.classroom?.name ?? '当前班级',
+              totalScoreDelta: 0,
+              positiveCount: 0,
+              negativeCount: 0,
+              recordCount: 0,
+              records: [] as Array<{
+                id: number;
+                scoreDelta: number;
+                ruleName: string | null;
+                dimension: string | null;
+                tag: string | null;
+                remark: string | null;
+                subjectCode: string | null;
+                operatorName: string | null;
+                createdAt: Date;
+              }>,
+            };
+            current.totalScoreDelta += record.scoreDelta;
+            current.recordCount += 1;
+            if (record.scoreDelta > 0) current.positiveCount += 1;
+            if (record.scoreDelta < 0) current.negativeCount += 1;
+            current.records.push({
+              id: toNumber(record.id) ?? 0,
+              scoreDelta: record.scoreDelta,
+              ruleName: record.rule?.name ?? null,
+              dimension: record.dimension,
+              tag: record.tag,
+              remark: record.remark,
+              subjectCode: record.subjectCode,
+              operatorName: record.operatorName,
+              createdAt: record.createdAt,
+            });
+            map.set(studentId, current);
+            return map;
+          }, new Map<number, {
+            studentId: number;
+            studentName: string;
+            classId: number;
+            className: string;
+            totalScoreDelta: number;
+            positiveCount: number;
+            negativeCount: number;
+            recordCount: number;
+            records: Array<{
+              id: number;
+              scoreDelta: number;
+              ruleName: string | null;
+              dimension: string | null;
+              tag: string | null;
+              remark: string | null;
+              subjectCode: string | null;
+              operatorName: string | null;
+              createdAt: Date;
+            }>;
+          }>()),
+        )
+          .map(([, item]) => ({
+            ...item,
+            records: item.records.sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime() || right.id - left.id),
+          }))
+          .sort(
+            (left, right) =>
+              right.totalScoreDelta - left.totalScoreDelta ||
+              right.recordCount - left.recordCount ||
+              left.studentName.localeCompare(right.studentName, 'zh-CN'),
+          );
 
-    const scopedClass = filters?.classId
-      ? classes.find((item) => (toNumber(item.id) ?? 0) === filters.classId)
-      : null;
+    // scopedClass 已经在方法开头完成定义与赋值
 
     const academicDeskContext =
       scopedClass && !subjectFilterRaw
@@ -771,9 +1478,12 @@ export class AdminInsightsService {
     };
 
     if (!filters?.regenerateAi) {
-      await this.cacheManager.set(cacheKey, response, 300000); // 5 mins
+      await this.setAnalyticsCachedResponse(cacheKey, response, this.getAnalyticsCacheTtlMs(filters));
     }
     return response;
+    } finally {
+      await this.releaseAnalyticsLock(analyticsLock);
+    }
   }
 
   async analyticsReportStatus(
@@ -1920,6 +2630,23 @@ export class AdminInsightsService {
       const rowIndex = this.getHeatMapTimeBucket(eventTime);
       if (rowIndex < 0 || rowIndex >= rows.length) continue;
       matrix[rowIndex][colIndex] += 1;
+    }
+    return rows.map((rowName, rowIndex) => ({
+      row: rowName,
+      values: matrix[rowIndex],
+    }));
+  }
+
+  private buildHeatMapFromBuckets(
+    buckets: AnalyticsHeatMapBucket[],
+    rows: string[],
+    cols: string[],
+  ) {
+    const matrix = rows.map(() => cols.map(() => 0));
+    for (const bucket of buckets) {
+      if (bucket.rowIndex < 0 || bucket.rowIndex >= rows.length) continue;
+      if (bucket.colIndex < 0 || bucket.colIndex >= cols.length) continue;
+      matrix[bucket.rowIndex][bucket.colIndex] += bucket.value;
     }
     return rows.map((rowName, rowIndex) => ({
       row: rowName,

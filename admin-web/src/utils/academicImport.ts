@@ -188,6 +188,18 @@ export function enrichExamNameWithPeriod(examName: string, periodLabel: string) 
   return `${period} · ${name}`;
 }
 
+/** 大屏/驾驶舱展示时隐藏开头的学年学期前缀，保留真实考试名称主体 */
+export function formatAcademicExamDisplayName(examName: string | null | undefined) {
+  const name = String(examName ?? '').trim();
+  if (!name) return '';
+  return name
+    .replace(
+      /^(?:20\d{2}\s*[-—–~至]\s*20\d{2}(?:学年)?\s*)?(?:上学期|下学期|第一学期|第二学期)\s*[·•|｜\-—–:：]\s*/u,
+      '',
+    )
+    .trim() || name;
+}
+
 function inferDefaultDay(text: string, year: number, month: number) {
   if (/期末/.test(text)) return lastDayOfMonth(year, month);
   if (/开学|期初/.test(text)) return 5;

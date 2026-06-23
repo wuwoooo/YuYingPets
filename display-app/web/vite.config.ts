@@ -1,5 +1,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { bundleDisplayCss } from './scripts/display-css-bundle.mjs';
+import { bundleDisplayBridgeScripts } from './scripts/display-js-bridge-bundle.mjs';
 import { validateDisplayPublic } from './scripts/display-public-guard.mjs';
 
 function displayPublicGuardPlugin() {
@@ -11,9 +13,38 @@ function displayPublicGuardPlugin() {
   };
 }
 
+function displayCssBundlePlugin() {
+  return {
+    name: 'display-css-bundle',
+    closeBundle() {
+      const result = bundleDisplayCss({ root: process.cwd() });
+      console.log(
+        `[display-css-bundle] ${result.file} from ${result.cssCount} files (${result.bytes} bytes)`,
+      );
+    },
+  };
+}
+
+function displayBridgeBundlePlugin() {
+  return {
+    name: 'display-bridge-bundle',
+    closeBundle() {
+      const result = bundleDisplayBridgeScripts({ root: process.cwd() });
+      console.log(
+        `[display-bridge-bundle] ${result.file} from ${result.scriptCount} files (${result.bytes} bytes)`,
+      );
+    },
+  };
+}
+
 export default defineConfig({
   base: '/',
-  plugins: [react(), displayPublicGuardPlugin()],
+  plugins: [
+    react(),
+    displayPublicGuardPlugin(),
+    displayCssBundlePlugin(),
+    displayBridgeBundlePlugin(),
+  ],
   server: {
     port: 5174,
     proxy: {

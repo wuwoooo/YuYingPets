@@ -6,6 +6,17 @@ import { httpLogPath } from '@/common/utils/redact-audit-detail';
 import { rootLogger } from '@/logging/root-logger';
 
 const accessLogger = rootLogger.child({ context: 'http_access' });
+const slowRequestThresholdMs = Number(process.env.ACCESS_LOG_SLOW_REQUEST_MS ?? 1000);
+const successSampleRate = Number(
+  process.env.ACCESS_LOG_SUCCESS_SAMPLE_RATE ?? (process.env.NODE_ENV === 'production' ? 0.1 : 1),
+);
+
+function shouldLogSuccessfulRequest(durationMs: number) {
+  if (durationMs >= slowRequestThresholdMs) return true;
+  if (successSampleRate >= 1) return true;
+  if (successSampleRate <= 0) return false;
+  return Math.random() < successSampleRate;
+}
 
 @Injectable()
 export class HttpLoggingInterceptor implements NestInterceptor {
@@ -35,6 +46,9 @@ export class HttpLoggingInterceptor implements NestInterceptor {
         }
         if (res.statusCode >= 400) {
           accessLogger.warn(payload);
+          return;
+        }
+        if (!shouldLogSuccessfulRequest(durationMs)) {
           return;
         }
         accessLogger.info(payload);

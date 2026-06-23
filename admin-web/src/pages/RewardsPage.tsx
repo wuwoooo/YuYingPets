@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react';
 import { Modal } from '../components/Modal';
 import { Shell } from '../components/Shell';
 import type { AdminClass, AdminStudent, Reward, RewardOrder, RewardUpsertPayload, SessionUser } from '../lib/api';
@@ -66,6 +66,8 @@ export function RewardsPage({
   const [orderStatusFilter, setOrderStatusFilter] = useState<'all' | string>('all');
   const [form, setForm] = useState<RewardFormState>(() => createRewardForm());
   const [submitting, setSubmitting] = useState(false);
+  const [uploadingRewardImage, setUploadingRewardImage] = useState(false);
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
 
@@ -336,6 +338,22 @@ export function RewardsPage({
     }
   }
 
+  async function handleRewardImageUpload(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    setUploadingRewardImage(true);
+    setSubmitError(null);
+    try {
+      const response = await adminApi.uploadRewardAsset(token, file);
+      setForm((prev) => ({ ...prev, imageUrl: response.data.url }));
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : '奖励图片上传失败');
+    } finally {
+      setUploadingRewardImage(false);
+    }
+  }
+
   async function toggleRewardStatus(item: Reward) {
     try {
       setSubmitError(null);
@@ -497,6 +515,23 @@ export function RewardsPage({
                   <span>图片地址</span>
                   <input type="text" value={form.imageUrl} onChange={(event) => setForm((prev) => ({ ...prev, imageUrl: event.target.value }))} placeholder="可留空" />
                 </label>
+                <label className="reward-editor-field reward-editor-field-wide">
+                  <span>上传图片</span>
+                  <input type="file" accept="image/*" onChange={handleRewardImageUpload} disabled={uploadingRewardImage || submitting} />
+                </label>
+                {form.imageUrl.trim() ? (
+                  <div className="image-upload-preview reward-upload-preview reward-editor-field-wide">
+                    <button
+                      type="button"
+                      className="image-upload-preview-button"
+                      onClick={() => setPreviewImageUrl(form.imageUrl)}
+                      aria-label="预览奖励图片"
+                    >
+                      <img src={resolveAssetUrl(form.imageUrl)} alt="奖励预览" />
+                    </button>
+                    <span>{form.imageUrl}</span>
+                  </div>
+                ) : null}
               </div>
             </section>
           ) : null}
@@ -868,6 +903,13 @@ export function RewardsPage({
           }}
         >
           {renderRewardForm('创建奖励', () => setShowCreateReward(false))}
+        </Modal>
+      ) : null}
+      {previewImageUrl ? (
+        <Modal title="图片预览" subtitle="" onClose={() => setPreviewImageUrl(null)}>
+          <div className="image-upload-preview-modal">
+            <img src={resolveAssetUrl(previewImageUrl)} alt="图片预览" />
+          </div>
         </Modal>
       ) : null}
     </Shell>

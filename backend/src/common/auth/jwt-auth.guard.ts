@@ -16,12 +16,14 @@ const PROJECTION_ALLOWED_GET_PATHS = [
   '/honor-records',
   '/rewards',
   '/academic-records',
+  '/academic-records/school-growth',
   '/academic-records/exams',
   '/display/terminals',
   '/display/weather',
   '/admin/settings/display',
   '/admin/analytics/summary',
   '/admin/analytics/heatmap',
+  '/projection/snapshot',
 ];
 
 function normalizeApiPath(path: string) {

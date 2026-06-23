@@ -594,6 +594,16 @@ export class AcademicRecordsService {
     const keyword = String(query.keyword ?? '').trim();
     const gradeName = String(query.gradeName ?? '').trim();
     const includeSubjects = query.includeSubjects === 'true';
+    const isProjectionViewer = user.terminalType === 'projection';
+    const recentExamLimit = Number(query.recentExamLimit);
+    const effectiveRecentExamLimit =
+      Number.isInteger(recentExamLimit) && recentExamLimit > 0
+        ? recentExamLimit
+        : isProjectionViewer && includeSubjects
+          ? 2
+          : 0;
+    const shouldLimitRecentExams = effectiveRecentExamLimit > 0;
+    const currentSemesterOnly = query.currentSemesterOnly === 'true' || (isProjectionViewer && includeSubjects);
 
     if (query.classId) {
       if (!Number.isInteger(classId) || classId <= 0) {
@@ -603,12 +613,22 @@ export class AcademicRecordsService {
     }
 
     const hasExplicitExamId = query.examId && Number.isInteger(examId) && examId > 0;
+    const currentSemester = currentSemesterOnly
+      ? await this.prisma.semester.findFirst({
+          where: { schoolId: user.schoolId, isCurrent: true, status: 'enabled' },
+          orderBy: { id: 'desc' },
+          select: { id: true },
+        })
+      : null;
+    const semesterFilter = currentSemesterOnly && currentSemester ? { semesterId: currentSemester.id } : {};
+    const scopedExamTake = shouldLimitRecentExams ? effectiveRecentExamLimit : includeSubjects ? null : 50;
     const scopedExamIds =
-      !includeSubjects && !hasExplicitExamId
+      scopedExamTake && !hasExplicitExamId
         ? (
             await this.prisma.academicExam.findMany({
               where: {
                 schoolId: user.schoolId,
+                ...semesterFilter,
                 ...(classRestriction
                   ? {
                       records: {
@@ -620,7 +640,7 @@ export class AcademicRecordsService {
                   : {}),
               },
               orderBy: [{ examDate: 'desc' }, { id: 'desc' }],
-              take: 50,
+              take: scopedExamTake,
               select: { id: true },
             })
           ).map((item) => item.id)
@@ -629,6 +649,7 @@ export class AcademicRecordsService {
     const rows = await this.prisma.academicScoreRecord.findMany({
       where: {
         schoolId: user.schoolId,
+        ...semesterFilter,
         ...(includeSubjects ? {} : { subjectCode: 'total' }),
         ...(query.classId ? { classId: BigInt(classId) } : classRestriction ? { classId: { in: classRestriction } } : {}),
         ...(hasExplicitExamId
@@ -648,7 +669,21 @@ export class AcademicRecordsService {
             }
           : {}),
       },
-      include: {
+      select: {
+        id: true,
+        examId: true,
+        classId: true,
+        className: true,
+        studentId: true,
+        studentNo: true,
+        studentName: true,
+        subjectCode: true,
+        subjectName: true,
+        score: true,
+        schoolRank: true,
+        schoolRankDelta: true,
+        classRank: true,
+        classRankDelta: true,
         exam: {
           select: {
             id: true,
@@ -1179,9 +1214,26 @@ export class AcademicRecordsService {
     const focusExamIndex = comparableExams.findIndex((item) => item.id === focusExam.id);
     const previousExam = (focusExamIndex >= 0 ? comparableExams[focusExamIndex + 1] : null) ?? null;
     const trendExams = comparableExams.slice(0, 6);
+    const gradeExamGroups = Array.from(
+      exams.reduce((map, exam) => {
+        const gradeName = exam.gradeName?.trim();
+        if (!gradeName) return map;
+        const current = map.get(gradeName) ?? [];
+        current.push(exam);
+        map.set(gradeName, current);
+        return map;
+      }, new Map<string, SchoolGrowthExamItem[]>()),
+    );
     const relevantExamIds = Array.from(
       new Set(
-        [focusExam.id, previousExam?.id, ...trendExams.map((item) => item.id)].filter(
+        [
+          focusExam.id,
+          previousExam?.id,
+          ...trendExams.map((item) => item.id),
+          ...gradeExamGroups.flatMap(([, gradeExams]) =>
+            gradeExams.slice(0, 6).map((item) => item.id),
+          ),
+        ].filter(
           (value): value is number => typeof value === 'number' && Number.isInteger(value) && value > 0,
         ),
       ),
@@ -1229,16 +1281,31 @@ export class AcademicRecordsService {
       classRankDelta: row.classRankDelta,
     }));
 
+    const summary = this.buildSchoolGrowthSummary(
+      comparableExams,
+      scoreRows,
+      classItems,
+      studentItems,
+      focusExam.id,
+    );
+    const gradeGrowthGroups = gradeExamGroups.map(([gradeName, gradeExams]) => ({
+      gradeName,
+      ...this.buildSchoolGrowthSummary(
+        gradeExams,
+        scoreRows.filter((row) => gradeExams.some((exam) => exam.id === row.examId)),
+        classItems,
+        studentItems,
+        gradeExams[0]?.id,
+      ),
+    }));
+
     return {
       code: 0,
       message: 'ok',
-      data: this.buildSchoolGrowthSummary(
-        comparableExams,
-        scoreRows,
-        classItems,
-        studentItems,
-        focusExam.id,
-      ),
+      data: {
+        ...summary,
+        gradeGrowthGroups,
+      },
     };
   }
 
@@ -1429,6 +1496,7 @@ export class AcademicRecordsService {
     const previousExam = (focusExamIndex >= 0 ? exams[focusExamIndex + 1] : null) ?? null;
     const previousRows = previousExam ? scoreRows.filter((row) => row.examId === previousExam.id) : [];
     const previousByStudent = new Map(previousRows.map((row) => [row.studentId, row]));
+    const latestByStudent = new Map(latestRows.map((row) => [row.studentId, row]));
     const classById = new Map(classes.map((item) => [item.id, item]));
 
     const averageScore = this.averageNumber(latestRows.map((row) => row.totalScore));
@@ -1438,6 +1506,10 @@ export class AcademicRecordsService {
       if (typeof explicit === 'number' && Number.isFinite(explicit)) return explicit;
       if (previous) return Math.round(row.totalScore - previous.totalScore);
       return 0;
+    };
+    const resolveSchoolRankDelta = (row: SchoolGrowthScoreRow) => {
+      if (typeof row.schoolRankDelta === 'number' && Number.isFinite(row.schoolRankDelta)) return row.schoolRankDelta;
+      return null;
     };
 
     const pickQuadrant = (totalScore: number, scoreDelta: number, currentAverageScore: number) => {
@@ -1476,8 +1548,18 @@ export class AcademicRecordsService {
     });
 
     const progressLeaders = [...signals]
-      .filter((item) => item.rankDelta > 0 || item.scoreDelta > 0)
-      .sort((left, right) => right.rankDelta - left.rankDelta || right.scoreDelta - left.scoreDelta || right.totalScore - left.totalScore)
+      .map((item) => ({
+        ...item,
+        schoolRankDelta: resolveSchoolRankDelta(latestByStudent.get(item.studentId)!),
+      }))
+      .filter((item) => item.schoolRankDelta !== null && item.schoolRankDelta > 0)
+      .sort(
+        (left, right) =>
+          right.schoolRankDelta! - left.schoolRankDelta! ||
+          left.classId - right.classId ||
+          left.studentId - right.studentId,
+      )
+      .map(({ schoolRankDelta, ...item }) => ({ ...item, rankDelta: schoolRankDelta! }))
       .slice(0, 20);
     const riskStudents = [...signals]
       .filter((item) => item.rankDelta < 0 || item.scoreDelta < 0)

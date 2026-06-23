@@ -7,7 +7,117 @@
     <link rel="stylesheet" href="./vendor/fontawesome/css/all.min.css" />
     <link rel="preload" href="./images/2.svg" as="image" type="image/svg+xml" />
     <link rel="preload" href="./images/logo.svg" as="image" type="image/svg+xml" />
-    <link rel="preload" href="./styles/display.css?v=202606021900" as="style" />
+    <link rel="preload" href="./styles/display.css?v=202606181400" as="style" />
+    <link
+      rel="preload"
+      href="./styles/display-classroom-base.css?v=202606181400"
+      as="style"
+    />
+    <link
+      rel="preload"
+      href="./styles/display-holiday.css?v=202606181700"
+      as="style"
+    />
+    <link
+      rel="preload"
+      href="./styles/display-classroom-shell.css?v=202606181300"
+      as="style"
+    />
+    <link
+      rel="preload"
+      href="./styles/display-student-card.css?v=202606181300"
+      as="style"
+    />
+    <link
+      rel="preload"
+      href="./styles/display-modal-core.css?v=202606181300"
+      as="style"
+    />
+    <link
+      rel="preload"
+      href="./styles/display-sidebar.css?v=202606181300"
+      as="style"
+    />
+    <link
+      rel="preload"
+      href="./styles/display-classroom-effects.css?v=202606181400"
+      as="style"
+    />
+    <link
+      rel="preload"
+      href="./styles/display-performance.css?v=202606181400"
+      as="style"
+    />
+    <link
+      rel="preload"
+      href="./styles/display-entry-transition.css?v=202606181200"
+      as="style"
+    />
+    <link
+      rel="preload"
+      href="./styles/display-honor.css?v=202606181100"
+      as="style"
+    />
+    <link
+      rel="preload"
+      href="./styles/display-setup-login.css?v=202606141100"
+      as="style"
+    />
+    <link
+      rel="preload"
+      href="./styles/display-pet-profile.css?v=202606171300"
+      as="style"
+    />
+    <link
+      rel="preload"
+      href="./styles/display-pet-pk.css?v=202606181100"
+      as="style"
+    />
+    <link
+      rel="preload"
+      href="./styles/display-group.css?v=202606181200"
+      as="style"
+    />
+    <link
+      rel="preload"
+      href="./styles/display-adopt.css?v=202606181200"
+      as="style"
+    />
+    <link
+      rel="preload"
+      href="./styles/display-academic.css?v=202606181100"
+      as="style"
+    />
+    <link
+      rel="preload"
+      href="./styles/display-exchange.css?v=202606181100"
+      as="style"
+    />
+    <link
+      rel="preload"
+      href="./styles/display-leaderboard.css?v=202606181100"
+      as="style"
+    />
+    <link
+      rel="preload"
+      href="./styles/display-point-modal.css?v=202606181400"
+      as="style"
+    />
+    <link
+      rel="preload"
+      href="./styles/display-classroom-settings.css?v=202606181200"
+      as="style"
+    />
+    <link
+      rel="preload"
+      href="./styles/display-toolbox.css?v=202606171200"
+      as="style"
+    />
+    <link
+      rel="preload"
+      href="./styles/display-pet-fullview.css?v=202606181400"
+      as="style"
+    />
     <script>
       window.performance = window.performance || {
         now: function now() {
@@ -17,47 +127,65 @@
     </script>
     <script src="./vendor/socket.io/socket.io.min.js"></script>
     <script src="./vendor/morphdom/morphdom-umd.min.js"></script>
-    <link rel="stylesheet" href="./styles/display.css?v=202606021900" />
-    <style>
-      /* ===== 萌宠档案 · 进化图鉴底部按钮 ===== */
-      .pet-profile-bottom-action {
-        margin-top: 22px;
-        padding-top: 18px;
-        border-top: 1px solid rgba(15, 61, 99, 0.06);
-      }
-      .profile-action-btn {
-        width: 100%;
-        height: 50px;
-        border-radius: 14px;
-        border: none;
-        font-size: 15px;
-        font-weight: 700;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 10px;
-        transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
-        letter-spacing: 0.5px;
-      }
-      @media (hover: hover) and (pointer: fine) {
-        .profile-action-btn:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 8px 22px rgba(0, 0, 0, 0.14);
-        }
-      }
-      .profile-action-btn:active {
-        transform: translateY(0);
-      }
-      .profile-action-btn.evo {
-        background: linear-gradient(135deg, #e8a838, #f0c24a);
-        color: #fff;
-      }
-      .profile-action-btn i {
-        font-size: 17px;
-      }
-    </style>
+    <link rel="stylesheet" href="./styles/display.css?v=202606181400" />
+    <link
+      rel="stylesheet"
+      href="./styles/display-classroom-base.css?v=202606181400"
+    />
+    <link rel="stylesheet" href="./styles/display-holiday.css?v=202606181700" />
+    <link
+      rel="stylesheet"
+      href="./styles/display-classroom-shell.css?v=202606181300"
+    />
+    <link
+      rel="stylesheet"
+      href="./styles/display-student-card.css?v=202606181300"
+    />
+    <link
+      rel="stylesheet"
+      href="./styles/display-modal-core.css?v=202606181300"
+    />
+    <link rel="stylesheet" href="./styles/display-sidebar.css?v=202606181300" />
+    <link
+      rel="stylesheet"
+      href="./styles/display-classroom-effects.css?v=202606181400"
+    />
+    <link rel="stylesheet" href="./styles/display-performance.css?v=202606181400" />
+    <link
+      rel="stylesheet"
+      href="./styles/display-entry-transition.css?v=202606181200"
+    />
+    <link rel="stylesheet" href="./styles/display-honor.css?v=202606181100" />
+    <link
+      rel="stylesheet"
+      href="./styles/display-point-modal.css?v=202606181400"
+    />
+    <link
+      rel="stylesheet"
+      href="./styles/display-pet-profile.css?v=202606171300"
+    />
+    <link rel="stylesheet" href="./styles/display-pet-pk.css?v=202606181100" />
+    <link rel="stylesheet" href="./styles/display-group.css?v=202606181200" />
+    <link rel="stylesheet" href="./styles/display-adopt.css?v=202606181200" />
+    <link rel="stylesheet" href="./styles/display-academic.css?v=202606181100" />
+    <link rel="stylesheet" href="./styles/display-exchange.css?v=202606181100" />
+    <link
+      rel="stylesheet"
+      href="./styles/display-leaderboard.css?v=202606181100"
+    />
+    <link
+      rel="stylesheet"
+      href="./styles/display-classroom-settings.css?v=202606181200"
+    />
+    <link
+      rel="stylesheet"
+      href="./styles/display-setup-login.css?v=202606141100"
+    />
+    <link rel="stylesheet" href="./styles/display-toolbox.css?v=202606171200" />
+    <link
+      rel="stylesheet"
+      href="./styles/display-pet-fullview.css?v=202606181400"
+    />
   </head>
   <body>
     <button
@@ -1507,32 +1635,6 @@
         id="classroomHolidayLayer"
         aria-hidden="true"
       >
-        <div class="holiday-wow-splash" id="holidayWowSplash">
-          <div class="holiday-wow-sky">
-            <span class="holiday-wow-cloud holiday-wow-cloud-a"></span>
-            <span class="holiday-wow-cloud holiday-wow-cloud-b"></span>
-            <span class="holiday-wow-cloud holiday-wow-cloud-c"></span>
-          </div>
-          <div class="holiday-wow-card">
-            <span class="holiday-wow-kicker" id="holidayWowKicker">育英星宠 · 儿童节限定彩蛋</span>
-            <div class="holiday-wow-main">
-              <span class="holiday-wow-number" id="holidayWowNumber">6.1</span>
-              <strong id="holidayWowTitle">儿童节快乐</strong>
-            </div>
-            <div class="holiday-wow-subtitle" id="holidayWowSubtitle">星宠派对开始啦</div>
-            <div class="holiday-wow-copy" id="holidayWowCopy">愿每位同学今天都闪闪发光</div>
-          </div>
-          <span class="holiday-wow-balloon holiday-wow-balloon-a"></span>
-          <span class="holiday-wow-balloon holiday-wow-balloon-b"></span>
-          <span class="holiday-wow-balloon holiday-wow-balloon-c"></span>
-          <span class="holiday-wow-confetti holiday-wow-confetti-a"></span>
-          <span class="holiday-wow-confetti holiday-wow-confetti-b"></span>
-          <span class="holiday-wow-confetti holiday-wow-confetti-c"></span>
-          <span class="holiday-wow-confetti holiday-wow-confetti-d"></span>
-          <span class="holiday-wow-star holiday-wow-star-a"></span>
-          <span class="holiday-wow-star holiday-wow-star-b"></span>
-          <span class="holiday-wow-star holiday-wow-star-c"></span>
-        </div>
         <div class="holiday-badge">
           <span class="holiday-badge-kicker" id="holidayBadgeKicker">6.1 儿童节</span>
           <strong id="holidayBadgeTitle">童心闪闪 快乐成长</strong>
@@ -1682,18 +1784,10 @@
               <button
                 type="button"
                 class="toolbar-seg active"
-                data-grid-density-btn="compact"
-                onclick="setGridDensity('compact')"
-              >
-                紧凑
-              </button>
-              <button
-                type="button"
-                class="toolbar-seg"
                 data-grid-density-btn="panorama"
                 onclick="setGridDensity('panorama')"
               >
-                全景
+                紧凑
               </button>
             </div>
             <div class="toolbar-batch-bar hide" id="batchBar">
@@ -2368,6 +2462,34 @@
           alt=""
         />
         <img
+          class="toolbox-deco toolbox-deco-breath-orb"
+          data-src="images/toolbox/breath-orb.png"
+          loading="lazy"
+          decoding="async"
+          alt=""
+        />
+        <img
+          class="toolbox-deco toolbox-deco-breath-ripple"
+          data-src="images/toolbox/breath-ripple.png"
+          loading="lazy"
+          decoding="async"
+          alt=""
+        />
+        <img
+          class="toolbox-deco toolbox-deco-meditation-lantern"
+          data-src="images/toolbox/meditation-lantern.png"
+          loading="lazy"
+          decoding="async"
+          alt=""
+        />
+        <img
+          class="toolbox-deco toolbox-deco-meditation-stars"
+          data-src="images/toolbox/meditation-stars.png"
+          loading="lazy"
+          decoding="async"
+          alt=""
+        />
+        <img
           class="toolbox-deco toolbox-deco-ticket"
           data-src="images/toolbox/lucky-ticket.png"
           loading="lazy"
@@ -2473,6 +2595,62 @@
             <strong>安静下来</strong>
             <em>全班一起守护花园生长</em>
             <b>开始守护</b>
+          </button>
+          <button
+            type="button"
+            class="toolbox-ritual-card breath"
+            data-toolbox-card="breath"
+            onclick="enterToolboxTool('breath')"
+          >
+            <span class="ritual-card-bg"></span>
+            <img
+              class="ritual-card-prop prop-main"
+              src="images/toolbox/breath-orb.png"
+              loading="lazy"
+              decoding="async"
+              alt=""
+            />
+            <img
+              class="ritual-card-prop prop-spark"
+              src="images/toolbox/breath-ripple.png"
+              loading="lazy"
+              decoding="async"
+              alt=""
+            />
+            <span class="ritual-card-icon"
+              ><i class="fa-solid fa-wind" aria-hidden="true"></i
+            ></span>
+            <strong>呼吸练习</strong>
+            <em>跟随光球吸气、呼气，快速收拢注意力</em>
+            <b>开始呼吸</b>
+          </button>
+          <button
+            type="button"
+            class="toolbox-ritual-card meditation"
+            data-toolbox-card="meditation"
+            onclick="enterToolboxTool('meditation')"
+          >
+            <span class="ritual-card-bg"></span>
+            <img
+              class="ritual-card-prop prop-main"
+              src="images/toolbox/meditation-lantern.png"
+              loading="lazy"
+              decoding="async"
+              alt=""
+            />
+            <img
+              class="ritual-card-prop prop-spark"
+              src="images/toolbox/meditation-stars.png"
+              loading="lazy"
+              decoding="async"
+              alt=""
+            />
+            <span class="ritual-card-icon"
+              ><i class="fa-solid fa-spa" aria-hidden="true"></i
+            ></span>
+            <strong>静心冥想</strong>
+            <em>保留柔和倒计时，让全班安静回到当下</em>
+            <b>开始冥想</b>
           </button>
           <button
             type="button"
@@ -2763,6 +2941,88 @@
             <!-- 已移除细进度条 -->
           </div>
 
+          <div class="toolbox-scene" data-toolbox-scene="breath">
+            <div class="mindfulness-stage breath-stage">
+              <img
+                class="mindfulness-ripple breath-ripple-img"
+                src="images/toolbox/breath-ripple.png"
+                loading="lazy"
+                decoding="async"
+                alt=""
+              />
+              <div class="mindfulness-hud">
+                <div class="mindfulness-clock" id="toolboxBreathTime">01:00</div>
+              </div>
+              <div class="breath-orb-wrap" id="toolboxBreathOrb">
+                <img
+                  class="breath-orb-img"
+                  src="images/toolbox/breath-orb.png"
+                  loading="lazy"
+                  decoding="async"
+                  alt=""
+                />
+                <span id="toolboxBreathPhase">准备</span>
+              </div>
+            </div>
+            <div class="mindfulness-presets breath-presets" aria-label="呼吸时长预设">
+              <span class="mindfulness-presets-label">时长</span>
+              <button type="button" class="active" onclick="setBreathPreset(60)">
+                1分钟
+              </button>
+              <button type="button" onclick="setBreathPreset(120)">2分钟</button>
+              <button type="button" onclick="setBreathPreset(180)">3分钟</button>
+            </div>
+            <div class="toolbox-live-copy">
+              <h3>跟随光球慢慢呼吸</h3>
+              <p id="toolboxBreathResult">
+                一键开始后，光球会带领全班吸气与呼气。
+              </p>
+            </div>
+          </div>
+
+          <div class="toolbox-scene" data-toolbox-scene="meditation">
+            <div class="mindfulness-stage meditation-stage">
+              <img
+                class="meditation-stars-img"
+                src="images/toolbox/meditation-stars.png"
+                loading="lazy"
+                decoding="async"
+                alt=""
+              />
+              <img
+                class="meditation-lantern-img"
+                src="images/toolbox/meditation-lantern.png"
+                loading="lazy"
+                decoding="async"
+                alt=""
+              />
+              <div class="meditation-rings" aria-hidden="true">
+                <span></span><span></span><span></span>
+              </div>
+              <div class="mindfulness-hud">
+                <div class="mindfulness-clock" id="toolboxMeditationTime">02:00</div>
+                <div class="mindfulness-status" id="toolboxMeditationStatus">
+                  把注意力轻轻放回呼吸
+                </div>
+              </div>
+            </div>
+            <div class="mindfulness-presets meditation-presets" aria-label="冥想时长预设">
+              <span class="mindfulness-presets-label">时长</span>
+              <button type="button" onclick="setMeditationPreset(60)">1分钟</button>
+              <button type="button" class="active" onclick="setMeditationPreset(120)">
+                2分钟
+              </button>
+              <button type="button" onclick="setMeditationPreset(180)">3分钟</button>
+              <button type="button" onclick="setMeditationPreset(300)">5分钟</button>
+            </div>
+            <div class="toolbox-live-copy">
+              <h3>安静坐好，准备回到课堂</h3>
+              <p id="toolboxMeditationResult">
+                开始后只保留柔和倒计时和呼吸节奏光。
+              </p>
+            </div>
+          </div>
+
           <div class="toolbox-scene" data-toolbox-scene="lucky">
             <div class="lucky-draw-stage" id="toolboxLuckyWheel">
               <div class="lucky-spotlight"></div>
@@ -2997,6 +3257,23 @@
                 <option value="34" selected>标准 (常规自习安静 - 34dB)</option>
                 <option value="22">严格 (图书馆式静音 - 22dB)</option>
                 <option value="12">极严 (针落有声绝对安静 - 12dB)</option>
+              </select>
+            </label>
+            <label class="toolbox-setting-field setting-breath">
+              呼吸练习时长
+              <select id="toolboxBreathDuration">
+                <option value="60" selected>1 分钟</option>
+                <option value="120">2 分钟</option>
+                <option value="180">3 分钟</option>
+              </select>
+            </label>
+            <label class="toolbox-setting-field setting-meditation">
+              静心冥想时长
+              <select id="toolboxMeditationDuration">
+                <option value="60">1 分钟</option>
+                <option value="120" selected>2 分钟</option>
+                <option value="180">3 分钟</option>
+                <option value="300">5 分钟</option>
               </select>
             </label>
             <label class="toolbox-setting-field setting-lucky">
@@ -4136,10 +4413,26 @@
     </div>
 
     <script src="./scripts/pet-colors.js?v=202605241713"></script>
-    <script src="./scripts/display-runtime.js?v=202606061100"></script>
-    <script src="./scripts/display-ui.js?v=202606091700"></script>
+    <script src="./scripts/display-runtime.js?v=202606181700"></script>
+    <script src="./scripts/display-ui.js?v=202606141100"></script>
     <script src="./scripts/display-auth.js?v=202606071100"></script>
-    <script src="./scripts/display-holiday-dates.js?v=202606091530"></script>
-    <script src="./scripts/display-app.js?v=202606091700"></script>
+    <script src="./scripts/display-holiday-dates.js?v=202606181700"></script>
+    <script src="./scripts/display-score.js?v=202606101100"></script>
+    <script src="./scripts/display-realtime.js?v=202606101100"></script>
+    <script src="./scripts/display-pet-catalog.js?v=202606111100"></script>
+    <script src="./scripts/display-exchange.js?v=202606111200"></script>
+    <script src="./scripts/display-leaderboard.js?v=202606111200"></script>
+    <script src="./scripts/display-honor.js?v=202606111200"></script>
+    <script src="./scripts/display-student-grid.js?v=202606181400"></script>
+    <script src="./scripts/display-pet-profile.js?v=202606111200"></script>
+    <script src="./scripts/display-deco.js?v=202606171300"></script>
+    <script src="./scripts/display-academic.js?v=202606181100"></script>
+    <script src="./scripts/display-audio.js?v=202606181200"></script>
+    <script src="./scripts/display-call.js?v=202606181200"></script>
+    <script src="./scripts/display-entry-effects.js?v=202606181200"></script>
+    <script src="./scripts/display-group.js?v=202606181300"></script>
+    <script src="./scripts/display-toolbox.js?v=202606201000"></script>
+    <script src="./scripts/display-settings.js?v=202606111200"></script>
+    <script src="./scripts/display-app.js?v=202606181700"></script>
   </body>
 </html>

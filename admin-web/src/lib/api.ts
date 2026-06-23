@@ -9,6 +9,16 @@ type RequestOptions = {
   headers?: Record<string, string>;
 };
 
+export class ApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
 async function request<T>(path: string, options: RequestOptions = {}) {
   let response: Response;
 
@@ -45,7 +55,7 @@ async function request<T>(path: string, options: RequestOptions = {}) {
       // ignore invalid error body
     }
 
-    throw new Error(message);
+    throw new ApiError(message, response.status);
   }
 
   return (await response.json()) as T;
@@ -254,6 +264,9 @@ export type AiStudentSummary = {
   classId: number;
   periodType: 'weekly' | 'monthly';
   snapshotDate: string;
+  generatedAt: string | null;
+  hasNewerBehaviorRecord: boolean;
+  latestBehaviorRecordAt: string | null;
   positiveSummary: {
     count: number;
     scoreDelta: number;
@@ -512,6 +525,25 @@ export type SchoolAcademicGrowthPayload = {
     suggestion: string;
     report: string;
   };
+  gradeGrowthGroups?: Array<{
+    gradeName: string;
+    latestExam: AcademicExamListItem | null;
+    previousExam: AcademicExamListItem | null;
+    coverageRate: number;
+    participantCount: number;
+    averageScore: number;
+    progressCount: number;
+    declineCount: number;
+    riskCount: number;
+    growthIndex: number;
+    classSummaries: SchoolAcademicGrowthPayload['classSummaries'];
+    studentSignals: SchoolAcademicGrowthPayload['studentSignals'];
+    progressLeaders: SchoolAcademicGrowthPayload['progressLeaders'];
+    riskStudents: SchoolAcademicGrowthPayload['riskStudents'];
+    quadrants: SchoolAcademicGrowthPayload['quadrants'];
+    trend: SchoolAcademicGrowthPayload['trend'];
+    insight: SchoolAcademicGrowthPayload['insight'];
+  }>;
 };
 
 export type StudentAcademicExam = {
@@ -1049,6 +1081,7 @@ export type AnalyticsQuery = {
   regenerateAi?: boolean;
   startDate?: string;
   endDate?: string;
+  skipDetailSummary?: boolean;
 };
 
 export type AnalyticsReportStatus = {
@@ -1118,6 +1151,30 @@ export type TeacherWorkbenchContext = {
     lessonSummaryDraft: string;
     nextLessonDraft: string;
   };
+};
+
+export type RealtimeMonitorStats = {
+  todayScoreRecordCount: number;
+  todayPositiveCount: number;
+  todayNegativeCount: number;
+  todayActiveClassCount: number;
+  recent24hScoreRecordCount: number;
+};
+
+export type ProjectionSnapshotPayload = {
+  classes: AdminClass[];
+  students: AdminStudent[];
+  rules: ScoreRule[];
+  honors: Honor[];
+  rewards: Reward[];
+  analytics: AnalyticsData | null;
+  scoreRecords: ScoreRecord[];
+  honorRecords: HonorRecord[];
+  academicGrowth: Record<string, unknown> | null;
+  displayTerminals: DisplayTerminal[];
+  weatherInfo: DisplayWeatherPayload | null;
+  weatherLabel: string;
+  semesterName: string | null;
 };
 
 export type TeacherReviewContext = {
@@ -1627,6 +1684,13 @@ export const adminApi = {
       body: { username, password },
     });
   },
+  projectionSnapshot(token: string, query?: { startDate?: string; endDate?: string }) {
+    const params = new URLSearchParams();
+    if (query?.startDate) params.set('startDate', query.startDate);
+    if (query?.endDate) params.set('endDate', query.endDate);
+    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    return request<ApiObjectResponse<ProjectionSnapshotPayload>>(`/projection/snapshot${suffix}`, { token });
+  },
   me(token: string) {
     return request<SessionMeResponse>('/auth/me', { token });
   },
@@ -1660,12 +1724,14 @@ export const adminApi = {
     const suffix = params.size > 0 ? `?${params.toString()}` : '';
     return request<ApiObjectResponse<DisplayWeatherPayload>>(`/display/weather${suffix}`, { token });
   },
-  students(token: string, query?: { classId?: number; page?: number; pageSize?: number; includeDisabled?: boolean }) {
+  students(token: string, query?: { classId?: number; page?: number; pageSize?: number; includeDisabled?: boolean; includeLatestAcademic?: boolean; includePetDetails?: boolean }) {
     const params = new URLSearchParams();
     if (query?.classId) params.set('classId', String(query.classId));
     if (query?.page) params.set('page', String(query.page));
     if (query?.pageSize) params.set('pageSize', String(query.pageSize));
     if (query?.includeDisabled) params.set('includeDisabled', 'true');
+    if (query?.includeLatestAcademic === false) params.set('includeLatestAcademic', 'false');
+    if (query?.includePetDetails === false) params.set('includePetDetails', 'false');
     const suffix = params.size > 0 ? `?${params.toString()}` : '';
     return request<ApiListResponse<AdminStudent>>(`/students${suffix}`, { token });
   },
@@ -1704,7 +1770,7 @@ export const adminApi = {
   },
   academicScores(
     token: string,
-    query?: { examId?: number; classId?: number; gradeName?: string; keyword?: string; includeSubjects?: boolean },
+    query?: { examId?: number; classId?: number; gradeName?: string; keyword?: string; includeSubjects?: boolean; recentExamLimit?: number; currentSemesterOnly?: boolean },
   ) {
     const params = new URLSearchParams();
     if (query?.examId) params.set('examId', String(query.examId));
@@ -1712,6 +1778,8 @@ export const adminApi = {
     if (query?.gradeName) params.set('gradeName', query.gradeName);
     if (query?.keyword) params.set('keyword', query.keyword);
     if (query?.includeSubjects) params.set('includeSubjects', 'true');
+    if (query?.recentExamLimit) params.set('recentExamLimit', String(query.recentExamLimit));
+    if (query?.currentSemesterOnly) params.set('currentSemesterOnly', 'true');
     const suffix = params.size > 0 ? `?${params.toString()}` : '';
     return request<ApiListResponse<AcademicScoreListRow>>(`/academic-records${suffix}`, { token });
   },
@@ -1814,6 +1882,9 @@ export const adminApi = {
     const suffix = params.size > 0 ? `?${params.toString()}` : '';
     return request<ApiListResponse<ScoreRecord>>(`/score-records${suffix}`, { token });
   },
+  realtimeMonitorStats(token: string) {
+    return request<ApiObjectResponse<RealtimeMonitorStats>>('/admin/analytics/realtime-monitor', { token });
+  },
   createScoreRecord(token: string, body: ScoreRecordCreatePayload) {
     return request<ApiObjectResponse<ScoreRecordCreateResult>>('/score-records', {
       method: 'POST',
@@ -1842,9 +1913,10 @@ export const adminApi = {
       body,
     });
   },
-  classScoreRecords(token: string, query?: { classId?: number; startDate?: string; endDate?: string }) {
+  classScoreRecords(token: string, query?: { classId?: number; classIds?: number[]; startDate?: string; endDate?: string }) {
     const params = new URLSearchParams();
     if (query?.classId) params.set('classId', String(query.classId));
+    if (query?.classIds && query.classIds.length > 0) params.set('classIds', query.classIds.join(','));
     if (query?.startDate) params.set('startDate', query.startDate);
     if (query?.endDate) params.set('endDate', query.endDate);
     const suffix = params.size > 0 ? `?${params.toString()}` : '';
@@ -2230,6 +2302,7 @@ export const adminApi = {
     if (query?.subjectCode) params.set('subjectCode', query.subjectCode);
     if (query?.startDate) params.set('startDate', query.startDate);
     if (query?.endDate) params.set('endDate', query.endDate);
+    if (query?.skipDetailSummary) params.set('skipDetailSummary', 'true');
     const suffix = params.size > 0 ? `?${params.toString()}` : '';
     return request<ApiObjectResponse<AnalyticsData>>(`/admin/analytics/summary${suffix}`, { token });
   },
@@ -2240,6 +2313,7 @@ export const adminApi = {
     if (query?.subjectCode) params.set('subjectCode', query.subjectCode);
     if (query?.startDate) params.set('startDate', query.startDate);
     if (query?.endDate) params.set('endDate', query.endDate);
+    if (query?.skipDetailSummary) params.set('skipDetailSummary', 'true');
     const suffix = params.size > 0 ? `?${params.toString()}` : '';
     return request<ApiObjectResponse<AnalyticsData>>(`/admin/analytics/heatmap${suffix}`, { token });
   },
@@ -2251,6 +2325,7 @@ export const adminApi = {
     if (query?.regenerateAi) params.set('regenerateAi', 'true');
     if (query?.startDate) params.set('startDate', query.startDate);
     if (query?.endDate) params.set('endDate', query.endDate);
+    if (query?.skipDetailSummary) params.set('skipDetailSummary', 'true');
     const suffix = params.size > 0 ? `?${params.toString()}` : '';
     return request<ApiObjectResponse<AnalyticsData>>(`/admin/analytics/ai${suffix}`, { token });
   },

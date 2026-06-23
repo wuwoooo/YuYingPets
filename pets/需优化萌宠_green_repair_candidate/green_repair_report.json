@@ -1,0 +1,1509 @@
+{
+  "source_dir": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠",
+  "raw_dir": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue",
+  "output_dir": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate",
+  "processed": 50,
+  "missing_raw": [],
+  "items": [
+    {
+      "file": "056_森歌獭_1.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/056_森歌獭_1_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/056_森歌獭_1.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        154,
+        92,
+        870,
+        931
+      ],
+      "raw_subject_bbox": [
+        243,
+        174,
+        1073,
+        1146
+      ],
+      "metrics": {
+        "greenish_opaque_px": 27906,
+        "damaged_greenish_px": 19687,
+        "damaged_greenish_ratio": 0.7055,
+        "avg_g_drop": 34.2,
+        "avg_green_dominance_drop": 130.89
+      },
+      "restored_internal_green_px": 0,
+      "reverted_edge_green_px": 18660
+    },
+    {
+      "file": "056_森歌獭_10.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/056_森歌獭_10_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/056_森歌獭_10.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        146,
+        92,
+        877,
+        931
+      ],
+      "raw_subject_bbox": [
+        156,
+        50,
+        1131,
+        1169
+      ],
+      "metrics": {
+        "greenish_opaque_px": 47245,
+        "damaged_greenish_px": 35884,
+        "damaged_greenish_ratio": 0.7595,
+        "avg_g_drop": 23.73,
+        "avg_green_dominance_drop": 134.01
+      },
+      "restored_internal_green_px": 6858,
+      "reverted_edge_green_px": 23043
+    },
+    {
+      "file": "056_森歌獭_2.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/056_森歌獭_2_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/056_森歌獭_2.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        168,
+        92,
+        855,
+        931
+      ],
+      "raw_subject_bbox": [
+        263,
+        145,
+        1090,
+        1155
+      ],
+      "metrics": {
+        "greenish_opaque_px": 25429,
+        "damaged_greenish_px": 21843,
+        "damaged_greenish_ratio": 0.859,
+        "avg_g_drop": 13.45,
+        "avg_green_dominance_drop": 128.74
+      },
+      "restored_internal_green_px": 0,
+      "reverted_edge_green_px": 17938
+    },
+    {
+      "file": "056_森歌獭_3.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/056_森歌獭_3_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/056_森歌獭_3.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        150,
+        92,
+        874,
+        931
+      ],
+      "raw_subject_bbox": [
+        235,
+        130,
+        1107,
+        1138
+      ],
+      "metrics": {
+        "greenish_opaque_px": 25914,
+        "damaged_greenish_px": 21650,
+        "damaged_greenish_ratio": 0.8355,
+        "avg_g_drop": 6.17,
+        "avg_green_dominance_drop": 119.81
+      },
+      "restored_internal_green_px": 249,
+      "reverted_edge_green_px": 18366
+    },
+    {
+      "file": "056_森歌獭_4.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/056_森歌獭_4_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/056_森歌獭_4.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        144,
+        92,
+        879,
+        931
+      ],
+      "raw_subject_bbox": [
+        216,
+        124,
+        1129,
+        1167
+      ],
+      "metrics": {
+        "greenish_opaque_px": 24806,
+        "damaged_greenish_px": 18868,
+        "damaged_greenish_ratio": 0.7606,
+        "avg_g_drop": 24.11,
+        "avg_green_dominance_drop": 120.7
+      },
+      "restored_internal_green_px": 37,
+      "reverted_edge_green_px": 20085
+    },
+    {
+      "file": "056_森歌獭_5.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/056_森歌獭_5_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/056_森歌獭_5.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        142,
+        92,
+        882,
+        931
+      ],
+      "raw_subject_bbox": [
+        171,
+        70,
+        1162,
+        1192
+      ],
+      "metrics": {
+        "greenish_opaque_px": 21326,
+        "damaged_greenish_px": 14011,
+        "damaged_greenish_ratio": 0.657,
+        "avg_g_drop": 51.26,
+        "avg_green_dominance_drop": 134.87
+      },
+      "restored_internal_green_px": 262,
+      "reverted_edge_green_px": 18620
+    },
+    {
+      "file": "056_森歌獭_6.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/056_森歌獭_6_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/056_森歌獭_6.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        129,
+        92,
+        895,
+        931
+      ],
+      "raw_subject_bbox": [
+        110,
+        36,
+        1165,
+        1190
+      ],
+      "metrics": {
+        "greenish_opaque_px": 14481,
+        "damaged_greenish_px": 12500,
+        "damaged_greenish_ratio": 0.8632,
+        "avg_g_drop": 42.47,
+        "avg_green_dominance_drop": 132.6
+      },
+      "restored_internal_green_px": 211,
+      "reverted_edge_green_px": 20031
+    },
+    {
+      "file": "056_森歌獭_7.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/056_森歌獭_7_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/056_森歌獭_7.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        92,
+        92,
+        931,
+        931
+      ],
+      "raw_subject_bbox": [
+        66,
+        24,
+        1195,
+        1214
+      ],
+      "metrics": {
+        "greenish_opaque_px": 18630,
+        "damaged_greenish_px": 16647,
+        "damaged_greenish_ratio": 0.8936,
+        "avg_g_drop": 34.76,
+        "avg_green_dominance_drop": 126.91
+      },
+      "restored_internal_green_px": 1369,
+      "reverted_edge_green_px": 302929
+    },
+    {
+      "file": "056_森歌獭_8.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/056_森歌獭_8_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/056_森歌獭_8.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        146,
+        92,
+        877,
+        931
+      ],
+      "raw_subject_bbox": [
+        161,
+        91,
+        1079,
+        1143
+      ],
+      "metrics": {
+        "greenish_opaque_px": 62427,
+        "damaged_greenish_px": 43852,
+        "damaged_greenish_ratio": 0.7025,
+        "avg_g_drop": 14.22,
+        "avg_green_dominance_drop": 145.45
+      },
+      "restored_internal_green_px": 7126,
+      "reverted_edge_green_px": 21125
+    },
+    {
+      "file": "056_森歌獭_9.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/056_森歌獭_9_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/056_森歌獭_9.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        149,
+        92,
+        875,
+        931
+      ],
+      "raw_subject_bbox": [
+        165,
+        86,
+        1092,
+        1155
+      ],
+      "metrics": {
+        "greenish_opaque_px": 58081,
+        "damaged_greenish_px": 46665,
+        "damaged_greenish_ratio": 0.8034,
+        "avg_g_drop": 7.72,
+        "avg_green_dominance_drop": 134.58
+      },
+      "restored_internal_green_px": 6163,
+      "reverted_edge_green_px": 23357
+    },
+    {
+      "file": "061_玉麒团_1.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/061_玉麒团_1_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/061_玉麒团_1.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        196,
+        92,
+        828,
+        931
+      ],
+      "raw_subject_bbox": [
+        211,
+        78,
+        1051,
+        1187
+      ],
+      "metrics": {
+        "greenish_opaque_px": 76710,
+        "damaged_greenish_px": 63953,
+        "damaged_greenish_ratio": 0.8337,
+        "avg_g_drop": -15.51,
+        "avg_green_dominance_drop": 94.82
+      },
+      "restored_internal_green_px": 220,
+      "reverted_edge_green_px": 16794
+    },
+    {
+      "file": "061_玉麒团_10.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/061_玉麒团_10_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/061_玉麒团_10.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        107,
+        92,
+        916,
+        931
+      ],
+      "raw_subject_bbox": [
+        54,
+        7,
+        1217,
+        1235
+      ],
+      "metrics": {
+        "greenish_opaque_px": 124833,
+        "damaged_greenish_px": 89253,
+        "damaged_greenish_ratio": 0.715,
+        "avg_g_drop": -7.77,
+        "avg_green_dominance_drop": 107.78
+      },
+      "restored_internal_green_px": 8603,
+      "reverted_edge_green_px": 32807
+    },
+    {
+      "file": "061_玉麒团_2.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/061_玉麒团_2_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/061_玉麒团_2.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        127,
+        92,
+        897,
+        931
+      ],
+      "raw_subject_bbox": [
+        171,
+        87,
+        1183,
+        1188
+      ],
+      "metrics": {
+        "greenish_opaque_px": 115806,
+        "damaged_greenish_px": 77766,
+        "damaged_greenish_ratio": 0.6715,
+        "avg_g_drop": -18.93,
+        "avg_green_dominance_drop": 88.23
+      },
+      "restored_internal_green_px": 35,
+      "reverted_edge_green_px": 18998
+    },
+    {
+      "file": "061_玉麒团_3.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/061_玉麒团_3_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/061_玉麒团_3.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        144,
+        92,
+        880,
+        931
+      ],
+      "raw_subject_bbox": [
+        165,
+        58,
+        1166,
+        1196
+      ],
+      "metrics": {
+        "greenish_opaque_px": 114355,
+        "damaged_greenish_px": 61932,
+        "damaged_greenish_ratio": 0.5416,
+        "avg_g_drop": -19.22,
+        "avg_green_dominance_drop": 82.01
+      },
+      "restored_internal_green_px": 21,
+      "reverted_edge_green_px": 18203
+    },
+    {
+      "file": "061_玉麒团_4.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/061_玉麒团_4_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/061_玉麒团_4.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        136,
+        92,
+        888,
+        931
+      ],
+      "raw_subject_bbox": [
+        163,
+        69,
+        1176,
+        1198
+      ],
+      "metrics": {
+        "greenish_opaque_px": 125275,
+        "damaged_greenish_px": 89055,
+        "damaged_greenish_ratio": 0.7109,
+        "avg_g_drop": -19.71,
+        "avg_green_dominance_drop": 88.28
+      },
+      "restored_internal_green_px": 1403,
+      "reverted_edge_green_px": 18954
+    },
+    {
+      "file": "061_玉麒团_5.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/061_玉麒团_5_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/061_玉麒团_5.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        144,
+        92,
+        880,
+        931
+      ],
+      "raw_subject_bbox": [
+        181,
+        62,
+        1181,
+        1201
+      ],
+      "metrics": {
+        "greenish_opaque_px": 117048,
+        "damaged_greenish_px": 77680,
+        "damaged_greenish_ratio": 0.6637,
+        "avg_g_drop": -20.64,
+        "avg_green_dominance_drop": 84.85
+      },
+      "restored_internal_green_px": 160,
+      "reverted_edge_green_px": 18601
+    },
+    {
+      "file": "061_玉麒团_6.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/061_玉麒团_6_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/061_玉麒团_6.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        127,
+        92,
+        896,
+        931
+      ],
+      "raw_subject_bbox": [
+        167,
+        97,
+        1132,
+        1148
+      ],
+      "metrics": {
+        "greenish_opaque_px": 135870,
+        "damaged_greenish_px": 68758,
+        "damaged_greenish_ratio": 0.5061,
+        "avg_g_drop": -3.26,
+        "avg_green_dominance_drop": 93.49
+      },
+      "restored_internal_green_px": 1033,
+      "reverted_edge_green_px": 19968
+    },
+    {
+      "file": "061_玉麒团_7.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/061_玉麒团_7_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/061_玉麒团_7.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        112,
+        92,
+        911,
+        931
+      ],
+      "raw_subject_bbox": [
+        157,
+        86,
+        1192,
+        1171
+      ],
+      "metrics": {
+        "greenish_opaque_px": 128182,
+        "damaged_greenish_px": 76228,
+        "damaged_greenish_ratio": 0.5947,
+        "avg_g_drop": -10.13,
+        "avg_green_dominance_drop": 93.18
+      },
+      "restored_internal_green_px": 474,
+      "reverted_edge_green_px": 22027
+    },
+    {
+      "file": "061_玉麒团_8.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/061_玉麒团_8_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/061_玉麒团_8.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        108,
+        92,
+        915,
+        931
+      ],
+      "raw_subject_bbox": [
+        124,
+        55,
+        1209,
+        1183
+      ],
+      "metrics": {
+        "greenish_opaque_px": 123728,
+        "damaged_greenish_px": 74839,
+        "damaged_greenish_ratio": 0.6049,
+        "avg_g_drop": -11.3,
+        "avg_green_dominance_drop": 88.08
+      },
+      "restored_internal_green_px": 204,
+      "reverted_edge_green_px": 21538
+    },
+    {
+      "file": "061_玉麒团_9.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/061_玉麒团_9_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/061_玉麒团_9.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        119,
+        92,
+        905,
+        931
+      ],
+      "raw_subject_bbox": [
+        108,
+        36,
+        1215,
+        1214
+      ],
+      "metrics": {
+        "greenish_opaque_px": 118381,
+        "damaged_greenish_px": 71400,
+        "damaged_greenish_ratio": 0.6031,
+        "avg_g_drop": -11.79,
+        "avg_green_dominance_drop": 91.16
+      },
+      "restored_internal_green_px": 4089,
+      "reverted_edge_green_px": 22441
+    },
+    {
+      "file": "063_竹团貘_1.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/063_竹团貘_1_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/063_竹团貘_1.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        102,
+        92,
+        921,
+        931
+      ],
+      "raw_subject_bbox": [
+        175,
+        160,
+        1069,
+        1076
+      ],
+      "metrics": {
+        "greenish_opaque_px": 46808,
+        "damaged_greenish_px": 31156,
+        "damaged_greenish_ratio": 0.6656,
+        "avg_g_drop": 54.04,
+        "avg_green_dominance_drop": 111.84
+      },
+      "restored_internal_green_px": 1224,
+      "reverted_edge_green_px": 22733
+    },
+    {
+      "file": "063_竹团貘_10.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/063_竹团貘_10_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/063_竹团貘_10.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        123,
+        92,
+        901,
+        931
+      ],
+      "raw_subject_bbox": [
+        63,
+        9,
+        1182,
+        1231
+      ],
+      "metrics": {
+        "greenish_opaque_px": 67988,
+        "damaged_greenish_px": 42954,
+        "damaged_greenish_ratio": 0.6318,
+        "avg_g_drop": 11.52,
+        "avg_green_dominance_drop": 91.04
+      },
+      "restored_internal_green_px": 878,
+      "reverted_edge_green_px": 25922
+    },
+    {
+      "file": "063_竹团貘_2.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/063_竹团貘_2_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/063_竹团貘_2.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        144,
+        92,
+        880,
+        931
+      ],
+      "raw_subject_bbox": [
+        209,
+        148,
+        1055,
+        1110
+      ],
+      "metrics": {
+        "greenish_opaque_px": 35700,
+        "damaged_greenish_px": 16696,
+        "damaged_greenish_ratio": 0.4677,
+        "avg_g_drop": 47.88,
+        "avg_green_dominance_drop": 119.01
+      },
+      "restored_internal_green_px": 13,
+      "reverted_edge_green_px": 20117
+    },
+    {
+      "file": "063_竹团貘_3.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/063_竹团貘_3_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/063_竹团貘_3.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        145,
+        92,
+        879,
+        931
+      ],
+      "raw_subject_bbox": [
+        199,
+        116,
+        1096,
+        1137
+      ],
+      "metrics": {
+        "greenish_opaque_px": 26998,
+        "damaged_greenish_px": 15579,
+        "damaged_greenish_ratio": 0.577,
+        "avg_g_drop": 51.34,
+        "avg_green_dominance_drop": 128.14
+      },
+      "restored_internal_green_px": 446,
+      "reverted_edge_green_px": 19116
+    },
+    {
+      "file": "063_竹团貘_4.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/063_竹团貘_4_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/063_竹团貘_4.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        156,
+        92,
+        867,
+        931
+      ],
+      "raw_subject_bbox": [
+        207,
+        99,
+        1092,
+        1142
+      ],
+      "metrics": {
+        "greenish_opaque_px": 47171,
+        "damaged_greenish_px": 18844,
+        "damaged_greenish_ratio": 0.3995,
+        "avg_g_drop": 45.61,
+        "avg_green_dominance_drop": 99.0
+      },
+      "restored_internal_green_px": 202,
+      "reverted_edge_green_px": 18307
+    },
+    {
+      "file": "063_竹团貘_5.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/063_竹团貘_5_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/063_竹团貘_5.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        104,
+        92,
+        919,
+        931
+      ],
+      "raw_subject_bbox": [
+        142,
+        69,
+        1141,
+        1144
+      ],
+      "metrics": {
+        "greenish_opaque_px": 90700,
+        "damaged_greenish_px": 83367,
+        "damaged_greenish_ratio": 0.9192,
+        "avg_g_drop": 17.47,
+        "avg_green_dominance_drop": 81.99
+      },
+      "restored_internal_green_px": 11001,
+      "reverted_edge_green_px": 85033
+    },
+    {
+      "file": "063_竹团貘_6.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/063_竹团貘_6_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/063_竹团貘_6.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        92,
+        92,
+        931,
+        931
+      ],
+      "raw_subject_bbox": [
+        110,
+        94,
+        1142,
+        1126
+      ],
+      "metrics": {
+        "greenish_opaque_px": 29934,
+        "damaged_greenish_px": 15534,
+        "damaged_greenish_ratio": 0.5189,
+        "avg_g_drop": 56.48,
+        "avg_green_dominance_drop": 150.77
+      },
+      "restored_internal_green_px": 91,
+      "reverted_edge_green_px": 18071
+    },
+    {
+      "file": "063_竹团貘_7.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/063_竹团貘_7_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/063_竹团貘_7.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        126,
+        92,
+        897,
+        931
+      ],
+      "raw_subject_bbox": [
+        116,
+        77,
+        1108,
+        1157
+      ],
+      "metrics": {
+        "greenish_opaque_px": 42182,
+        "damaged_greenish_px": 19669,
+        "damaged_greenish_ratio": 0.4663,
+        "avg_g_drop": 41.76,
+        "avg_green_dominance_drop": 119.08
+      },
+      "restored_internal_green_px": 100,
+      "reverted_edge_green_px": 17541
+    },
+    {
+      "file": "063_竹团貘_8.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/063_竹团貘_8_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/063_竹团貘_8.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        142,
+        92,
+        882,
+        931
+      ],
+      "raw_subject_bbox": [
+        108,
+        41,
+        1134,
+        1203
+      ],
+      "metrics": {
+        "greenish_opaque_px": 39681,
+        "damaged_greenish_px": 18262,
+        "damaged_greenish_ratio": 0.4602,
+        "avg_g_drop": 39.01,
+        "avg_green_dominance_drop": 118.34
+      },
+      "restored_internal_green_px": 0,
+      "reverted_edge_green_px": 18022
+    },
+    {
+      "file": "063_竹团貘_9.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/063_竹团貘_9_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/063_竹团貘_9.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        122,
+        92,
+        901,
+        931
+      ],
+      "raw_subject_bbox": [
+        86,
+        58,
+        1168,
+        1222
+      ],
+      "metrics": {
+        "greenish_opaque_px": 47762,
+        "damaged_greenish_px": 23138,
+        "damaged_greenish_ratio": 0.4844,
+        "avg_g_drop": 38.05,
+        "avg_green_dominance_drop": 95.65
+      },
+      "restored_internal_green_px": 694,
+      "reverted_edge_green_px": 19670
+    },
+    {
+      "file": "078_辰龙宝_1.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/078_辰龙宝_1_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/078_辰龙宝_1.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        140,
+        92,
+        884,
+        931
+      ],
+      "raw_subject_bbox": [
+        208,
+        179,
+        1015,
+        1086
+      ],
+      "metrics": {
+        "greenish_opaque_px": 14668,
+        "damaged_greenish_px": 14623,
+        "damaged_greenish_ratio": 0.9969,
+        "avg_g_drop": 72.13,
+        "avg_green_dominance_drop": 255.23
+      },
+      "restored_internal_green_px": 0,
+      "reverted_edge_green_px": 22613
+    },
+    {
+      "file": "078_辰龙宝_10.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/078_辰龙宝_10_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/078_辰龙宝_10.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        156,
+        92,
+        868,
+        931
+      ],
+      "raw_subject_bbox": [
+        154,
+        40,
+        1144,
+        1205
+      ],
+      "metrics": {
+        "greenish_opaque_px": 16071,
+        "damaged_greenish_px": 15783,
+        "damaged_greenish_ratio": 0.9821,
+        "avg_g_drop": 38.74,
+        "avg_green_dominance_drop": 199.92
+      },
+      "restored_internal_green_px": 359,
+      "reverted_edge_green_px": 20625
+    },
+    {
+      "file": "078_辰龙宝_2.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/078_辰龙宝_2_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/078_辰龙宝_2.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        191,
+        92,
+        832,
+        931
+      ],
+      "raw_subject_bbox": [
+        248,
+        137,
+        1004,
+        1122
+      ],
+      "metrics": {
+        "greenish_opaque_px": 13661,
+        "damaged_greenish_px": 13542,
+        "damaged_greenish_ratio": 0.9913,
+        "avg_g_drop": 49.99,
+        "avg_green_dominance_drop": 227.86
+      },
+      "restored_internal_green_px": 0,
+      "reverted_edge_green_px": 20369
+    },
+    {
+      "file": "078_辰龙宝_3.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/078_辰龙宝_3_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/078_辰龙宝_3.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        140,
+        92,
+        883,
+        931
+      ],
+      "raw_subject_bbox": [
+        200,
+        118,
+        1128,
+        1164
+      ],
+      "metrics": {
+        "greenish_opaque_px": 14844,
+        "damaged_greenish_px": 14771,
+        "damaged_greenish_ratio": 0.9951,
+        "avg_g_drop": 38.74,
+        "avg_green_dominance_drop": 208.65
+      },
+      "restored_internal_green_px": 2429,
+      "reverted_edge_green_px": 21006
+    },
+    {
+      "file": "078_辰龙宝_4.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/078_辰龙宝_4_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/078_辰龙宝_4.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        182,
+        92,
+        841,
+        931
+      ],
+      "raw_subject_bbox": [
+        237,
+        85,
+        1076,
+        1149
+      ],
+      "metrics": {
+        "greenish_opaque_px": 14834,
+        "damaged_greenish_px": 14752,
+        "damaged_greenish_ratio": 0.9945,
+        "avg_g_drop": 40.78,
+        "avg_green_dominance_drop": 207.97
+      },
+      "restored_internal_green_px": 730,
+      "reverted_edge_green_px": 20415
+    },
+    {
+      "file": "078_辰龙宝_5.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/078_辰龙宝_5_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/078_辰龙宝_5.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        152,
+        92,
+        872,
+        931
+      ],
+      "raw_subject_bbox": [
+        229,
+        99,
+        1166,
+        1187
+      ],
+      "metrics": {
+        "greenish_opaque_px": 15385,
+        "damaged_greenish_px": 15353,
+        "damaged_greenish_ratio": 0.9979,
+        "avg_g_drop": 41.12,
+        "avg_green_dominance_drop": 218.19
+      },
+      "restored_internal_green_px": 847,
+      "reverted_edge_green_px": 21327
+    },
+    {
+      "file": "078_辰龙宝_6.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/078_辰龙宝_6_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/078_辰龙宝_6.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        170,
+        92,
+        854,
+        931
+      ],
+      "raw_subject_bbox": [
+        198,
+        56,
+        1121,
+        1185
+      ],
+      "metrics": {
+        "greenish_opaque_px": 17955,
+        "damaged_greenish_px": 17881,
+        "damaged_greenish_ratio": 0.9959,
+        "avg_g_drop": 33.06,
+        "avg_green_dominance_drop": 181.01
+      },
+      "restored_internal_green_px": 5142,
+      "reverted_edge_green_px": 20744
+    },
+    {
+      "file": "078_辰龙宝_7.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/078_辰龙宝_7_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/078_辰龙宝_7.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        167,
+        92,
+        856,
+        931
+      ],
+      "raw_subject_bbox": [
+        222,
+        84,
+        1129,
+        1188
+      ],
+      "metrics": {
+        "greenish_opaque_px": 15763,
+        "damaged_greenish_px": 15672,
+        "damaged_greenish_ratio": 0.9942,
+        "avg_g_drop": 41.8,
+        "avg_green_dominance_drop": 211.26
+      },
+      "restored_internal_green_px": 402,
+      "reverted_edge_green_px": 19553
+    },
+    {
+      "file": "078_辰龙宝_8.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/078_辰龙宝_8_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/078_辰龙宝_8.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        92,
+        92,
+        931,
+        931
+      ],
+      "raw_subject_bbox": [
+        180,
+        36,
+        1146,
+        1197
+      ],
+      "metrics": {
+        "greenish_opaque_px": 20558,
+        "damaged_greenish_px": 20558,
+        "damaged_greenish_ratio": 1.0,
+        "avg_g_drop": 53.77,
+        "avg_green_dominance_drop": 208.99
+      },
+      "restored_internal_green_px": 8725,
+      "reverted_edge_green_px": 142741
+    },
+    {
+      "file": "078_辰龙宝_9.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/078_辰龙宝_9_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/078_辰龙宝_9.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        92,
+        92,
+        931,
+        931
+      ],
+      "raw_subject_bbox": [
+        90,
+        54,
+        1201,
+        1204
+      ],
+      "metrics": {
+        "greenish_opaque_px": 17547,
+        "damaged_greenish_px": 17535,
+        "damaged_greenish_ratio": 0.9993,
+        "avg_g_drop": 18.2,
+        "avg_green_dominance_drop": 178.73
+      },
+      "restored_internal_green_px": 6776,
+      "reverted_edge_green_px": 239016
+    },
+    {
+      "file": "079_巳蛇宝_1.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/079_巳蛇宝_1_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/079_巳蛇宝_1.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        229,
+        92,
+        794,
+        931
+      ],
+      "raw_subject_bbox": [
+        337,
+        232,
+        915,
+        1085
+      ],
+      "metrics": {
+        "greenish_opaque_px": 122549,
+        "damaged_greenish_px": 98568,
+        "damaged_greenish_ratio": 0.8043,
+        "avg_g_drop": 4.36,
+        "avg_green_dominance_drop": 115.2
+      },
+      "restored_internal_green_px": 0,
+      "reverted_edge_green_px": 18686
+    },
+    {
+      "file": "079_巳蛇宝_10.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/079_巳蛇宝_10_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/079_巳蛇宝_10.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        177,
+        92,
+        846,
+        931
+      ],
+      "raw_subject_bbox": [
+        166,
+        26,
+        1117,
+        1214
+      ],
+      "metrics": {
+        "greenish_opaque_px": 80757,
+        "damaged_greenish_px": 66128,
+        "damaged_greenish_ratio": 0.8189,
+        "avg_g_drop": -2.86,
+        "avg_green_dominance_drop": 126.69
+      },
+      "restored_internal_green_px": 8770,
+      "reverted_edge_green_px": 18057
+    },
+    {
+      "file": "079_巳蛇宝_2.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/079_巳蛇宝_2_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/079_巳蛇宝_2.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        213,
+        92,
+        810,
+        931
+      ],
+      "raw_subject_bbox": [
+        304,
+        185,
+        970,
+        1114
+      ],
+      "metrics": {
+        "greenish_opaque_px": 155586,
+        "damaged_greenish_px": 148470,
+        "damaged_greenish_ratio": 0.9543,
+        "avg_g_drop": -13.52,
+        "avg_green_dominance_drop": 112.42
+      },
+      "restored_internal_green_px": 0,
+      "reverted_edge_green_px": 17823
+    },
+    {
+      "file": "079_巳蛇宝_3.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/079_巳蛇宝_3_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/079_巳蛇宝_3.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        179,
+        92,
+        844,
+        931
+      ],
+      "raw_subject_bbox": [
+        250,
+        140,
+        1039,
+        1133
+      ],
+      "metrics": {
+        "greenish_opaque_px": 141328,
+        "damaged_greenish_px": 129959,
+        "damaged_greenish_ratio": 0.9196,
+        "avg_g_drop": -3.13,
+        "avg_green_dominance_drop": 112.22
+      },
+      "restored_internal_green_px": 1110,
+      "reverted_edge_green_px": 19314
+    },
+    {
+      "file": "079_巳蛇宝_4.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/079_巳蛇宝_4_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/079_巳蛇宝_4.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        213,
+        92,
+        811,
+        931
+      ],
+      "raw_subject_bbox": [
+        276,
+        157,
+        981,
+        1143
+      ],
+      "metrics": {
+        "greenish_opaque_px": 125779,
+        "damaged_greenish_px": 116117,
+        "damaged_greenish_ratio": 0.9232,
+        "avg_g_drop": -15.41,
+        "avg_green_dominance_drop": 105.59
+      },
+      "restored_internal_green_px": 5,
+      "reverted_edge_green_px": 16133
+    },
+    {
+      "file": "079_巳蛇宝_5.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/079_巳蛇宝_5_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/079_巳蛇宝_5.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        173,
+        92,
+        850,
+        931
+      ],
+      "raw_subject_bbox": [
+        217,
+        118,
+        1052,
+        1149
+      ],
+      "metrics": {
+        "greenish_opaque_px": 130739,
+        "damaged_greenish_px": 112230,
+        "damaged_greenish_ratio": 0.8584,
+        "avg_g_drop": -6.17,
+        "avg_green_dominance_drop": 108.66
+      },
+      "restored_internal_green_px": 3231,
+      "reverted_edge_green_px": 18861
+    },
+    {
+      "file": "079_巳蛇宝_6.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/079_巳蛇宝_6_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/079_巳蛇宝_6.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        201,
+        92,
+        823,
+        931
+      ],
+      "raw_subject_bbox": [
+        244,
+        75,
+        1049,
+        1157
+      ],
+      "metrics": {
+        "greenish_opaque_px": 105482,
+        "damaged_greenish_px": 97087,
+        "damaged_greenish_ratio": 0.9204,
+        "avg_g_drop": -27.38,
+        "avg_green_dominance_drop": 104.48
+      },
+      "restored_internal_green_px": 2547,
+      "reverted_edge_green_px": 15344
+    },
+    {
+      "file": "079_巳蛇宝_7.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/079_巳蛇宝_7_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/079_巳蛇宝_7.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        203,
+        92,
+        820,
+        931
+      ],
+      "raw_subject_bbox": [
+        198,
+        33,
+        1082,
+        1240
+      ],
+      "metrics": {
+        "greenish_opaque_px": 75680,
+        "damaged_greenish_px": 68627,
+        "damaged_greenish_ratio": 0.9068,
+        "avg_g_drop": 7.5,
+        "avg_green_dominance_drop": 127.06
+      },
+      "restored_internal_green_px": 1169,
+      "reverted_edge_green_px": 21662
+    },
+    {
+      "file": "079_巳蛇宝_8.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/079_巳蛇宝_8_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/079_巳蛇宝_8.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        176,
+        92,
+        848,
+        931
+      ],
+      "raw_subject_bbox": [
+        218,
+        66,
+        1102,
+        1166
+      ],
+      "metrics": {
+        "greenish_opaque_px": 83977,
+        "damaged_greenish_px": 74677,
+        "damaged_greenish_ratio": 0.8893,
+        "avg_g_drop": -20.2,
+        "avg_green_dominance_drop": 101.77
+      },
+      "restored_internal_green_px": 1682,
+      "reverted_edge_green_px": 16205
+    },
+    {
+      "file": "079_巳蛇宝_9.png",
+      "raw": "/Users/wuwoo/Desktop/work/_育英星宠/generated_pets_staging/raw_queue/079_巳蛇宝_9_raw.png",
+      "output": "/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets/pets/需优化萌宠_green_repair_candidate/079_巳蛇宝_9.png",
+      "size": [
+        1024,
+        1024
+      ],
+      "alpha_bbox": [
+        146,
+        92,
+        877,
+        931
+      ],
+      "raw_subject_bbox": [
+        146,
+        69,
+        1103,
+        1164
+      ],
+      "metrics": {
+        "greenish_opaque_px": 76457,
+        "damaged_greenish_px": 68835,
+        "damaged_greenish_ratio": 0.9003,
+        "avg_g_drop": -5.43,
+        "avg_green_dominance_drop": 114.93
+      },
+      "restored_internal_green_px": 3827,
+      "reverted_edge_green_px": 19977
+    }
+  ]
+}

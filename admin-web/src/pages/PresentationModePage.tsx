@@ -146,6 +146,7 @@ export function PresentationModePage({
     const query = {
       ...(gradeFilter !== 'all' ? { gradeName: gradeFilter } : {}),
       ...(classFilter !== 'all' ? { classId: Number(classFilter) } : {}),
+      skipDetailSummary: true,
     };
     Promise.allSettled([
       adminApi.analyticsSummary(token, query),
@@ -364,7 +365,10 @@ export function PresentationModePage({
 
   useEffect(() => {
     let active = true;
-    Promise.all([adminApi.academicExams(token), adminApi.academicScores(token, { includeSubjects: true })])
+    Promise.all([
+      adminApi.academicExams(token, { currentSemesterOnly: true }),
+      adminApi.academicScores(token, { includeSubjects: true, currentSemesterOnly: true, recentExamLimit: 2 }),
+    ])
       .then(([examsResponse, scoresResponse]) => {
         if (!active) return;
         setAcademicExams(examsResponse.data);

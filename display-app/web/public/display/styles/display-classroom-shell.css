@@ -1,0 +1,187 @@
+/* ========== 课堂主界面壳层 ========== */
+
+      /* 顶栏 */
+      .top-bar {
+        height: 60px;
+        background: linear-gradient(
+          135deg,
+          var(--brand-deep) 0%,
+          var(--brand-blue-light) 100%
+        );
+        display: flex;
+        align-items: center;
+        padding: 0 28px;
+        flex-shrink: 0;
+        position: relative;
+        box-shadow: 0 2px 12px rgba(26, 82, 118, 0.15);
+      }
+      .top-bar::after {
+        content: "";
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 3px;
+        background: linear-gradient(
+          90deg,
+          var(--honor-gold),
+          var(--brand-red),
+          var(--success-green),
+          var(--brand-blue-light)
+        );
+      }
+      .top-bar-left {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex: 1;
+        min-width: 0;
+      }
+      .top-bar-class-wrap {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+        flex-wrap: wrap;
+      }
+      .top-bar-logo {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        object-fit: contain;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+        background: rgba(255, 255, 255, 0.96);
+        padding: 4px;
+        box-sizing: border-box;
+      }
+      .top-bar-class {
+        font-size: 20px;
+        font-weight: 700;
+        letter-spacing: 3px;
+        color: #fff;
+      }
+      .top-bar-center {
+        flex: 2;
+        text-align: center;
+        font-size: 16px;
+        color: rgba(255, 255, 255, 0.85);
+        letter-spacing: 8px;
+        font-weight: 300;
+      }
+      .top-bar-right {
+        flex: 0 1 auto;
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 12px;
+        font-size: 14px;
+        color: rgba(255, 255, 255, 0.9);
+        min-width: 0;
+      }
+      .top-bar-status {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-width: 0;
+        flex: 0 1 auto;
+        justify-content: flex-end;
+        flex-wrap: nowrap;
+        overflow: hidden;
+      }
+      #display-live-datetime {
+        flex: 0 1 auto;
+        min-width: 0;
+        max-width: 260px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+      }
+      .weather-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+        flex: 0 1 auto;
+        max-width: 150px;
+        padding: 0 12px;
+        height: 34px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.12);
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        white-space: nowrap;
+      }
+      .weather-chip-text {
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .top-bar-actions {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex: 0 0 auto;
+        position: relative;
+        z-index: 1;
+      }
+      .top-bar-right .weather-icon,
+      .top-bar-right .weather-chip i {
+        font-size: 18px;
+        color: rgba(255, 255, 255, 0.9);
+        opacity: 0.95;
+      }
+      .top-bar-right .top-action-btn {
+        width: 44px;
+        height: 44px;
+        min-width: 44px;
+        min-height: 44px;
+        padding: 0;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.15);
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition:
+          background 0.2s ease,
+          transform 0.2s ease,
+          box-shadow 0.2s ease;
+        color: rgba(255, 255, 255, 0.85);
+        font-size: 15px;
+        flex: 0 0 auto;
+      }
+      .top-bar-right .top-action-btn i {
+        pointer-events: none;
+      }
+      @media (hover: hover) and (pointer: fine) {
+  .top-bar-right .top-action-btn:hover {
+        background: rgba(255, 255, 255, 0.3);
+        transform: translateY(-1px);
+      }
+}
+
+      .top-bar-right .top-action-btn.primary {
+        background: rgba(255, 255, 255, 0.22);
+        box-shadow: 0 10px 24px rgba(7, 24, 40, 0.12);
+      }
+      .top-bar-right .top-action-btn.primary.unlocked {
+        background: rgba(39, 174, 96, 0.2);
+        border-color: rgba(255, 255, 255, 0.32);
+      }
+      .top-bar-right .top-action-btn.danger {
+        background: rgba(231, 76, 60, 0.16);
+      }
+      @media (hover: hover) and (pointer: fine) {
+  .top-bar-right .top-action-btn.danger:hover {
+        background: rgba(231, 76, 60, 0.28);
+      }
+}
+
+
+      /* 主内容区 */
+      .main-content {
+        flex: 1;
+        display: flex;
+        overflow: hidden;
+        min-height: 0;
+      }

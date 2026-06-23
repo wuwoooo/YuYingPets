@@ -1,6 +1,6 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, statfsSync } from 'node:fs';
+import { closeSync, existsSync, openSync, readSync, statfsSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { AuthService } from '@/modules/auth/auth.service';
@@ -25,6 +25,7 @@ export class AdminOpsService {
   private readonly appName = process.env.PM2_APP_NAME || 'yuyingpets-backend';
   private readonly cwd = path.resolve(__dirname, '../../..');
   private readonly pm2Home = process.env.PM2_HOME || path.join(process.env.HOME || '', '.pm2');
+  private readonly maxLogReadBytes = Number(process.env.ADMIN_OPS_LOG_READ_BYTES || 2 * 1024 * 1024);
 
   constructor(
     private readonly authService: AuthService,
@@ -142,10 +143,33 @@ export class AdminOpsService {
     return payload?.msg === 'request_completed' && payload?.context === 'http_access' && payload?.statusCode === 200;
   }
 
+  private readLogTail(file: string) {
+    const stats = statSync(file);
+    if (!stats.isFile() || stats.size <= 0) return '';
+
+    const maxBytes = Number.isFinite(this.maxLogReadBytes) && this.maxLogReadBytes > 0 ? this.maxLogReadBytes : 2 * 1024 * 1024;
+    const length = Math.min(stats.size, maxBytes);
+    const start = Math.max(0, stats.size - length);
+    const buffer = Buffer.alloc(length);
+    const fd = openSync(file, 'r');
+
+    try {
+      const bytesRead = readSync(fd, buffer, 0, length, start);
+      let content = buffer.subarray(0, bytesRead).toString('utf8');
+      if (start > 0) {
+        const firstNewline = content.indexOf('\n');
+        content = firstNewline >= 0 ? content.slice(firstNewline + 1) : '';
+      }
+      return content;
+    } finally {
+      closeSync(fd);
+    }
+  }
+
   private parseRows(file: string | null, source: string) {
     if (!file) return [] as ParsedLogRow[];
 
-    const content = readFileSync(file, 'utf8');
+    const content = this.readLogTail(file);
     const rows = content.split(/\r?\n/).filter(Boolean);
     return rows.map((line, index) => {
       const payload = this.parseJsonLine(line);

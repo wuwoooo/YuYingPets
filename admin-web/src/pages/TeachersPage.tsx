@@ -19,6 +19,7 @@ import type {
 import { adminApi } from '../lib/api';
 import type { PermissionUserFormState } from '../types/admin';
 import { createPermissionUserForm, formatEnabledStatus, normalizeKeyword } from '../utils/adminForms';
+import { matchPinyinOrChinese } from '../utils/pinyin';
 import { canManageTeachers } from '../utils/adminPermissions';
 import { readXlsxWorkbookRows, rowsToObjects } from '../utils/workbookRows';
 
@@ -487,7 +488,7 @@ export function TeachersPage({ token, user, classes, loading, error }: TeachersP
         (teacherView === 'manager' && ['super_admin', 'school_admin', 'academic_admin', 'moral_admin'].includes(row.roleCode));
       const matchesKeyword =
         !keyword ||
-        normalizeKeyword(row.name).includes(keyword) ||
+        matchPinyinOrChinese(row.name, keyword) ||
         normalizeKeyword(row.username).includes(keyword) ||
         normalizeKeyword(row.dutyTags.join(' ')).includes(keyword) ||
         normalizeKeyword(row.scopeDisplay).includes(keyword);

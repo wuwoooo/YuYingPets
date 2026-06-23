@@ -13,6 +13,7 @@ type UseEvaluationRulesOptions = {
   subjectCodesByClass: Map<number, string[]>;
   subjectFilter: string;
   roleCode?: string | null;
+  initialScoreTypeFilter?: 'quick' | 'all' | 'add' | 'deduct';
 };
 
 export function useEvaluationRules({
@@ -21,8 +22,9 @@ export function useEvaluationRules({
   subjectCodesByClass,
   subjectFilter,
   roleCode,
+  initialScoreTypeFilter = 'quick',
 }: UseEvaluationRulesOptions) {
-  const [scoreTypeFilter, setScoreTypeFilter] = useState<'quick' | 'all' | 'add' | 'deduct'>('quick');
+  const [scoreTypeFilter, setScoreTypeFilter] = useState<'quick' | 'all' | 'add' | 'deduct'>(initialScoreTypeFilter);
   const [sceneFilter, setSceneFilter] = useState<string>('all');
   const [ruleKeyword, setRuleKeyword] = useState('');
   const [recentRuleIds, setRecentRuleIds] = useState<number[]>([]);

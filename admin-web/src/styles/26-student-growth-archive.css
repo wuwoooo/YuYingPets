@@ -61,6 +61,23 @@
   line-height: 1.55;
 }
 
+.student-growth-archive .student-ai-cache-time {
+  display: block;
+  margin-top: 4px;
+  color: #64748b;
+  font-size: var(--sga-caption);
+  line-height: 1.45;
+}
+
+.student-growth-archive .student-ai-cache-warning {
+  display: block;
+  margin-top: 4px;
+  color: #8a6514;
+  font-size: var(--sga-caption);
+  font-weight: 600;
+  line-height: 1.45;
+}
+
 .student-growth-archive .student-ai-actions {
   gap: 8px;
 }

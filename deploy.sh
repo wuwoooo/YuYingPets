@@ -287,19 +287,30 @@ deploy_display_app() {
     log "更新 display-app 静态资源版本号 v=$display_asset_version"
     DISPLAY_ASSET_VERSION="$display_asset_version" node - "$display_stage/display.html" <<'NODE'
 const fs = require('node:fs');
+const path = require('node:path');
 const htmlPath = process.argv[2];
+const htmlDir = path.dirname(htmlPath);
 const version = process.env.DISPLAY_ASSET_VERSION;
-const targets = [
-  './styles/display.css',
-  './scripts/pet-colors.js',
-  './scripts/display-app.js',
-];
 let html = fs.readFileSync(htmlPath, 'utf8');
+const targets = new Set();
+const assetPattern = /\b(?:src|href)=["'](\.\/(?:scripts\/[^"'?#]+\.js|styles\/[^"'?#]+\.css))(?:[?#][^"']*)?["']/g;
+for (const match of html.matchAll(assetPattern)) {
+  targets.add(match[1]);
+}
+const missing = [];
 for (const target of targets) {
+  if (!fs.existsSync(path.join(htmlDir, target))) {
+    missing.push(target);
+    continue;
+  }
   const escaped = target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   html = html.replace(new RegExp(`${escaped}(?:\\?v=[^"'<>\\s]*)?`, 'g'), `${target}?v=${version}`);
 }
+if (missing.length > 0) {
+  throw new Error(`display-app staging 缺少 display.html 引用的静态资源：${missing.join(', ')}`);
+}
 fs.writeFileSync(htmlPath, html);
+console.log(`[display-app deploy] versioned ${targets.size} display assets`);
 NODE
   fi
 
@@ -367,8 +378,8 @@ deploy_backend_assets() {
 
   ensure_remote_dir "$BACKEND_ASSETS_REMOTE_DIR"
 
-  dry_run_cmd=(rsync -azni -e "$RSYNC_SSH" --exclude '.DS_Store')
-  sync_cmd=(rsync -az -e "$RSYNC_SSH" --exclude '.DS_Store')
+  dry_run_cmd=(rsync -azni -e "$RSYNC_SSH" --exclude '.DS_Store' --exclude 'pets_副本/***')
+  sync_cmd=(rsync -az -e "$RSYNC_SSH" --exclude '.DS_Store' --exclude 'pets_副本/***')
   if [ "$BACKEND_ASSETS_DELETE" = "1" ]; then
     dry_run_cmd+=(--delete)
     sync_cmd+=(--delete)
@@ -655,7 +666,7 @@ sync_dir_if_target_empty() {
   fi
 }
 
-mkdir -p "\$shared/logs" "\$shared/public/assets" "\$shared/public/uploads"
+mkdir -p "\$shared/logs" "\$shared/public/assets" "\$shared/public/uploads" "\$shared/.cache"
 
 existing_runtime=""
 previous_target=""
@@ -675,14 +686,16 @@ if [ -n "\$existing_runtime" ]; then
 fi
 
 mkdir -p "\$release/public"
-rm -rf "\$release/logs" "\$release/public/assets" "\$release/public/uploads" "\$release/.env"
+rm -rf "\$release/logs" "\$release/public/assets" "\$release/public/uploads" "\$release/.env" "\$release/.cache"
 echo "提示：共享 .env 路径 \$shared/.env"
 echo "提示：共享日志目录 \$shared/logs"
 echo "提示：共享 assets 目录 \$shared/public/assets"
 echo "提示：共享 uploads 目录 \$shared/public/uploads"
+echo "提示：共享 cache 目录 \$shared/.cache"
 ln -sfn "\$shared/logs" "\$release/logs"
 ln -sfn "\$shared/public/assets" "\$release/public/assets"
 ln -sfn "\$shared/public/uploads" "\$release/public/uploads"
+ln -sfn "\$shared/.cache" "\$release/.cache"
 if [ -e "\$shared/.env" ]; then
   ln -sfn "\$shared/.env" "\$release/.env"
 fi

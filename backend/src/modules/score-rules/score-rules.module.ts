@@ -8,5 +8,6 @@ import { ScoreRulesService } from './score-rules.service';
   imports: [AuthModule, ConfigModule],
   controllers: [ScoreRulesController],
   providers: [ScoreRulesService],
+  exports: [ScoreRulesService],
 })
 export class ScoreRulesModule {}

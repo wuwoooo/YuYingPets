@@ -68,7 +68,10 @@ function validateRuntimeEnv() {
 async function bootstrap() {
   installProcessHandlers();
 
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  const app = await NestFactory.create(AppModule, {
+    bufferLogs: true,
+    abortOnError: false,
+  });
   app.enableShutdownHooks();
   app.useLogger(new NestPinoLogger());
   app.getHttpAdapter().getInstance().disable('x-powered-by');

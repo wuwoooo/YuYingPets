@@ -32,6 +32,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { CallQueueModule } from './modules/call-queue/call-queue.module';
 import { PetDecorationsModule } from './modules/pet-decorations/pet-decorations.module';
 import { StudentPetsModule } from './modules/student-pets/student-pets.module';
+import { ProjectionModule } from './modules/projection/projection.module';
 
 @Module({
   imports: [
@@ -70,6 +71,7 @@ import { StudentPetsModule } from './modules/student-pets/student-pets.module';
     CallQueueModule,
     PetDecorationsModule,
     StudentPetsModule,
+    ProjectionModule,
     ScheduleModule.forRoot(),
   ],
   providers: [{ provide: APP_GUARD, useClass: JwtAuthGuard }],

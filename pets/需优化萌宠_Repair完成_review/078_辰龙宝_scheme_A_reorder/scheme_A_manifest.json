@@ -1,0 +1,58 @@
+[
+  {
+    "target_level": 7,
+    "source_level_before_reorder": 10,
+    "target_1024": "backend/public/assets/pets/1024/078_辰龙宝_7.png",
+    "target_400": "backend/public/assets/pets/400/078_辰龙宝_7.png",
+    "bbox": [
+      156,
+      92,
+      868,
+      931
+    ],
+    "alpha_px": 353170,
+    "sha256_1024": "1066371a2212af350efd4b85e304bbe1382a3e1bc1051b338a0820cde27c920d"
+  },
+  {
+    "target_level": 8,
+    "source_level_before_reorder": 7,
+    "target_1024": "backend/public/assets/pets/1024/078_辰龙宝_8.png",
+    "target_400": "backend/public/assets/pets/400/078_辰龙宝_8.png",
+    "bbox": [
+      167,
+      92,
+      856,
+      931
+    ],
+    "alpha_px": 391124,
+    "sha256_1024": "c9447215e76612f54b1438d7eaa3a56587ddb01b159fd771f806759c0ecbcf55"
+  },
+  {
+    "target_level": 9,
+    "source_level_before_reorder": 8,
+    "target_1024": "backend/public/assets/pets/1024/078_辰龙宝_9.png",
+    "target_400": "backend/public/assets/pets/400/078_辰龙宝_9.png",
+    "bbox": [
+      151,
+      34,
+      931,
+      972
+    ],
+    "alpha_px": 497206,
+    "sha256_1024": "7356af21253fe5ee25d68a8b27fc48623b4cda3f197c9aaca2d23b0cbcecd30f"
+  },
+  {
+    "target_level": 10,
+    "source_level_before_reorder": 9,
+    "target_1024": "backend/public/assets/pets/1024/078_辰龙宝_10.png",
+    "target_400": "backend/public/assets/pets/400/078_辰龙宝_10.png",
+    "bbox": [
+      79,
+      48,
+      977,
+      978
+    ],
+    "alpha_px": 570173,
+    "sha256_1024": "6b98eec83f38fa66b4798e74209d7fe2bdd4eaaf3a0752ca6ab3690774f752ba"
+  }
+]

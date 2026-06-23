@@ -167,7 +167,7 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
-  max-height: 280px;
+  max-height: 480px;
   overflow: auto;
 }
 
@@ -188,6 +188,20 @@
 
 .evaluation-student-card span {
   flex: 1;
+}
+
+.evaluation-classroom-batch-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.evaluation-classroom-batch-actions span {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .evaluation-rule-preview {
@@ -658,6 +672,8 @@
   background:
     radial-gradient(circle at top right, rgba(15, 61, 99, 0.04), transparent 30%),
     #fff;
+  display: flex;
+  flex-direction: column;
 }
 
 .evaluation-form-panel .detail-card select {
@@ -729,12 +745,16 @@
 .class-evaluation-rule-panel {
   gap: 14px;
   padding: 16px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
 .class-evaluation-rule-panel .rule-card-list.compact {
-  max-height: 540px;
+  max-height: 480px;
   overflow: auto;
   padding-right: 4px;
+  flex: 1;
 }
 
 .class-evaluation-record-card {
@@ -1217,6 +1237,10 @@
 .evaluation-student-card-compact.active {
   border-color: #0f3d63;
   background: rgba(15, 61, 99, 0.06);
+}
+
+.evaluation-student-card-compact.selecting {
+  padding-left: 24px;
 }
 
 .evaluation-student-card-compact.readonly {

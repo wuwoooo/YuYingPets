@@ -6,7 +6,7 @@
   const SETUP_LAST_USERNAME_KEY = "yuyingpets_display_setup_last_username";
   const DISPLAY_TOKEN_KEY = "yuyingpets_display_token";
   const DISPLAY_CLASS_ID_KEY = "yuyingpets_display_class_id";
-  const HOLIDAY_SPLASH_PLAYED_KEY = "yuying_holiday_splash_played";
+  const HOLIDAY_EXPERIENCE_PLAYED_KEY = "yuying_holiday_splash_played";
   const LOW_SPEC_MODE_KEY = "yuyingpets_low_spec_mode";
   const GRID_DENSITY_KEY = "yuyingpets_grid_density";
   const SIDEBAR_COLLAPSED_KEY = "yuyingpets_sidebar_collapsed";
@@ -113,8 +113,12 @@
     }
   }
 
-  function readGridDensity(validModes, fallback = "compact") {
-    const value = getStorageItem(GRID_DENSITY_KEY);
+  function readGridDensity(validModes, fallback = "panorama") {
+    let value = getStorageItem(GRID_DENSITY_KEY);
+    if (value === "compact") {
+      value = "panorama";
+      setStorageItem(GRID_DENSITY_KEY, "panorama");
+    }
     const valid = Array.isArray(validModes)
       ? validModes
       : Array.from(validModes || []);
@@ -346,13 +350,13 @@
     return normalizedName;
   }
 
-  function hasHolidaySplashPlayed(dateText) {
-    return Boolean(dateText) && getStorageItem(HOLIDAY_SPLASH_PLAYED_KEY) === dateText;
+  function hasHolidayExperiencePlayed(dateText) {
+    return Boolean(dateText) && getStorageItem(HOLIDAY_EXPERIENCE_PLAYED_KEY) === dateText;
   }
 
-  function markHolidaySplashPlayed(dateText) {
+  function markHolidayExperiencePlayed(dateText) {
     if (!dateText) return;
-    setStorageItem(HOLIDAY_SPLASH_PLAYED_KEY, dateText);
+    setStorageItem(HOLIDAY_EXPERIENCE_PLAYED_KEY, dateText);
   }
 
   function getApiBase() {
@@ -558,8 +562,8 @@
     setDisplayClassId,
     clearDisplayClassId,
     setTerminalName,
-    hasHolidaySplashPlayed,
-    markHolidaySplashPlayed,
+    hasHolidayExperiencePlayed,
+    markHolidayExperiencePlayed,
     readLowSpecModeEnabled,
     writeLowSpecModeEnabled,
     readGridDensity,

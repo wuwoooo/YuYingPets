@@ -44,7 +44,7 @@ export class ScoreRecordsService {
       classId: query.studentId ? undefined : classId,
       studentId: query.studentId ? BigInt(query.studentId) : undefined,
       subjectCode: query.subjectCode || undefined,
-      operatorId: user?.roleCode === 'subject_teacher' ? user.id : undefined,
+      operatorId: (user?.roleCode === 'subject_teacher' && !query.studentId) ? user.id : undefined,
       occurredAt: occurredAtFilter,
     };
 
@@ -74,7 +74,7 @@ export class ScoreRecordsService {
             where: {
               classId: query.studentId ? undefined : classId,
               studentId: query.studentId ? BigInt(query.studentId) : undefined,
-              operatorId: user?.roleCode === 'subject_teacher' ? user.id : undefined,
+              operatorId: (user?.roleCode === 'subject_teacher' && !query.studentId) ? user.id : undefined,
               createdAt: this.buildCreatedAtFilter(query.startDate, query.endDate),
             },
             include: {

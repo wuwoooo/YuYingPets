@@ -137,20 +137,17 @@ export class AuthService {
   }
 
   async projectionLogin(dto: ProjectionLoginDto) {
-    const username = dto.username.trim();
-    const password = dto.password.trim();
-    if (!username || !password) {
+    const loginAccount = dto.username.trim();
+    const password = dto.password;
+    if (!loginAccount || !password.trim()) {
       throw new UnauthorizedException('请输入投屏账号和密码');
     }
 
-    const user = await this.prisma.user.findFirst({
+    const candidateUsers = await this.prisma.user.findMany({
       where: {
+        OR: [{ username: loginAccount }, { phone: loginAccount }],
         deletedAt: null,
         status: 'enabled',
-        passwordChangeRequired: false,
-        role: {
-          code: { in: DISPLAY_ADMIN_ROLE_CODES },
-        },
       },
       include: {
         role: true,
@@ -159,11 +156,28 @@ export class AuthService {
           where: { status: 'enabled' },
         },
       },
-      orderBy: { id: 'asc' },
+      orderBy: [{ username: 'asc' }, { id: 'asc' }],
     });
 
+    const user = (
+      await Promise.all(
+        candidateUsers.map(async (candidate) => {
+          const passwordMatched = await compare(password, candidate.passwordHash).catch(() => false);
+          return passwordMatched ? candidate : null;
+        }),
+      )
+    ).find((candidate) => candidate !== null);
+
     if (!user) {
-      throw new UnauthorizedException('未找到可用于投屏的校级账号');
+      throw new UnauthorizedException('投屏账号或密码错误');
+    }
+
+    if (!DISPLAY_OPERATOR_ROLE_CODES.includes(user.role.code)) {
+      throw new ForbiddenException('当前账号无权用于户外投屏');
+    }
+
+    if (user.passwordChangeRequired) {
+      throw new UnauthorizedException('当前账号需要先在管理端修改初始密码');
     }
 
     const payload = {
@@ -176,6 +190,11 @@ export class AuthService {
 
     const token = await this.jwtService.signAsync(payload, {
       expiresIn: PROJECTION_TOKEN_EXPIRES_IN,
+    });
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { lastLoginAt: new Date() },
     });
 
     return {
@@ -405,6 +424,9 @@ export class AuthService {
   }
 
   canAccessClass(user: AuthUser, classId: bigint | number) {
+    if (user.terminalType === 'projection') {
+      return true;
+    }
     if (this.hasAnyRole(user, DISPLAY_ADMIN_ROLE_CODES)) {
       return true;
     }
@@ -418,6 +440,9 @@ export class AuthService {
 
   /** 返回当前用户可访问的班级 ID；管理员返回 null 表示不限；无权限时返回 [-1] 以保证查询为空 */
   getAccessibleClassIds(user: AuthUser): bigint[] | null {
+    if (user.terminalType === 'projection') {
+      return null;
+    }
     if (this.hasAnyRole(user, DISPLAY_ADMIN_ROLE_CODES)) {
       return null;
     }

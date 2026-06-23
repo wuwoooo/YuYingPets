@@ -83,6 +83,7 @@ export function PetsPage({
   const [sortBy, setSortBy] = useState<'default' | 'bindCountDesc' | 'bindCountAsc'>('default');
   const [uploadingStageNo, setUploadingStageNo] = useState<number | null>(null);
   const [uploadingCover, setUploadingCover] = useState(false);
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const [selectedPreviewStage, setSelectedPreviewStage] = useState(1);
   const [defaultGrowthThresholds, setDefaultGrowthThresholds] = useState<number[]>([0, 140, 240, 360, 500, 660, 840, 1040, 1260, 1500]);
   const allowManage = canManagePets(user?.roleCode);
@@ -640,7 +641,19 @@ export function PetsPage({
             <label className="span-2">
               <span>上传封面</span>
               <input type="file" accept="image/*" onChange={handleCoverUpload} disabled={uploadingCover || submitting} />
-              {form.coverUrl ? <div className="settings-note">当前封面：{form.coverUrl}</div> : null}
+              {form.coverUrl ? (
+                <div className="image-upload-preview pet-cover-upload-preview">
+                  <button
+                    type="button"
+                    className="image-upload-preview-button"
+                    onClick={() => setPreviewImageUrl(form.coverUrl)}
+                    aria-label="预览封面图片"
+                  >
+                    <img src={resolveAssetUrl(form.coverUrl)} alt="封面预览" />
+                  </button>
+                  <span>{form.coverUrl}</span>
+                </div>
+              ) : null}
             </label>
             <label className="span-2">
               <span>描述</span>
@@ -679,7 +692,16 @@ export function PetsPage({
                       onChange={(event) => void handleStageUpload(stage.stageNo, event)}
                       disabled={uploadingStageNo === stage.stageNo || submitting}
                     />
-                    {stage.imageUrl ? <img className="pet-stage-thumb" src={resolveAssetUrl(stage.imageUrl)} alt={stage.name || `Lv.${stage.stageNo}`} /> : null}
+                    {stage.imageUrl ? (
+                      <button
+                        type="button"
+                        className="pet-stage-thumb-button"
+                        onClick={() => setPreviewImageUrl(stage.imageUrl)}
+                        aria-label={`预览 Lv.${stage.stageNo} 阶段图片`}
+                      >
+                        <img className="pet-stage-thumb" src={resolveAssetUrl(stage.imageUrl)} alt={stage.name || `Lv.${stage.stageNo}`} />
+                      </button>
+                    ) : null}
                   </div>
                 ))}
               </div>
@@ -692,6 +714,13 @@ export function PetsPage({
               </button>
             </div>
           </form>
+        </Modal>
+      ) : null}
+      {previewImageUrl ? (
+        <Modal title="图片预览" subtitle="" onClose={() => setPreviewImageUrl(null)}>
+          <div className="image-upload-preview-modal">
+            <img src={resolveAssetUrl(previewImageUrl)} alt="图片预览" />
+          </div>
         </Modal>
       ) : null}
     </Shell>

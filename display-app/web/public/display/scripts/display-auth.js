@@ -217,6 +217,114 @@
     };
   }
 
+  function getSetupModeTextMap(setupMode = "initialize") {
+    const isRebind = setupMode === "rebind";
+    return {
+      isRebind,
+      brandTitle: isRebind ? "重新绑定展示终端" : "启用班级展示终端",
+      brandCopy: isRebind
+        ? "如需更换当前终端绑定的班级，请由班主任或学校管理账号重新授权并完成改绑。完成后，终端将默认进入新的班级展示空间。"
+        : "本终端完成初始化后，将自动进入对应班级的展示空间。以后学生可随时查看积分和萌宠成长，教师在需要时解锁操作即可。",
+      welcomeTitle: isRebind
+        ? "重新绑定当前展示终端"
+        : "欢迎启用育英星宠展示终端",
+      welcomeDesc: isRebind
+        ? "这一过程会保留当前终端编号，并重新由班主任或学校管理账号授权选择新的绑定班级。改绑完成后，系统会返回首页。"
+        : "这一过程仅需几步：识别当前终端、完成账号授权，并将本终端绑定到指定班级。绑定完成后，系统会自动进入该班的展示主页。",
+      welcomeAction: isRebind ? "开始重新绑定" : "开始初始化",
+      authTitle: isRebind ? "请由班主任或管理员确认改绑" : "请由班主任或管理员完成授权",
+      authDesc: isRebind
+        ? "为保证终端绑定安全，重新绑定班级也需要由班主任及以上账号完成授权。授权成功后，即可继续选择新的班级。"
+        : "为保证终端绑定安全，班主任及以上账号可完成首次启用和后续改绑。授权成功后，即可继续选择本终端要绑定的班级。",
+      bindTitle: isRebind ? "选择新的默认展示班级" : "选择本终端要进入的班级",
+      bindDesc: isRebind
+        ? "请先筛选年级，再勾选要绑定的班级。确认后，当前终端会切换为新班级的大屏展示端。"
+        : "请先筛选年级，再勾选要绑定的班级。绑定成功后，这块大屏默认会进入对应班级的展示页，后续也可再次改绑。",
+      bindAction: isRebind ? "确认重新绑定" : "确认绑定并启用终端",
+      successTitle: isRebind ? "终端重新绑定完成" : "终端初始化完成",
+    };
+  }
+
+  function getClassBindingsByClassId(classBindings = [], classId) {
+    return classBindings.filter((item) => Number(item.classId) === Number(classId));
+  }
+
+  function isSetupClassSelectable(context = {}) {
+    const bindings = getClassBindingsByClassId(
+      context.classBindings || [],
+      context.classId,
+    );
+    if (bindings.length === 0) return true;
+    if (bindings.some((binding) => binding.terminalCode === context.terminalCode)) return true;
+    if (bindings.length < 2) return true;
+    return canOverrideClassDisplayBinding(context.roleCode);
+  }
+
+  function getSetupClassBindingHint(context = {}) {
+    const others = getClassBindingsByClassId(
+      context.classBindings || [],
+      context.classId,
+    ).filter((binding) => binding.terminalCode !== context.terminalCode);
+    if (others.length === 0) return "";
+    const labels = others.map((binding) => binding.terminalName || binding.terminalCode);
+    if (others.length >= 2 && !canOverrideClassDisplayBinding(context.roleCode)) {
+      return `已绑定终端：${labels.join("、")}（已达上限）`;
+    }
+    if (others.length >= 2 && canOverrideClassDisplayBinding(context.roleCode)) {
+      return `已绑定终端：${labels.join("、")}（管理员可强制绑定）`;
+    }
+    return `已绑定终端：${labels.join("、")}`;
+  }
+
+  function normalizeGradeName(row) {
+    return String(row?.gradeName || "未设置年级").trim() || "未设置年级";
+  }
+
+  function getSetupGradeNames(classes = []) {
+    const seen = new Set();
+    return classes
+      .map((row) => normalizeGradeName(row))
+      .filter((gradeName) => {
+        if (seen.has(gradeName)) return false;
+        seen.add(gradeName);
+        return true;
+      });
+  }
+
+  function getFilteredSetupClasses(classes = [], selectedGradeName = "") {
+    if (!selectedGradeName) return [];
+    return classes.filter((row) => normalizeGradeName(row) === selectedGradeName);
+  }
+
+  function createDisplayTerminalPayload(context = {}) {
+    return {
+      classId: context.classId,
+      displayTerminalCode: context.terminalCode,
+    };
+  }
+
+  function createActiveUnlockPatch(result = {}, now = Date.now()) {
+    return {
+      lastUnlockRenewAt: now,
+      lockStatus: "active",
+      unlockSessionId: result.unlockSessionId || null,
+      unlockedUntil: result.expiredAt || null,
+      lastLockedAt: null,
+      lockOverlayForced: false,
+    };
+  }
+
+  function createLockedPatch(options = {}) {
+    return {
+      lockStatus: "locked",
+      unlockSessionId: options.unlockSessionId || null,
+      unlockedUntil: options.unlockedUntil || options.expiredAt || null,
+      lastUnlockRenewAt: 0,
+      lastLockedAt: options.lockedAt || options.expiredAt || null,
+      lockOverlayForced: options.forceOverlay ?? false,
+    };
+  }
+
   global.DisplayAuth = {
     isDisplayAdminRole,
     canInitializeDisplayTerminalRole,
@@ -230,5 +338,15 @@
     getOperationLockedAlertCopy,
     getHomeroomOnlyAlertCopy,
     createLockOverlayViewModel,
+    getSetupModeTextMap,
+    getClassBindingsByClassId,
+    isSetupClassSelectable,
+    getSetupClassBindingHint,
+    normalizeGradeName,
+    getSetupGradeNames,
+    getFilteredSetupClasses,
+    createDisplayTerminalPayload,
+    createActiveUnlockPatch,
+    createLockedPatch,
   };
 })(window);

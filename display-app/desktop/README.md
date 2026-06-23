@@ -64,7 +64,7 @@
 
 1. 保持当前 `desktop` 版本号不变
 2. 不重新打包，只上传 `desktop/release/` 中的 `latest.yml`、`Setup.exe`、`Setup.exe.blockmap`
-3. 自动创建服务器目录 `/www/wwwroot/yuyingpets/www-admin/download/display-app/win/`（如果不存在）
+3. 自动创建服务器目录 `/www/wwwroot/yuyingpets/static-download/display-app/win/`（如果不存在）
 4. 校验 `latest.yml` 与安装包 URL 可访问
 
 常见示例：

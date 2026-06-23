@@ -47,6 +47,17 @@ let floatingBallState = null;
 /** 本次运行期间的拖动位置（不写入磁盘，重启后恢复默认位置） */
 let floatingBallSessionBounds = null;
 const configuredPermissionSessions = new WeakSet();
+const beijingTimeFormatter = new Intl.DateTimeFormat('sv-SE', {
+  timeZone: 'Asia/Shanghai',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  fractionalSecondDigits: 3,
+  hourCycle: 'h23',
+});
 
 function ensureLogFile() {
   if (logFilePath) {
@@ -58,10 +69,21 @@ function ensureLogFile() {
   return logFilePath;
 }
 
+function formatBeijingTimestamp(date = new Date()) {
+  const parts = beijingTimeFormatter.formatToParts(date);
+  const valueByType = Object.create(null);
+  for (const part of parts) {
+    if (part.type !== 'literal') {
+      valueByType[part.type] = part.value;
+    }
+  }
+  return `${valueByType.year}-${valueByType.month}-${valueByType.day}T${valueByType.hour}:${valueByType.minute}:${valueByType.second}.${valueByType.fractionalSecond || '000'}+08:00`;
+}
+
 function writeLog(level, message, meta = {}) {
   try {
     const line = JSON.stringify({
-      time: new Date().toISOString(),
+      time: formatBeijingTimestamp(),
       level,
       message,
       ...meta,

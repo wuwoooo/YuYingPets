@@ -23,6 +23,43 @@ type ImportClassRow = {
   sortOrder: number | null;
 };
 
+type StudentListRow = Prisma.StudentGetPayload<{
+  include: {
+    classroom: { select: { name: true } };
+    profile: { select: { currentScore: true; totalScore: true; currentPetLevel: true } };
+    studentPet: {
+      select: {
+        id: true;
+        nickname: true;
+        lastRenameAt: true;
+        currentStageNo: true;
+        currentLevel: true;
+        totalScore: true;
+        decorations: {
+          select: {
+            decoration: {
+              select: {
+                type: true;
+                imageUrl: true;
+                previewUrl: true;
+                name: true;
+              };
+            };
+          };
+        };
+        pet: {
+          select: {
+            id: true;
+            name: true;
+            coverUrl: true;
+            stages: { select: { stageNo: true; name: true; imageUrl: true } };
+          };
+        };
+      };
+    };
+  };
+}>;
+
 @Injectable()
 export class StudentsService {
   constructor(
@@ -38,6 +75,8 @@ export class StudentsService {
     const pageSize = Number(query.pageSize);
     const shouldPaginate = Number.isInteger(page) && page > 0 && Number.isInteger(pageSize) && pageSize > 0;
     const includeDisabled = query.includeDisabled === 'true';
+    const includeLatestAcademic = query.includeLatestAcademic !== 'false';
+    const includePetDetails = query.includePetDetails !== 'false';
 
     if (includeDisabled) {
       if (
@@ -53,12 +92,6 @@ export class StudentsService {
       this.authService.ensureCanAccessClass(user, Number(query.classId));
     }
 
-    const petsData = await this.prisma.pet.findMany({
-      where: { schoolId: user.schoolId },
-      include: { stages: { select: { stageNo: true, imageUrl: true } } },
-    });
-    const petMap = new Map(petsData.map(p => [p.id.toString(), p]));
-
     const rows = await this.prisma.student.findMany({
       where: {
         schoolId: user.schoolId,
@@ -67,35 +100,43 @@ export class StudentsService {
         status: includeDisabled ? undefined : 'enabled',
       },
       include: {
-        school: {
-          select: {
-            petGrowthThresholds: true,
-          },
-        },
-        classroom: true,
-        profile: true,
-        studentPet: {
-          select: {
-            id: true,
-            nickname: true,
-            lastRenameAt: true,
-            currentStageNo: true,
-            currentLevel: true,
-            totalScore: true,
-            decorations: {
-              where: { isEquipped: true },
-              include: { decoration: true },
-            },
-            pet: {
-              select: {
-                id: true,
-                name: true,
-                coverUrl: true,
-                stages: { select: { stageNo: true, name: true, imageUrl: true } },
+        classroom: { select: { name: true } },
+        profile: { select: { currentScore: true, totalScore: true, currentPetLevel: true } },
+        ...(includePetDetails
+          ? {
+              studentPet: {
+                select: {
+                  id: true,
+                  nickname: true,
+                  lastRenameAt: true,
+                  currentStageNo: true,
+                  currentLevel: true,
+                  totalScore: true,
+                  decorations: {
+                    where: { isEquipped: true },
+                    select: {
+                      decoration: {
+                        select: {
+                          type: true,
+                          imageUrl: true,
+                          previewUrl: true,
+                          name: true,
+                        },
+                      },
+                    },
+                  },
+                  pet: {
+                    select: {
+                      id: true,
+                      name: true,
+                      coverUrl: true,
+                      stages: { select: { stageNo: true, name: true, imageUrl: true } },
+                    },
+                  },
+                },
               },
-            },
-          },
-        },
+            }
+          : {}),
       },
       orderBy: [{ classId: 'asc' }, { studentNo: 'asc' }],
       ...(shouldPaginate
@@ -104,13 +145,15 @@ export class StudentsService {
             take: pageSize,
           }
         : {}),
-    });
+    }) as StudentListRow[];
 
     const filteredRows =
       ['super_admin', 'school_admin', 'academic_admin', 'moral_admin'].includes(user.roleCode)
         ? rows
         : rows.filter((row) => this.authService.canAccessClass(user, row.classId));
-    const latestAcademicByStudentId = await this.loadLatestAcademicSummaries(filteredRows.map((row) => row.id));
+    const latestAcademicByStudentId = includeLatestAcademic
+      ? await this.loadLatestAcademicSummaries(filteredRows.map((row) => row.id))
+      : new Map<string, null>();
 
     return {
       code: 0,
@@ -129,7 +172,7 @@ export class StudentsService {
         totalScore: row.profile?.totalScore ?? 0,
         currentPetLevel: row.profile?.currentPetLevel ?? 1,
         latestAcademic: latestAcademicByStudentId.get(row.id.toString()) ?? null,
-        pet: row.studentPet
+        pet: includePetDetails && row.studentPet
           ? {
               id: toNumber(row.studentPet.pet.id),
               studentPetId: toNumber(row.studentPet.id),
@@ -141,8 +184,6 @@ export class StudentsService {
               currentStageNo: row.studentPet.currentStageNo,
               currentImageUrl:
                 row.studentPet.pet.stages.find((stage) => stage.stageNo === row.studentPet!.currentStageNo)
-                  ?.imageUrl ??
-                petMap.get(row.studentPet.pet.id.toString())?.stages.find((stage) => stage.stageNo === row.studentPet!.currentStageNo)
                   ?.imageUrl ??
                 row.studentPet.pet.coverUrl,
               currentLevel: row.studentPet.currentLevel,

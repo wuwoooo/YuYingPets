@@ -9,5 +9,6 @@ import { OperationLogModule } from '../operation-log/operation-log.module';
   imports: [PrismaModule, AuthModule, OperationLogModule],
   controllers: [HonorsController],
   providers: [HonorsService],
+  exports: [HonorsService],
 })
 export class HonorsModule {}

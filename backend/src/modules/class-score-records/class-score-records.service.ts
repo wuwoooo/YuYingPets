@@ -46,17 +46,31 @@ export class ClassScoreRecordsService {
 
   async list(authorization: string | undefined, query: Record<string, string>) {
     const user = await this.authService.getAuthUserFromAuthorization(authorization);
-    const classId = query.classId ? BigInt(query.classId) : undefined;
-    if (classId) {
-      const classroom = await this.loadClassroom(Number(classId), user.schoolId);
-      this.ensureCanViewClassScore(user, classroom);
+    
+    let classIds: bigint[] | undefined = undefined;
+    if (query.classId) {
+      classIds = [BigInt(query.classId)];
+    } else if (query.classIds) {
+      classIds = query.classIds
+        .split(',')
+        .map((id) => id.trim())
+        .filter((id) => id.length > 0)
+        .map((id) => BigInt(id));
     }
+
+    if (classIds && classIds.length > 0) {
+      for (const cid of classIds) {
+        const classroom = await this.loadClassroom(Number(cid), user.schoolId);
+        this.ensureCanViewClassScore(user, classroom);
+      }
+    }
+
     const createdAtFilter = this.buildCreatedAtFilter(query.startDate, query.endDate);
 
     const rows = await this.prisma.classScoreRecord.findMany({
       where: {
         schoolId: user.schoolId,
-        classId,
+        classId: classIds ? { in: classIds } : undefined,
         createdAt: createdAtFilter,
       },
       include: {

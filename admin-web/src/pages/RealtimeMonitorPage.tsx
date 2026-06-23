@@ -8,6 +8,7 @@ import {
   type AdminClass,
   type AdminStudent,
   type DisplayTerminal,
+  type RealtimeMonitorStats,
   type ScoreRecord,
   type SessionUser,
 } from '../lib/api';
@@ -51,6 +52,7 @@ export function RealtimeMonitorPage({ token, user }: RealtimeMonitorPageProps) {
   const [classes, setClasses] = useState<AdminClass[]>([]);
   const [students, setStudents] = useState<AdminStudent[]>([]);
   const [records, setRecords] = useState<ScoreRecord[]>([]);
+  const [monitorStats, setMonitorStats] = useState<RealtimeMonitorStats | null>(null);
   const [displayTerminals, setDisplayTerminals] = useState<DisplayTerminal[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -72,10 +74,11 @@ export function RealtimeMonitorPage({ token, user }: RealtimeMonitorPageProps) {
       setRefreshing(source !== 'initial');
       try {
         const canManageDisp = canManageDisplays(user?.roleCode);
-        const [classesResponse, studentsResponse, recordsResponse, terminalsResponse] = await Promise.all([
+        const [classesResponse, studentsResponse, recordsResponse, statsResponse, terminalsResponse] = await Promise.all([
           adminApi.classes(token),
-          adminApi.students(token),
+          adminApi.students(token, { includeLatestAcademic: false, includePetDetails: false }),
           adminApi.scoreRecords(token),
+          adminApi.realtimeMonitorStats(token).catch(() => ({ data: null as RealtimeMonitorStats | null })),
           canManageDisp ? adminApi.displayTerminals(token) : Promise.resolve({ data: [] }),
         ]);
         setClasses(classesResponse.data);
@@ -85,6 +88,7 @@ export function RealtimeMonitorPage({ token, user }: RealtimeMonitorPageProps) {
             (left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
           ),
         );
+        setMonitorStats(statsResponse.data);
         setDisplayTerminals(terminalsResponse.data);
         setLastUpdatedAt(new Date().toLocaleString('zh-CN', { hour12: false }));
       } catch (err) {
@@ -195,7 +199,7 @@ export function RealtimeMonitorPage({ token, user }: RealtimeMonitorPageProps) {
   }, [displayTerminals]);
 
   const todayRecords = useMemo(() => records.filter((item) => isToday(item.createdAt)), [records]);
-  const recentRecords = useMemo(() => records.slice(0, 24), [records]);
+  const recentRecords = useMemo(() => records.slice(0, 100), [records]);
   const recentClassEventCount = useMemo(() => {
     const map = new Map<number, { total: number; negative: number; latestAt: string | null }>();
     records.filter((item) => isWithinHours(item.createdAt, 24)).forEach((record) => {
@@ -213,8 +217,9 @@ export function RealtimeMonitorPage({ token, user }: RealtimeMonitorPageProps) {
   const onlineTerminals = displayTerminals.filter((item) => item.onlineStatus === 'online');
   const offlineTerminals = displayTerminals.filter((item) => item.onlineStatus !== 'online');
   const displayReadyClassCount = classes.filter((item) => item.displayStatus === 'enabled').length;
-  const negativeToday = todayRecords.filter((item) => item.scoreDelta < 0 || item.sentiment === 'negative').length;
-  const activeClassToday = new Set(todayRecords.map((item) => item.classId)).size;
+  const todayEvaluationCount = monitorStats?.todayScoreRecordCount ?? todayRecords.length;
+  const negativeToday = monitorStats?.todayNegativeCount ?? todayRecords.filter((item) => item.scoreDelta < 0 || item.sentiment === 'negative').length;
+  const activeClassToday = monitorStats?.todayActiveClassCount ?? new Set(todayRecords.map((item) => item.classId)).size;
   const averageClassScore = classes.length ? classes.reduce((sum, item) => sum + item.classScore, 0) / classes.length : 0;
 
   const riskClasses = useMemo(
@@ -262,7 +267,7 @@ export function RealtimeMonitorPage({ token, user }: RealtimeMonitorPageProps) {
     {
       label: '今日评价事件',
       glyph: '评',
-      value: todayRecords.length.toLocaleString('zh-CN'),
+      value: todayEvaluationCount.toLocaleString('zh-CN'),
       sub: `负向 ${negativeToday} 条 · 活跃班级 ${activeClassToday}`,
       tone: negativeToday > 0 ? 'amber' : 'purple',
     },
@@ -364,36 +369,38 @@ export function RealtimeMonitorPage({ token, user }: RealtimeMonitorPageProps) {
                 查看数据分析
               </button>
             </div>
-            <div className="monitor-event-list">
-              {recentRecords.map((record) => {
-                const classInfo = classById.get(record.classId);
-                const student = studentById.get(record.studentId);
-                return (
-                  <button
-                    className="monitor-event-row"
-                    type="button"
-                    key={`${record.id}-${record.createdAt}`}
-                    onClick={() => openStudent(record.studentId, record.classId)}
-                  >
-                    <div className={`monitor-event-delta ${record.scoreDelta >= 0 ? 'up' : 'down'}`}>
-                      {formatDelta(record.scoreDelta)}
-                    </div>
-                    <div className="monitor-event-main">
-                      <strong>
-                        {student?.name ?? `学生#${record.studentId}`} ·{' '}
-                        {classInfo ? `${classInfo.gradeName}${classInfo.name}` : `班级#${record.classId}`}
-                      </strong>
-                      <span>
-                        {record.ruleName || record.tag || record.dimension || '学生评价'} ·{' '}
-                        {record.operatorName || '系统记录'} · {formatDateTime(record.createdAt)}
-                      </span>
-                      {record.remark ? <em>{record.remark}</em> : null}
-                    </div>
-                    <span className="monitor-event-arrow">›</span>
-                  </button>
-                );
-              })}
-              {recentRecords.length === 0 ? <div className="table-empty">暂无评价事件。</div> : null}
+            <div className="monitor-event-list-wrapper">
+              <div className="monitor-event-list">
+                {recentRecords.map((record) => {
+                  const classInfo = classById.get(record.classId);
+                  const student = studentById.get(record.studentId);
+                  return (
+                    <button
+                      className="monitor-event-row"
+                      type="button"
+                      key={`${record.id}-${record.createdAt}`}
+                      onClick={() => openStudent(record.studentId, record.classId)}
+                    >
+                      <div className={`monitor-event-delta ${record.scoreDelta >= 0 ? 'up' : 'down'}`}>
+                        {formatDelta(record.scoreDelta)}
+                      </div>
+                      <div className="monitor-event-main">
+                        <strong>
+                          {student?.name ?? `学生#${record.studentId}`} ·{' '}
+                          {classInfo ? `${classInfo.gradeName}${classInfo.name}` : `班级#${record.classId}`}
+                        </strong>
+                        <span>
+                          {record.ruleName || record.tag || record.dimension || '学生评价'} ·{' '}
+                          {record.operatorName || '系统记录'} · {formatDateTime(record.createdAt)}
+                        </span>
+                        {record.remark ? <em>{record.remark}</em> : null}
+                      </div>
+                      <span className="monitor-event-arrow">›</span>
+                    </button>
+                  );
+                })}
+                {recentRecords.length === 0 ? <div className="table-empty">暂无评价事件。</div> : null}
+              </div>
             </div>
           </div>
 

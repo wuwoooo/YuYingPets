@@ -1,9 +1,10 @@
-import { Suspense, lazy, useEffect, useRef } from 'react';
+import { Suspense, lazy, useEffect, useState } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { AdminViewProvider, useAdminView } from './context/AdminViewContext';
 import { ConfirmDialogProvider } from './context/ConfirmDialogContext';
 import { useAdminData } from './hooks/useAdminData';
+import { clearProjectionToken, getProjectionToken, setProjectionToken } from './lib/session';
 
 const LoginPage = lazy(() => import('./pages/LoginPage').then((module) => ({ default: module.LoginPage })));
 const DashboardPage = lazy(() => import('./pages/DashboardPage').then((module) => ({ default: module.DashboardPage })));
@@ -35,6 +36,16 @@ const OrganizationPage = lazy(() =>
 
 export function App() {
   const adminData = useAdminData();
+  const [projectionToken, setProjectionTokenState] = useState(() => getProjectionToken());
+  const updateProjectionToken = (token: string | null) => {
+    if (token) {
+      setProjectionToken(token);
+    } else {
+      clearProjectionToken();
+    }
+    setProjectionTokenState(token);
+  };
+
   return (
     <ConfirmDialogProvider>
       <AdminViewProvider
@@ -43,32 +54,28 @@ export function App() {
         classes={adminData.classes}
         students={adminData.students}
       >
-        <AppRoutes adminData={adminData} />
+        <AppRoutes
+          adminData={adminData}
+          projectionToken={projectionToken}
+          onProjectionTokenChange={updateProjectionToken}
+        />
       </AdminViewProvider>
     </ConfirmDialogProvider>
   );
 }
 
-function AppRoutes({ adminData }: { adminData: ReturnType<typeof useAdminData> }) {
+function AppRoutes({
+  adminData,
+  projectionToken,
+  onProjectionTokenChange,
+}: {
+  adminData: ReturnType<typeof useAdminData>;
+  projectionToken: string | null;
+  onProjectionTokenChange: (token: string | null) => void;
+}) {
   const location = useLocation();
   const { effectiveUser, effectiveScopes, effectiveClasses, effectiveStudents } = useAdminView();
-  const lastPathRef = useRef<string | null>(null);
   const token = adminData.token;
-
-  useEffect(() => {
-    if (!token || location.pathname === '/login') {
-      lastPathRef.current = location.pathname;
-      return;
-    }
-    if (lastPathRef.current === null) {
-      lastPathRef.current = location.pathname;
-      return;
-    }
-    if (lastPathRef.current !== location.pathname) {
-      adminData.refresh();
-    }
-    lastPathRef.current = location.pathname;
-  }, [location.pathname, token]);
 
   useEffect(() => {
     if (location.pathname === '/presentation' || location.pathname === '/projection') return;
@@ -138,10 +145,18 @@ function AppRoutes({ adminData }: { adminData: ReturnType<typeof useAdminData> }
         <Route
           path="/projection"
           element={
-            adminData.token ? (
-              <ProjectionModePage token={adminData.token} user={effectiveUser} />
+            projectionToken || adminData.token ? (
+              <ProjectionModePage
+                token={(projectionToken ?? adminData.token) as string}
+                user={effectiveUser}
+                onTokenRecovered={onProjectionTokenChange}
+                onUnauthorized={() => {
+                  onProjectionTokenChange(null);
+                  if (!projectionToken) adminData.setToken(null);
+                }}
+              />
             ) : (
-              <ProjectionAccessPage onAuthorized={adminData.setToken} />
+              <ProjectionAccessPage onAuthorized={onProjectionTokenChange} />
             )
           }
         />
@@ -183,6 +198,7 @@ function AppRoutes({ adminData }: { adminData: ReturnType<typeof useAdminData> }
           element={
             <ProtectedRoute token={adminData.token} roleCode={effectiveUser?.roleCode} navKey="evaluation">
               <EvaluationPage
+                key="student-evaluation"
                 token={adminData.token ?? ''}
                 user={effectiveUser}
                 scopes={effectiveScopes}
@@ -202,6 +218,7 @@ function AppRoutes({ adminData }: { adminData: ReturnType<typeof useAdminData> }
           element={
             <ProtectedRoute token={adminData.token} roleCode={effectiveUser?.roleCode} navKey="class-evaluation">
               <EvaluationPage
+                key="class-evaluation"
                 token={adminData.token ?? ''}
                 user={effectiveUser}
                 scopes={effectiveScopes}

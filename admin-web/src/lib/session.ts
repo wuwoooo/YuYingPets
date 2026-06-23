@@ -1,4 +1,5 @@
 const TOKEN_KEY = 'yuyingpets_admin_token';
+const PROJECTION_TOKEN_KEY = 'yuyingpets_projection_token';
 const LOGIN_CREDENTIALS_KEY = 'yuyingpets_admin_login_credentials';
 
 export type StoredLoginCredentials = {
@@ -16,6 +17,18 @@ export function setAdminToken(token: string) {
 
 export function clearAdminToken() {
   window.localStorage.removeItem(TOKEN_KEY);
+}
+
+export function getProjectionToken() {
+  return window.localStorage.getItem(PROJECTION_TOKEN_KEY);
+}
+
+export function setProjectionToken(token: string) {
+  window.localStorage.setItem(PROJECTION_TOKEN_KEY, token);
+}
+
+export function clearProjectionToken() {
+  window.localStorage.removeItem(PROJECTION_TOKEN_KEY);
 }
 
 export function getAdminLoginCredentials(): StoredLoginCredentials | null {

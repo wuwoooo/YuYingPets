@@ -6,6 +6,7 @@ type EvaluationStudentCardProps = {
   student: AdminStudent;
   mode: EvaluationMode;
   selected: boolean;
+  selectionEditing?: boolean;
   groupNo?: number;
   onClick: () => void;
   onToggleSelect?: () => void;
@@ -15,6 +16,7 @@ export function EvaluationStudentCard({
   student,
   mode,
   selected,
+  selectionEditing = false,
   groupNo,
   onClick,
   onToggleSelect,
@@ -24,7 +26,7 @@ export function EvaluationStudentCard({
 
   function handleClick() {
     if (isBatch) {
-      onToggleSelect?.();
+      if (selectionEditing) onToggleSelect?.();
       return;
     }
     if (isGroup) return;
@@ -41,11 +43,11 @@ export function EvaluationStudentCard({
     <div
       role={isGroup ? undefined : 'button'}
       tabIndex={isGroup ? -1 : 0}
-      className={`evaluation-student-card-compact${selected ? ' active' : ''}${isGroup ? ' readonly' : ''}`}
+      className={`evaluation-student-card-compact${selected ? ' active' : ''}${isGroup ? ' readonly' : ''}${isBatch && selectionEditing ? ' selecting' : ''}`}
       onClick={handleClick}
       onKeyDown={handleKeyDown}
     >
-      {isBatch ? (
+      {isBatch && selectionEditing ? (
         <input
           type="checkbox"
           className="evaluation-student-card-compact-check"

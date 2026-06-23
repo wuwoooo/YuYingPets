@@ -1,0 +1,318 @@
+/* ========== 小组管理与小组积分弹窗 ========== */
+
+.group-manage-modal-panel {
+  max-width: 1000px;
+}
+.group-manage-layout {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 16px;
+  align-items: start;
+}
+.group-score-ranking-block {
+  margin-bottom: 4px;
+}
+.group-score-ranking-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 180px;
+  overflow-y: auto;
+  margin-bottom: 10px;
+}
+.group-score-ranking-item {
+  display: grid;
+  grid-template-columns: 28px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid #e7edf3;
+  border-radius: 10px;
+  background: #fbfdff;
+  cursor: pointer;
+}
+@media (hover: hover) and (pointer: fine) {
+  .group-score-ranking-item:hover {
+    border-color: rgba(41, 128, 185, 0.35);
+    background: #f3f9ff;
+  }
+}
+.group-score-ranking-rank {
+  color: #2980b9;
+  font-size: 13px;
+  font-weight: 800;
+  text-align: center;
+}
+.group-score-ranking-name {
+  min-width: 0;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.group-score-ranking-score {
+  color: #1f2937;
+  font-size: 13px;
+  font-weight: 800;
+}
+.group-score-ranking-empty {
+  padding: 16px 10px;
+  text-align: center;
+  color: #8794a3;
+  font-size: 12px;
+  border: 1px dashed #dce4ec;
+  border-radius: 10px;
+  background: #fbfdff;
+}
+.group-score-reset-btn {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid rgba(231, 76, 60, 0.25);
+  border-radius: 8px;
+  background: rgba(231, 76, 60, 0.08);
+  color: #c0392b;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+@media (hover: hover) and (pointer: fine) {
+  .group-score-reset-btn:hover {
+    background: rgba(231, 76, 60, 0.14);
+  }
+}
+.group-manage-divider {
+  height: 1px;
+  margin: 14px 0 12px;
+  background: #e7edf3;
+}
+.group-score-records-modal-panel {
+  max-width: 480px;
+}
+.group-score-adjust-modal-panel {
+  max-width: 420px;
+}
+.group-score-records-filter {
+  margin-bottom: 10px;
+}
+.group-score-records-list {
+  max-height: 360px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.group-score-record-item {
+  padding: 10px 12px;
+  border: 1px solid #e7edf3;
+  border-radius: 10px;
+  background: #fbfdff;
+}
+.group-score-record-item-hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+.group-score-record-group {
+  color: #334155;
+  font-size: 13px;
+  font-weight: 700;
+}
+.group-score-record-delta {
+  font-size: 13px;
+  font-weight: 800;
+}
+.group-score-record-delta.up {
+  color: #27ae60;
+}
+.group-score-record-delta.down {
+  color: #e74c3c;
+}
+.group-score-record-remark {
+  color: #506070;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.group-score-record-meta {
+  margin-top: 4px;
+  color: #8794a3;
+  font-size: 11px;
+}
+.group-score-records-empty {
+  padding: 24px 10px;
+  text-align: center;
+  color: #8794a3;
+  font-size: 12px;
+  border: 1px dashed #dce4ec;
+  border-radius: 10px;
+  background: #fbfdff;
+}
+.group-score-records-divider {
+  height: 1px;
+  margin: 14px 0 10px;
+  background: #e7edf3;
+}
+.group-score-records-form-title {
+  margin-bottom: 10px;
+  color: #506070;
+  font-size: 13px;
+  font-weight: 700;
+}
+.group-score-adjust-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.group-score-adjust-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.group-score-adjust-field > span {
+  color: #506070;
+  font-size: 13px;
+  font-weight: 700;
+}
+.group-score-adjust-field select,
+.group-score-adjust-field input,
+.group-score-adjust-field textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #dce4ec;
+  border-radius: 8px;
+  font-size: 13px;
+  outline: none;
+  box-sizing: border-box;
+}
+.group-score-adjust-field textarea {
+  resize: vertical;
+  min-height: 84px;
+}
+.group-score-adjust-field select:focus,
+.group-score-adjust-field input:focus,
+.group-score-adjust-field textarea:focus {
+  border-color: rgba(41, 128, 185, 0.7);
+  box-shadow: 0 0 0 3px rgba(41, 128, 185, 0.1);
+}
+.group-score-adjust-actions {
+  margin-top: 18px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.group-score-adjust-error {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(231, 76, 60, 0.1);
+  color: #c0392b;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+.group-score-adjust-error[hidden] {
+  display: none;
+}
+.group-manage-sidebar,
+.group-manage-students {
+  min-width: 0;
+}
+.group-manage-section-head {
+  min-height: 34px;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: #506070;
+  font-size: 13px;
+  font-weight: 700;
+}
+.group-manage-section-head em {
+  color: #8794a3;
+  font-style: normal;
+  font-weight: 600;
+}
+.group-manage-add-btn,
+.group-manage-delete-btn {
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 700;
+}
+.group-manage-add-btn {
+  padding: 8px 10px;
+  background: rgba(41, 128, 185, 0.1);
+  color: #2473aa;
+}
+.group-manage-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.group-manage-row {
+  display: grid;
+  grid-template-columns: 64px 1fr 34px;
+  gap: 8px;
+  align-items: center;
+  padding: 8px;
+  border: 1px solid #e7edf3;
+  border-radius: 10px;
+  background: #fbfdff;
+}
+.group-manage-no {
+  color: #6d7b8b;
+  font-size: 12px;
+  font-weight: 700;
+}
+.group-manage-name-input {
+  min-width: 0;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #dce4ec;
+  border-radius: 8px;
+  font-size: 13px;
+  outline: none;
+}
+.group-manage-name-input:focus,
+.group-manage-table select:focus {
+  border-color: rgba(41, 128, 185, 0.7);
+  box-shadow: 0 0 0 3px rgba(41, 128, 185, 0.1);
+}
+.group-manage-delete-btn {
+  width: 34px;
+  height: 34px;
+  background: rgba(201, 60, 60, 0.08);
+  color: #bd3c3c;
+}
+.group-filter-chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.group-manage-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.group-manage-table th,
+.group-manage-table td {
+  padding: 10px 8px;
+  border-bottom: 1px solid #eee;
+  text-align: left;
+}
+.group-manage-table select {
+  width: 100%;
+  max-width: 220px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid #ddd;
+}
+.group-manage-actions {
+  margin-top: 16px;
+  text-align: right;
+}

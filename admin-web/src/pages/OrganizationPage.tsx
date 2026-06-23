@@ -11,6 +11,7 @@ import type { AdminClass, PermissionUser, PermissionUserUpsertPayload, RoleTempl
 import { adminApi } from '../lib/api';
 import type { PermissionUserFormState } from '../types/admin';
 import { createPermissionUserForm, formatEnabledStatus, formatPermissionScopeDisplay, normalizeKeyword } from '../utils/adminForms';
+import { matchPinyinOrChinese } from '../utils/pinyin';
 import { buildPermissionScopeDetail } from '../utils/permissionScopeDisplay';
 import { canViewOperationAudit } from '../utils/adminPermissions';
 import { copyTextToClipboard } from '../utils/text';
@@ -405,7 +406,7 @@ export function OrganizationPage({ token, user, classes, loading, error }: Organ
         (quickFilter === 'admin_staff' && adminRoleCodes.includes(row.roleCode));
       const matchesKeyword =
         !keyword ||
-        normalizeKeyword(row.name).includes(keyword) ||
+        matchPinyinOrChinese(row.name, keyword) ||
         normalizeKeyword(row.username).includes(keyword) ||
         normalizeKeyword(row.scopeDisplay).includes(keyword);
       const matchesRole = roleFilter === 'all' || row.roleCode === roleFilter;

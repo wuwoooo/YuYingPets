@@ -1,4 +1,5 @@
 import type { AdminStudent, ClassGroupSummary, ScoreRule } from '../../lib/api';
+import { matchPinyinOrChinese } from '../../utils/pinyin';
 
 export type { ClassGroupSummary };
 export type EvaluationMode = 'single' | 'batch' | 'group';
@@ -70,7 +71,7 @@ export function filterAndSortStudents(
 
   const keyword = options.keyword.trim().toLowerCase();
   if (keyword) {
-    rows = rows.filter((item) => item.name.toLowerCase().includes(keyword));
+    rows = rows.filter((item) => matchPinyinOrChinese(item.name, keyword));
   }
 
   if (options.groupFilter !== 'all') {

@@ -24,6 +24,8 @@ type EvaluationToolbarProps = {
   selectedGroupId: number | null;
   onGroupIdChange: (value: number) => void;
   selectedCount: number;
+  selectionEditing?: boolean;
+  onSelectionEditingChange?: (value: boolean) => void;
   onOpenBatchScore: () => void;
   onOpenGroupScore: () => void;
   studentCount: number;
@@ -42,6 +44,8 @@ export function EvaluationToolbar({
   selectedGroupId,
   onGroupIdChange,
   selectedCount,
+  selectionEditing = false,
+  onSelectionEditingChange,
   onOpenBatchScore,
   onOpenGroupScore,
   studentCount,
@@ -119,6 +123,18 @@ export function EvaluationToolbar({
             <button type="button" className="toolbar-button" onClick={onOpenGroupScore} disabled={!selectedGroupId}>
               小组评分
             </button>
+          </div>
+        ) : null}
+        {mode === 'batch' ? (
+          <div className="evaluation-classroom-batch-actions">
+            <button
+              type="button"
+              className={selectionEditing ? 'ghost-button' : 'toolbar-button'}
+              onClick={() => onSelectionEditingChange?.(!selectionEditing)}
+            >
+              {selectionEditing ? '完成' : '编辑'}
+            </button>
+            <span>{selectionEditing ? `已选 ${selectedCount} 人` : '点击编辑后选择学生'}</span>
           </div>
         ) : null}
       </div>

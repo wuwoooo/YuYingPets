@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Apple 官网</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.jsdelivr.net/npm/tailwindcss@3.4.10/dist/tailwind.min.js"></script>
+
+    <!-- Font Awesome 图标库 -->
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
+    />
+
+    <!-- Unsplash 图片引用示例（实际使用时替换为动态API调用） -->
+    <style>
+      /* 自定义交互样式 */
+      .gradient-border:focus {
+        border-color: linear-gradient(45deg, #3b82f6, #8b5cf6);
+      }
+
+      /* 呼吸效果动画 */
+      @keyframes breathe {
+        0%,
+        100% {
+          transform: scale(1);
+        }
+        50% {
+          transform: scale(1.02);
+        }
+      }
+
+      .breathing-text {
+        animation: breathe 3s ease-in-out infinite;
+      }
+
+      /* 视差滚动效果（简单实现） */
+      .parallax-section {
+        perspective: 1px;
+        height: 100vh;
+        overflow-x: hidden;
+      }
+
+      .parallax-layer {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        background-size: cover;
+        background-position: center;
+        transform: translateZ(-1px) scale(2);
+      }
+    </style>
+  </head>
+  <body class="bg-gray-50">
+    <!-- 导航栏 -->
+    <nav class="bg-white shadow-sm sticky top-0 z-50">
+      <div
+        class="container mx-auto px-4 py-3 flex items-center justify-between"
+      >
+        <!-- Logo -->
+        <a href="#" class="text-black text-2xl font-bold">Apple</a>
+
+        <!-- 菜单（桌面端显示） -->
+        <ul class="hidden md:flex space-x-8">
+          <li>
+            <a href="#" class="hover:text-gray-600 transition-colors">iPhone</a>
+          </li>
+          <li>
+            <a href="#" class="hover:text-gray-600 transition-colors">Mac</a>
+          </li>
+          <li>
+            <a href="#" class="hover:text-gray-600 transition-colors">iPad</a>
+          </li>
+          <li>
+            <a href="#" class="hover:text-gray-600 transition-colors">Watch</a>
+          </li>
+        </ul>
+
+        <!-- 图标按钮 -->
+        <div class="flex items-center space-x-4">
+          <a href="#" class="text-black hover:scale-110 transition-transform">
+            <i class="fas fa-search text-xl"></i>
+          </a>
+          <a href="#" class="text-black hover:scale-110 transition-transform">
+            <i class="fas fa-shopping-bag text-xl"></i>
+          </a>
+        </div>
+      </div>
+    </nav>
+
+    <!-- Hero 区域（带呼吸效果渐变动画） -->
+    <section
+      class="relative h-screen flex items-center justify-center bg-gradient-to-br from-gray-100 to-blue-50 overflow-hidden"
+    >
+      <!-- 背景图片（Unsplash示例） -->
+      <img
+        src="https://images.unsplash.com/photo-1597568969412-0c7a4b5f3e1d?ixlib=rb-4.0.3&auto=format&fit=crop&w=1920&q=80"
+        alt="Apple Hero Background"
+        class="absolute inset-0 w-full h-full object-cover opacity-30"
+      />
+
+      <div class="text-center text-white relative z-10">
+        <!-- 呼吸效果标题 -->
+        <h1 class="text-6xl font-bold mb-4 breathing-text">
+          New iPhone 15 Pro
+        </h1>
+        <p class="text-xl mb-8">Unleash the power of your imagination.</p>
+
+        <!-- 按钮悬停放大效果 -->
+        <button
+          class="bg-black text-white px-8 py-3 rounded-full hover:scale-105 transition-transform"
+        >
+          Learn More
+        </button>
+      </div>
+    </section>
+
+    <!-- 产品展示区（卡片交互） -->
+    <section class="py-16 bg-white">
+      <div class="container mx-auto px-4">
+        <h2 class="text-3xl font-bold text-center mb-12">
+          Explore Our Products
+        </h2>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+          <!-- iPhone 卡片 -->
+          <div
+            class="bg-white rounded-lg shadow-md hover:shadow-xl transition-all duration-300 overflow-hidden cursor-move"
+          >
+            <img
+              src="https://images.unsplash.com/photo-1597568969412-0c7a4b5f3e1d?ixlib=rb-4.0.3&auto=format&fit=crop&w=400&q=80"
+              alt="iPhone 15 Pro"
+              class="w-full h-64 object-cover"
+            />
+            <div class="p-6">
+              <h3 class="text-xl font-semibold mb-2">iPhone 15 Pro</h3>
+              <p class="text-gray-600 mb-4">The most powerful iPhone ever.</p>
+              <button
+                class="bg-black text-white px-4 py-2 rounded hover:scale-105 transition-transform"
+              >
+                Buy Now
+              </button>
+            </div>
+          </div>
+
+          <!-- Mac 卡片 -->
+          <div
+            class="bg-white rounded-lg shadow-md hover:shadow-xl transition-all duration-300 overflow-hidden cursor-move"
+          >
+            <img
+              src="https://images.unsplash.com/photo-1597568969412-0c7a4b5f3e1d?ixlib=rb-4.0.3&auto=format&fit=crop&w=400&q=80"
+              alt="MacBook Pro"
+              class="w-full h-64 object-cover"
+            />
+            <div class="p-6">
+              <h3 class="text-xl font-semibold mb-2">MacBook Pro</h3>
+              <p class="text-gray-600 mb-4">Create without limits.</p>
+              <button
+                class="bg-black text-white px-4 py-2 rounded hover:scale-105 transition-transform"
+              >
+                Learn More
+              </button>
+            </div>
+          </div>
+
+          <!-- iPad 卡片 -->
+          <div
+            class="bg-white rounded-lg shadow-md hover:shadow-xl transition-all duration-300 overflow-hidden cursor-move"
+          >
+            <img
+              src="https://images.unsplash.com/photo-1597568969412-0c7a4b5f3e1d?ixlib=rb-4.0.3&auto=format&fit=crop&w=400&q=80"
+              alt="iPad Pro"
+              class="w-full h-64 object-cover"
+            />
+            <div class="p-6">
+              <h3 class="text-xl font-semibold mb-2">iPad Pro</h3>
+              <p class="text-gray-600 mb-4">The ultimate creative tablet.</p>
+              <button
+                class="bg-black text-white px-4 py-2 rounded hover:scale-105 transition-transform"
+              >
+                Buy Now
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 特色功能区（带视差效果） -->
+    <section
+      class="py-16 bg-gradient-to-br from-blue-50 to-purple-50 parallax-section"
+    >
+      <div class="container mx-auto px-4 relative z-10">
+        <h2 class="text-3xl font-bold text-center mb-12">
+          Innovative Features
+        </h2>
+
+        <!-- 视差元素 -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+          <div
+            class="bg-white rounded-lg p-6 shadow-md relative"
+            style="transform: translateZ(0)"
+          >
+            <i class="fas fa-magic text-4xl text-blue-500 mb-4"></i>
+            <h3 class="text-xl font-semibold mb-2">A14 Bionic Chip</h3>
+            <p class="text-gray-600">5x faster than previous generation.</p>
+          </div>
+
+          <div
+            class="bg-white rounded-lg p-6 shadow-md relative"
+            style="transform: translateZ(0)"
+          >
+            <i class="fas fa-camera text-4xl text-green-500 mb-4"></i>
+            <h3 class="text-xl font-semibold mb-2">Pro Camera System</h3>
+            <p class="text-gray-600">Capture every moment with precision.</p>
+          </div>
+
+          <div
+            class="bg-white rounded-lg p-6 shadow-md relative"
+            style="transform: translateZ(0)"
+          >
+            <i class="fas fa-battery-full text-4xl text-purple-500 mb-4"></i>
+            <h3 class="text-xl font-semibold mb-2">All-Day Battery</h3>
+            <p class="text-gray-600">Last up to 20 hours of video playback.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 底部信息 -->
+    <footer class="bg-gray-900 text-white py-12">
+      <div class="container mx-auto px-4">
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-8">
+          <div>
+            <h3 class="text-lg font-semibold mb-4">About Apple</h3>
+            <ul class="space-y-2 text-gray-300">
+              <li>
+                <a href="#" class="hover:text-white transition-colors"
+                  >About Us</a
+                >
+              </li>
+              <li>
+                <a href="#" class="hover:text-white transition-colors"
+                  >Press Releases</a
+                >
+              </li>
+              <li>
+                <a href="#" class="hover:text-white transition-colors"
+                  >Investors</a
+                >
+              </li>
+            </ul>
+          </div>
+
+          <!-- 其他底部链接区域 -->
+        </div>
+
+        <div class="border-t border-gray-800 mt-8 pt-8 text-center">
+          <p>&copy; 2024 Apple Inc. All rights reserved.</p>
+        </div>
+      </div>
+    </footer>
+
+    <!-- JavaScript for additional交互（可选） -->
+    <script>
+      // 示例：卡片拖动效果
+      document.addEventListener("DOMContentLoaded", () => {
+        const cards = document.querySelectorAll(".product-card");
+
+        cards.forEach((card) => {
+          card.addEventListener("dragstart", (e) => {
+            e.dataTransfer.effectAllowed = "move";
+          });
+
+          card.addEventListener("dragend", () => {
+            // 拖动结束后的处理
+          });
+        });
+      });
+    </script>
+  </body>
+</html>

@@ -1,7 +1,7 @@
 /* ==================== 叫号工作台弹窗 ==================== */
 
 .cq-modal {
-  max-width: 900px;
+  max-width: 1024px;
   width: 92%;
   padding: 0;
   overflow: hidden;
@@ -85,7 +85,7 @@
 
 .cq-modal-body {
   display: grid;
-  grid-template-columns: 1.3fr 1fr;
+  grid-template-columns: 1.8fr 1fr;
   gap: 0;
   min-height: 420px;
 }
@@ -259,11 +259,110 @@
   color: #7f8c8d;
 }
 
+/* 学生检索与过滤栏 */
+.cq-student-search-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 12px;
+  border-radius: 14px;
+  background: #f8fbfe;
+  border: 1px solid #e4ecf3;
+}
+
+.cq-search-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.cq-search-icon {
+  position: absolute;
+  left: 12px;
+  color: #7f8c8d;
+  font-size: 13px;
+  pointer-events: none;
+}
+
+.cq-student-search-input {
+  width: 100%;
+  padding: 8px 32px 8px 32px !important;
+  border: 1.5px solid #d9e3ef;
+  border-radius: 10px;
+  color: #1f3b56;
+  background: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.cq-student-search-input:focus {
+  outline: none;
+  border-color: #2980b9;
+  box-shadow: 0 0 0 3px rgba(41, 128, 185, 0.1);
+}
+
+.cq-search-clear-btn {
+  position: absolute;
+  right: 10px;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  background: #bdc3c7;
+  color: #fff;
+  border-radius: 50%;
+  font-size: 12px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0;
+  transition: background 0.2s ease;
+}
+
+.cq-search-clear-btn:hover {
+  background: #7f8c8d;
+}
+
+.cq-filter-tabs {
+  display: flex;
+  gap: 6px;
+}
+
+.cq-filter-tab {
+  flex: 1;
+  padding: 6px 12px;
+  border: 1px solid #dce6f0;
+  border-radius: 8px;
+  background: #fff;
+  color: #5d6d7e;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: center;
+}
+
+.cq-filter-tab:hover {
+  border-color: #b8cee1;
+  background: #f5f9fd;
+  color: #1a5a8a;
+}
+
+.cq-filter-tab.active {
+  border-color: #2980b9;
+  background: linear-gradient(135deg, #2980b9, #3498db);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(41, 128, 185, 0.2);
+}
+
 .cq-student-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fill, minmax(85px, 1fr));
   gap: 6px;
-  max-height: 200px;
+  max-height: 300px;
   overflow-y: auto;
   padding: 10px;
   border: 1.5px solid #e4ecf3;

@@ -47,6 +47,7 @@ export function HonorsPage({
   const [submitting, setSubmitting] = useState(false);
   const [statusUpdatingId, setStatusUpdatingId] = useState<number | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
   const [honorRecords, setHonorRecords] = useState<HonorRecord[]>([]);
@@ -462,7 +463,14 @@ export function HonorsPage({
               <div className="settings-note">请上传 300×300 像素的 PNG、JPG、WebP 或 SVG，避免大图拖慢大屏加载。</div>
               {form.iconUrl ? (
                 <div className="honor-upload-preview">
-                  <img src={resolveAssetUrl(form.iconUrl)} alt="勋章预览" />
+                  <button
+                    type="button"
+                    className="image-upload-preview-button"
+                    onClick={() => setPreviewImageUrl(form.iconUrl)}
+                    aria-label="预览勋章图片"
+                  >
+                    <img src={resolveAssetUrl(form.iconUrl)} alt="勋章预览" />
+                  </button>
                   <span>{form.iconUrl}</span>
                 </div>
               ) : null}
@@ -485,6 +493,13 @@ export function HonorsPage({
               </button>
             </div>
           </form>
+        </Modal>
+      ) : null}
+      {previewImageUrl ? (
+        <Modal title="图片预览" subtitle="" onClose={() => setPreviewImageUrl(null)}>
+          <div className="image-upload-preview-modal">
+            <img src={resolveAssetUrl(previewImageUrl)} alt="图片预览" />
+          </div>
         </Modal>
       ) : null}
     </Shell>

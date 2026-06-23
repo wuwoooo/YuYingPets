@@ -79,7 +79,11 @@ export async function initializeTerminal({
 }
 
 export async function createBrowserPage() {
-  const browser = await chromium.launch({ headless: true });
+  const launchOptions = { headless: true };
+  if (process.env.DISPLAY_E2E_CHROME_PATH) {
+    launchOptions.executablePath = process.env.DISPLAY_E2E_CHROME_PATH;
+  }
+  const browser = await chromium.launch(launchOptions);
   const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
   return { browser, page };
 }

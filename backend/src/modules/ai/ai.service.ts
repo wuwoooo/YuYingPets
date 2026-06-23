@@ -7,6 +7,7 @@ import { toNumber } from '@/common/utils/bigint.util';
 import { behaviorScoreRecordWhere } from '@/common/utils/behavior-score-record.util';
 import { OperationLogService } from '../operation-log/operation-log.service';
 import { RealtimeService } from '../realtime/realtime.service';
+import { getChinaPeriodStartLimit } from '@/common/utils/date.util';
 
 type ScoreRecordWithRule = {
   subjectCode: string | null;
@@ -96,6 +97,9 @@ type StudentSnapshotResponse = {
   classId: number;
   periodType: PeriodType;
   snapshotDate: Date;
+  generatedAt: Date;
+  hasNewerBehaviorRecord: boolean;
+  latestBehaviorRecordAt: Date | null;
   positiveSummary: unknown;
   negativeSummary: unknown;
   dimensionSummary: unknown;
@@ -133,10 +137,15 @@ export class AiService {
     const student = await this.loadStudent(studentId);
     this.authService.ensureCanAccessClass(user, student.classId);
 
+    const limitDate = getChinaPeriodStartLimit(periodType);
+
     const snapshot = await this.prisma.aiStudentSnapshot.findFirst({
       where: {
         studentId: BigInt(studentId),
         periodType,
+        createdAt: {
+          gte: limitDate,
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -144,7 +153,7 @@ export class AiService {
     return {
       code: 0,
       message: 'ok',
-      data: snapshot ? this.serializeSnapshot(snapshot, studentId) : null,
+      data: snapshot ? await this.serializeSnapshot(snapshot, studentId) : null,
     };
   }
 
@@ -197,10 +206,15 @@ export class AiService {
   ) {
     const student = await this.loadStudent(studentId);
 
+    const limitDate = getChinaPeriodStartLimit(periodType);
+
     const scoreRecords = await this.prisma.scoreRecord.findMany({
       where: {
         studentId: BigInt(studentId),
         ...behaviorScoreRecordWhere(),
+        occurredAt: {
+          gte: limitDate,
+        },
       },
       include: {
         rule: {
@@ -211,7 +225,7 @@ export class AiService {
         },
       },
       orderBy: { occurredAt: 'desc' },
-      take: periodType === 'weekly' ? 50 : 200,
+      take: periodType === 'weekly' ? 100 : 300,
     });
     const teacherObservations = await this.prisma.teacherObservation.findMany({
       where: {
@@ -288,6 +302,10 @@ export class AiService {
         studentId,
         classId: Number(student.classId),
         periodType: snapshot.periodType,
+        snapshotDate: snapshot.snapshotDate,
+        generatedAt: snapshot.createdAt,
+        hasNewerBehaviorRecord: false,
+        latestBehaviorRecordAt: null,
         generatedBy: snapshot.generatedBy,
         positiveSummary,
         negativeSummary,
@@ -340,24 +358,39 @@ export class AiService {
     };
   }
 
-  private serializeSnapshot(snapshot: {
+  private async serializeSnapshot(snapshot: {
     id: bigint;
     classId: bigint;
     periodType: PeriodType;
     snapshotDate: Date;
+    createdAt: Date;
     positiveSummary: unknown;
     negativeSummary: unknown;
     dimensionSummary: unknown;
     trendSummary: unknown;
     aiSummary: string | null;
     aiSuggestion: string | null;
-  }, studentId: number): StudentSnapshotResponse {
+  }, studentId: number): Promise<StudentSnapshotResponse> {
+    const latestBehaviorRecord = await this.prisma.scoreRecord.findFirst({
+      where: {
+        studentId: BigInt(studentId),
+        ...behaviorScoreRecordWhere(),
+      },
+      select: {
+        createdAt: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    const latestBehaviorRecordAt = latestBehaviorRecord?.createdAt ?? null;
     return {
       id: toNumber(snapshot.id) ?? 0,
       studentId,
       classId: toNumber(snapshot.classId) ?? 0,
       periodType: snapshot.periodType,
       snapshotDate: snapshot.snapshotDate,
+      generatedAt: snapshot.createdAt,
+      hasNewerBehaviorRecord: latestBehaviorRecordAt ? latestBehaviorRecordAt.getTime() > snapshot.createdAt.getTime() : false,
+      latestBehaviorRecordAt,
       positiveSummary: snapshot.positiveSummary,
       negativeSummary: snapshot.negativeSummary,
       dimensionSummary: snapshot.dimensionSummary,
@@ -521,7 +554,7 @@ export class AiService {
     trendSummary: TrendSummary,
     academicSummary: AcademicSummaryItem[],
   ) {
-    const periodLabel = periodType === 'weekly' ? '本周' : '本月';
+    const periodLabel = periodType === 'weekly' ? '近7天' : '近30天';
     const topDimension = dimensionSummary.length > 0 ? dimensionSummary[0].dimension : '暂未形成明显行为集中项';
     const topSubject = subjectSummary.length > 0 ? subjectSummary[0].subject : '通用场景';
     const trendText =
@@ -620,7 +653,7 @@ export class AiService {
       };
     }
 
-    const periodLabel = input.periodType === 'weekly' ? '本周' : '本月';
+    const periodLabel = input.periodType === 'weekly' ? '近7天' : '近30天';
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
 

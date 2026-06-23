@@ -8,5 +8,6 @@ import { DisplayService } from './display.service';
   imports: [AuthModule, AiModule],
   controllers: [DisplayController],
   providers: [DisplayService],
+  exports: [DisplayService],
 })
 export class DisplayModule {}

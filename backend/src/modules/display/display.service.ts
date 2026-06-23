@@ -8,6 +8,7 @@ import { RealtimeService } from '../realtime/realtime.service';
 import { OperationLogService } from '../operation-log/operation-log.service';
 import { DisplayLockDto } from './dto/display-lock.dto';
 import { DisplayTerminalInitializeDto } from './dto/display-terminal-initialize.dto';
+import { getChinaPeriodStartLimit } from '@/common/utils/date.util';
 import { DisplayWeatherQueryDto } from './dto/display-weather-query.dto';
 import { normalizePetGrowthThresholds, resolveStageNeedScoreTotal } from '@/common/utils/pet-growth.util';
 import { filterSemestersBySchoolYear } from '@/common/utils/school-year.util';
@@ -1759,10 +1760,15 @@ export class DisplayService {
     this.authService.ensureCanAccessClass(user, classId);
     const student = await this.resolveDisplayAccessibleStudent(classId, studentId);
 
+    const limitDate = getChinaPeriodStartLimit(periodType);
+
     const snapshot = await this.prisma.aiStudentSnapshot.findFirst({
       where: {
         studentId: student.id,
         periodType,
+        createdAt: {
+          gte: limitDate,
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -1777,6 +1783,7 @@ export class DisplayService {
             classId,
             periodType: snapshot.periodType,
             snapshotDate: snapshot.snapshotDate,
+            generatedAt: snapshot.createdAt,
             positiveSummary: snapshot.positiveSummary,
             negativeSummary: snapshot.negativeSummary,
             dimensionSummary: snapshot.dimensionSummary,

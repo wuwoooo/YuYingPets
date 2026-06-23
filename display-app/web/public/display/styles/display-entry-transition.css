@@ -1,0 +1,1075 @@
+/* ========== 进入页星空与校园过场 ========== */
+
+/* ========== D01 进入页 ========== */
+#page-entry {
+  background:
+    radial-gradient(ellipse at 50% 4%, rgba(123, 197, 255, 0.22), transparent 34%),
+    linear-gradient(180deg, rgba(4, 15, 35, 0.08), rgba(4, 15, 35, 0.5)),
+    #07182b url("../images/2.svg") center/cover no-repeat;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  padding-bottom: 56px;
+  overflow: hidden;
+}
+#page-entry::before,
+#page-entry::after,
+#page-setup::before,
+#page-setup::after {
+  content: none;
+}
+.entry-starfield {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 52vh;
+  min-height: 420px;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.92;
+  -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 58%, transparent 100%);
+  mask-image: linear-gradient(180deg, #000 0%, #000 58%, transparent 100%);
+}
+.entry-starfield::before {
+  content: "";
+  position: absolute;
+  inset: -18% -8% 12%;
+  background:
+    radial-gradient(ellipse at 24% 16%, rgba(83, 172, 255, 0.18), transparent 32%),
+    radial-gradient(ellipse at 70% 8%, rgba(245, 207, 128, 0.12), transparent 28%),
+    radial-gradient(ellipse at 54% 30%, rgba(124, 220, 255, 0.11), transparent 42%);
+  filter: blur(1px) saturate(1.12);
+  animation: starNebulaDepth 24s ease-in-out infinite alternate;
+}
+.star-layer {
+  position: absolute;
+  inset: -12% -6% 0;
+  display: block;
+  background-repeat: repeat;
+  transform-origin: center top;
+  mix-blend-mode: screen;
+  will-change: transform, opacity, filter;
+}
+.star-layer-far {
+  background-image:
+    radial-gradient(circle, rgba(255, 255, 255, 0.56) 0 0.7px, transparent 1.25px),
+    radial-gradient(circle, rgba(125, 202, 255, 0.46) 0 0.8px, transparent 1.35px);
+  background-size: 92px 92px, 146px 146px;
+  background-position: 18px 10px, 66px 48px;
+  opacity: 0.42;
+  filter: blur(0.2px);
+  animation:
+    starFarDrift 110s linear infinite,
+    starBreath 7.4s ease-in-out infinite;
+}
+.star-layer-mid {
+  background-image:
+    radial-gradient(circle, rgba(255, 255, 255, 0.92) 0 1px, transparent 1.8px),
+    radial-gradient(circle, rgba(181, 226, 255, 0.76) 0 1.2px, transparent 2px),
+    radial-gradient(circle, rgba(255, 221, 146, 0.66) 0 1px, transparent 1.9px);
+  background-size: 156px 156px, 214px 214px, 288px 288px;
+  background-position: 22px 42px, 104px 18px, 180px 82px;
+  opacity: 0.62;
+  filter: drop-shadow(0 0 5px rgba(165, 219, 255, 0.52));
+  animation:
+    starMidDrift 74s linear infinite,
+    starTwinkleSoft 5.6s ease-in-out infinite;
+}
+.star-layer-near {
+  background-image:
+    radial-gradient(circle, rgba(255, 255, 255, 0.96) 0 1.35px, transparent 2.45px),
+    radial-gradient(circle, rgba(255, 230, 172, 0.86) 0 1.25px, transparent 2.3px),
+    radial-gradient(circle, rgba(122, 213, 255, 0.82) 0 1.45px, transparent 2.55px);
+  background-size: 270px 270px, 354px 354px, 430px 430px;
+  background-position: 48px 30px, 230px 90px, 132px 160px;
+  opacity: 0.7;
+  filter:
+    drop-shadow(0 0 6px rgba(255, 255, 255, 0.55))
+    drop-shadow(0 0 14px rgba(126, 210, 255, 0.28));
+  animation:
+    starNearFloat 38s ease-in-out infinite alternate,
+    starTwinkleCrisp 3.9s ease-in-out infinite;
+}
+.shooting-star {
+  position: absolute;
+  top: 16%;
+  left: -12%;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: rgba(232, 247, 255, 0.86);
+  box-shadow:
+    0 0 5px rgba(232, 247, 255, 0.72),
+    0 0 12px rgba(108, 191, 255, 0.28);
+  opacity: 0;
+  transform: translate3d(0, 0, 0) rotate(15deg);
+  animation: meteorGlide 18s cubic-bezier(0.32, 0.02, 0.58, 1) infinite;
+}
+.shooting-star::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 2px;
+  width: 86px;
+  height: 1px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, rgba(160, 219, 255, 0.08) 34%, rgba(224, 246, 255, 0.46));
+  opacity: 0;
+  transform: translateY(-50%) scaleX(0.2);
+  transform-origin: right center;
+  filter: blur(0.2px);
+  animation: meteorTail 18s cubic-bezier(0.32, 0.02, 0.58, 1) infinite;
+  animation-delay: inherit;
+  animation-duration: inherit;
+}
+.meteor-1 {
+  top: 12%;
+  /* 可见后约 4s 首次划过：4 - 18 × 0.70 */
+  animation-delay: -8.6s;
+}
+.meteor-2 {
+  top: 23%;
+  left: -16%;
+  transform: translate3d(0, 0, 0) rotate(13deg) scale(0.84);
+  animation-duration: 24s;
+  /* 可见后约 6s 首次划过：6 - 24 × 0.70 */
+  animation-delay: -10.8s;
+}
+.meteor-2::before {
+  width: 68px;
+}
+.meteor-3 {
+  top: 7%;
+  left: -18%;
+  transform: translate3d(0, 0, 0) rotate(17deg) scale(0.72);
+  animation-duration: 31s;
+  /* 可见后约 9s 首次划过：9 - 31 × 0.70 */
+  animation-delay: -12.7s;
+}
+.meteor-3::before {
+  width: 54px;
+}
+@keyframes starNebulaDepth {
+  0% {
+    transform: translate3d(-20px, -8px, 0) scale(1);
+    opacity: 0.55;
+  }
+  100% {
+    transform: translate3d(28px, 12px, 0) scale(1.06);
+    opacity: 0.72;
+  }
+}
+@keyframes starFarDrift {
+  to {
+    transform: translate3d(-92px, 36px, 0);
+  }
+}
+@keyframes starMidDrift {
+  to {
+    transform: translate3d(-156px, 58px, 0);
+  }
+}
+@keyframes starNearFloat {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  100% {
+    transform: translate3d(-34px, 18px, 0) scale(1.035);
+  }
+}
+@keyframes starBreath {
+  0%,
+  100% {
+    opacity: 0.32;
+    filter: brightness(0.82);
+  }
+  50% {
+    opacity: 0.52;
+    filter: brightness(1.24);
+  }
+}
+@keyframes starTwinkleSoft {
+  0%,
+  100% {
+    opacity: 0.48;
+    filter: drop-shadow(0 0 4px rgba(165, 219, 255, 0.38)) brightness(0.9);
+  }
+  38% {
+    opacity: 0.78;
+    filter: drop-shadow(0 0 7px rgba(204, 236, 255, 0.62)) brightness(1.22);
+  }
+  64% {
+    opacity: 0.56;
+    filter: drop-shadow(0 0 5px rgba(255, 229, 166, 0.44)) brightness(1.04);
+  }
+}
+@keyframes starTwinkleCrisp {
+  0%,
+  100% {
+    opacity: 0.44;
+    filter:
+      drop-shadow(0 0 4px rgba(255, 255, 255, 0.45))
+      drop-shadow(0 0 10px rgba(126, 210, 255, 0.2))
+      brightness(0.86);
+  }
+  45% {
+    opacity: 0.9;
+    filter:
+      drop-shadow(0 0 8px rgba(255, 255, 255, 0.78))
+      drop-shadow(0 0 18px rgba(126, 210, 255, 0.42))
+      brightness(1.32);
+  }
+}
+@keyframes meteorGlide {
+  0%,
+  70% {
+    opacity: 0;
+    transform: translate3d(0, 0, 0) rotate(15deg);
+  }
+  72% {
+    opacity: 0.18;
+  }
+  74% {
+    opacity: 0.62;
+  }
+  79% {
+    opacity: 0.18;
+  }
+  82%,
+  100% {
+    opacity: 0;
+    transform: translate3d(78vw, 18vh, 0) rotate(15deg);
+  }
+}
+@keyframes meteorTail {
+  0%,
+  70% {
+    opacity: 0;
+    transform: translateY(-50%) scaleX(0.16);
+  }
+  73% {
+    opacity: 0.2;
+    transform: translateY(-50%) scaleX(0.62);
+  }
+  75% {
+    opacity: 0.46;
+    transform: translateY(-50%) scaleX(1);
+  }
+  80% {
+    opacity: 0.12;
+    transform: translateY(-50%) scaleX(0.52);
+  }
+  82%,
+  100% {
+    opacity: 0;
+    transform: translateY(-50%) scaleX(0.18);
+  }
+}
+.entry-corner-badge {
+  position: absolute;
+  top: 30px;
+  left: 30px;
+  z-index: 1;
+  max-width: 320px;
+  border-radius: 18px;
+  padding: 14px 16px;
+  background: rgba(9, 34, 54, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 10px 28px rgba(7, 24, 40, 0.16);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: #fff;
+  text-align: left;
+}
+.entry-corner-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.entry-terminal-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  min-width: 0;
+  flex: 1;
+}
+.entry-terminal-pill span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.entry-admin-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition:
+    transform 0.2s ease,
+    background 0.2s ease,
+    border-color 0.2s ease;
+  flex: 0 0 auto;
+}
+@media (hover: hover) and (pointer: fine) {
+  .entry-admin-btn:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.28);
+}
+}
+
+.entry-corner-title {
+  margin-top: 12px;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.94);
+}
+.entry-corner-class {
+  margin-top: 12px;
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  line-height: 1.25;
+  text-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+}
+.entry-class-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+.entry-class-head .entry-corner-class {
+  margin-top: 0;
+}
+.entry-corner-sub {
+  margin-top: 6px;
+  font-size: 14px;
+  line-height: 1.65;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.entry-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 15px 52px;
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 17px;
+  font-weight: 500;
+  letter-spacing: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 40px;
+  cursor: pointer;
+  transition: all 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  font-family: var(--font-stack);
+  position: relative;
+  z-index: 1;
+}
+@media (hover: hover) and (pointer: fine) {
+  .entry-btn:hover {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.4);
+  color: #fff;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+}
+
+.entry-btn:active {
+  transform: translateY(0);
+}
+.entry-btn .btn-arrow {
+  display: inline-block;
+  transition: transform 0.3s;
+}
+@media (hover: hover) and (pointer: fine) {
+  .entry-btn:hover .btn-arrow {
+  transform: translateX(4px);
+}
+}
+
+/* setup/login styles moved to display-setup-login.css */
+/* ========== D03 进入校园过场动画页 ========== */
+#page-transition {
+  background: #0c2e4a;
+  overflow: hidden;
+}
+
+/* 背景图层：CSS keyframes 驱动的电影式 zoom */
+.trans-bg {
+  position: absolute;
+  inset: -20%;
+  width: 140%;
+  height: 140%;
+  background: url("../images/2.svg") center/cover no-repeat;
+  background-color: #0c2e4a;
+  transform-origin: 50% 38%;
+  will-change: transform, filter;
+  z-index: 0;
+}
+.trans-bg.animating {
+  animation: transZoom 8s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+@keyframes transZoom {
+  0% {
+    transform: scale(1);
+    filter: blur(0px) brightness(1);
+  }
+  35% {
+    transform: scale(1.35);
+    filter: blur(0px) brightness(1.1);
+  }
+  65% {
+    transform: scale(2);
+    filter: blur(2px) brightness(1.3);
+  }
+  100% {
+    transform: scale(4);
+    filter: blur(8px) brightness(2);
+  }
+}
+
+/* 亮色遮罩层（追光过渡） */
+.trans-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  opacity: 0;
+  pointer-events: none;
+}
+.trans-overlay.animating {
+  animation: transOverlay 8s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+@keyframes transOverlay {
+  0% {
+    opacity: 0;
+    background: radial-gradient(
+      ellipse at 50% 38%,
+      transparent 20%,
+      rgba(255, 255, 255, 0.1) 100%
+    );
+  }
+  50% {
+    opacity: 1;
+    background: radial-gradient(
+      ellipse at 50% 38%,
+      transparent 40%,
+      rgba(255, 255, 255, 0.4) 100%
+    );
+  }
+  85% {
+    opacity: 1;
+    background: radial-gradient(
+      ellipse at 50% 38%,
+      rgba(255, 255, 255, 0.6) 0%,
+      rgba(255, 255, 255, 0.9) 100%
+    );
+  }
+  100% {
+    opacity: 1;
+    background: #ffffff;
+  }
+}
+
+/* 暖光 vignette 效果 */
+.trans-warmglow {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  opacity: 0;
+  background: radial-gradient(
+    ellipse at 50% 40%,
+    rgba(240, 180, 41, 0.15) 0%,
+    transparent 60%
+  );
+  pointer-events: none;
+}
+.trans-warmglow.animating {
+  animation: transGlow 8s ease forwards;
+}
+@keyframes transGlow {
+  0% {
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  55% {
+    opacity: 0.8;
+  }
+  75% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* 粒子画布 */
+.trans-particles {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 1s ease-in;
+}
+.trans-particles.visible {
+  opacity: 1;
+}
+
+.trans-holiday-celebration {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.trans-holiday-celebration::before {
+  content: "";
+  position: absolute;
+  inset: -20%;
+  z-index: -1;
+}
+
+body[data-display-holiday="children-day"] .trans-holiday-celebration::before {
+  background: url('../images/holidays/children-day/bg-children-day-2026.png') center/cover no-repeat;
+}
+
+body[data-display-holiday="dragon-boat-festival"] .trans-holiday-celebration::before {
+  background: url('../images/holidays/dragon-boat/bg-dragon-boat-2026.png') center/cover no-repeat;
+}
+
+body[data-display-holiday="children-day"] .trans-holiday-celebration.show,
+body[data-display-holiday="dragon-boat-festival"] .trans-holiday-celebration.show {
+  visibility: visible;
+  animation: transHolidayReveal 5.5s linear forwards;
+}
+
+.trans-holiday-card {
+  position: relative;
+  width: min(820px, 72vw);
+  padding: 46px 58px 50px;
+  border: 2px solid rgba(255, 255, 255, 0.72);
+  border-radius: 42px;
+  background:
+    radial-gradient(circle at 18% 20%, rgba(255, 226, 94, 0.72), transparent 32%),
+    radial-gradient(circle at 86% 16%, rgba(255, 126, 151, 0.46), transparent 28%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(232, 250, 255, 0.9));
+  box-shadow:
+    0 34px 90px rgba(3, 23, 42, 0.34),
+    inset 0 0 0 10px rgba(255, 255, 255, 0.24);
+  text-align: center;
+  color: #0f3d63;
+  transform: rotate(-1deg);
+}
+
+.trans-holiday-card::before,
+.trans-holiday-card::after {
+  content: "";
+  position: absolute;
+  border-radius: 999px;
+  background: #ff7b7b;
+}
+
+.trans-holiday-card::before {
+  width: 24px;
+  height: 24px;
+  left: 38px;
+  top: 34px;
+  box-shadow:
+    74px 130px 0 #55d6be,
+    650px 42px 0 #ffcf4a,
+    594px 188px 0 #6fb7ff;
+}
+
+.trans-holiday-card::after {
+  right: 42px;
+  bottom: 34px;
+  width: 138px;
+  height: 12px;
+  background: linear-gradient(90deg, #ff7b7b, #ffcf4a, #55d6be, #6fb7ff);
+}
+
+.trans-holiday-celebration.show .trans-holiday-card {
+  animation: cardHaloBurst 2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes cardHaloBurst {
+  0% { box-shadow: 0 34px 90px rgba(3, 23, 42, 0.34), inset 0 0 0 10px rgba(255, 255, 255, 0.24), 0 0 0 0 rgba(255, 226, 94, 0.8); }
+  50% { box-shadow: 0 34px 90px rgba(3, 23, 42, 0.34), inset 0 0 0 10px rgba(255, 255, 255, 0.24), 0 0 0 100px rgba(255, 226, 94, 0); }
+  100% { box-shadow: 0 34px 90px rgba(3, 23, 42, 0.34), inset 0 0 0 10px rgba(255, 255, 255, 0.24), 0 0 0 100px rgba(255, 226, 94, 0); }
+}
+
+.trans-holiday-kicker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 0 20px;
+  border-radius: 999px;
+  background: rgba(230, 70, 38, 0.1);
+  color: #e64626;
+  font-size: 16px;
+  font-weight: 900;
+  letter-spacing: 3px;
+}
+
+.trans-holiday-card strong {
+  display: block;
+  margin-top: 18px;
+  font-size: 72px;
+  line-height: 1;
+  font-weight: 950;
+  letter-spacing: 6px;
+  color: #123f63;
+  text-shadow: 0 8px 0 rgba(255, 207, 74, 0.45);
+  will-change: transform;
+}
+
+body[data-display-holiday="children-day"] .trans-holiday-celebration.show .trans-holiday-card strong,
+body[data-display-holiday="dragon-boat-festival"] .trans-holiday-celebration.show .trans-holiday-card strong {
+  animation: jellyBounce 1.2s cubic-bezier(0.34, 1.56, 0.64, 1) 0.2s forwards;
+  transform-origin: center;
+}
+
+@keyframes jellyBounce {
+  0%   { transform: scale(0.8) translateY(20px); }
+  30%  { transform: scale(1.1, 0.9) translateY(-10px); }
+  50%  { transform: scale(0.95, 1.05) translateY(5px); }
+  70%  { transform: scale(1.02, 0.98) translateY(-2px); }
+  100% { transform: scale(1) translateY(0); }
+}
+
+.trans-holiday-card span:last-child {
+  display: block;
+  margin-top: 22px;
+  color: rgba(15, 61, 99, 0.72);
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: 4px;
+}
+
+.trans-holiday-ribbon,
+.trans-holiday-pop {
+  position: absolute;
+  display: block;
+}
+
+.trans-holiday-ribbon {
+  width: 470px;
+  height: 42px;
+  border-radius: 999px;
+  opacity: 0;
+}
+
+.trans-holiday-celebration.show .trans-holiday-ribbon {
+  animation: transHolidayRibbon 1.2s cubic-bezier(0.16, 1, 0.3, 1) 0.18s forwards;
+}
+
+.trans-holiday-ribbon-a {
+  left: -78px;
+  top: 150px;
+  background: repeating-linear-gradient(90deg, #ff7b7b 0 38px, #ffcf4a 38px 76px, #55d6be 76px 114px);
+  transform: rotate(-18deg) translateX(-80px);
+}
+
+.trans-holiday-ribbon-b {
+  right: -90px;
+  bottom: 168px;
+  background: repeating-linear-gradient(90deg, #6fb7ff 0 36px, #fff3a6 36px 72px, #ff9db0 72px 108px);
+  transform: rotate(17deg) translateX(80px);
+}
+
+.trans-holiday-pop {
+  width: 150px;
+  height: 190px;
+  border-radius: 52% 52% 48% 48%;
+  opacity: 0;
+  background:
+    radial-gradient(circle at 34% 24%, rgba(255, 255, 255, 0.78) 0 10%, transparent 22%),
+    linear-gradient(145deg, #ff7b7b, #f04e6d);
+  box-shadow: 0 26px 58px rgba(3, 23, 42, 0.22);
+}
+
+.trans-holiday-pop::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 188px;
+  width: 3px;
+  height: 180px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.68), transparent);
+  transform: translateX(-50%);
+}
+
+.trans-holiday-pop-a {
+  left: 12%;
+  bottom: 13%;
+}
+
+.trans-holiday-pop-b {
+  right: 11%;
+  top: 15%;
+  width: 120px;
+  height: 154px;
+  background:
+    radial-gradient(circle at 34% 24%, rgba(255, 255, 255, 0.78) 0 10%, transparent 22%),
+    linear-gradient(145deg, #55d6be, #209f91);
+}
+
+.trans-holiday-celebration.show .trans-holiday-pop {
+  animation: transHolidayBalloon 1.2s cubic-bezier(0.34, 1.56, 0.64, 1) 0.1s forwards;
+}
+
+.trans-holiday-celebration.show .trans-holiday-pop-b {
+  animation-delay: 0.28s;
+}
+
+@keyframes transHolidayReveal {
+  0% {
+    opacity: 0;
+    transform: scale(0.86);
+    filter: blur(10px);
+    animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  9% {
+    opacity: 1;
+    transform: scale(1.04);
+    filter: blur(0);
+    animation-timing-function: linear;
+  }
+  82% {
+    opacity: 1;
+    transform: scale(1);
+    animation-timing-function: ease-in-out;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.06);
+  }
+}
+
+@keyframes transHolidayRibbon {
+  to {
+    opacity: 0.92;
+    transform: rotate(var(--holiday-ribbon-rotate, -18deg)) translateX(0);
+  }
+}
+
+.trans-holiday-ribbon-b {
+  --holiday-ribbon-rotate: 17deg;
+}
+
+@keyframes transHolidayBalloon {
+  0% {
+    opacity: 0;
+    transform: translateY(80px) scale(0.78) rotate(-6deg);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1) rotate(3deg);
+  }
+}
+
+/* 内容层 */
+.trans-content {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 文字阶段：共用样式 */
+.trans-stage {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  opacity: 0;
+  transform: translateY(8px);
+  transition:
+    opacity 0.7s cubic-bezier(0.4, 0, 0.2, 1),
+    transform 0.7s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: none;
+}
+.trans-stage.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+.trans-stage.hide {
+  opacity: 0;
+  transform: translateY(-12px);
+}
+
+/* 阶段1/2 标签 */
+.trans-stage-label {
+  font-size: 32px;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: 8px;
+  text-shadow: 0 4px 30px rgba(0, 0, 0, 0.6);
+}
+.trans-stage-dots {
+  display: flex;
+  gap: 6px;
+  margin-top: 24px;
+}
+.trans-stage-dots i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.5);
+  animation: stageDot 1.2s ease-in-out infinite;
+  font-style: normal;
+}
+.trans-stage-dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.trans-stage-dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes stageDot {
+  0%,
+  100% {
+    opacity: 0.3;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.3);
+  }
+}
+
+/* 阶段3 班级信息 */
+.trans-class {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  opacity: 0;
+  pointer-events: none;
+}
+.trans-class.show {
+  opacity: 1;
+}
+.trans-class.hide {
+  opacity: 0;
+  transform: translateY(-14px) scale(0.96);
+  transition:
+    opacity 0.45s ease,
+    transform 0.45s ease;
+}
+
+.trans-class-name {
+  font-size: 68px;
+  font-weight: 800;
+  color: #fff;
+  letter-spacing: 16px;
+  text-shadow:
+    0 0 60px rgba(240, 180, 41, 0.3),
+    0 4px 24px rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  transform: scale(0.85);
+}
+.trans-class-name-row {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+}
+.trans-class-honors {
+  opacity: 0;
+  transform: translateY(8px);
+}
+.trans-class.show .trans-class-honors {
+  animation: classReveal 0.9s cubic-bezier(0.34, 1.56, 0.64, 1) 0.35s forwards;
+}
+.trans-class.show .trans-class-name {
+  animation: classReveal 0.9s cubic-bezier(0.34, 1.56, 0.64, 1) 0.1s
+    forwards;
+}
+@keyframes classReveal {
+  0% {
+    opacity: 0;
+    transform: scale(0.85) translateY(10px);
+  }
+  60% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.trans-class-divider {
+  width: 80px;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--honor-gold),
+    transparent
+  );
+  margin: 20px 0;
+  opacity: 0;
+  transform: scaleX(0);
+}
+.trans-class.show .trans-class-divider {
+  animation: dividerIn 0.6s ease-out 0.6s forwards;
+}
+@keyframes dividerIn {
+  to {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+}
+
+.trans-class-teacher {
+  font-size: 22px;
+  color: rgba(255, 255, 255, 0.8);
+  letter-spacing: 6px;
+  opacity: 0;
+}
+.trans-class.show .trans-class-teacher {
+  animation: classTextIn 0.6s ease-out 0.8s forwards;
+}
+
+.trans-class-motto {
+  font-size: 20px;
+  color: var(--honor-gold);
+  letter-spacing: 10px;
+  font-weight: 600;
+  margin-top: 16px;
+  text-shadow: 0 0 20px rgba(240, 180, 41, 0.3);
+  opacity: 0;
+}
+.trans-class.show .trans-class-motto {
+  animation: classTextIn 0.6s ease-out 1.1s forwards;
+}
+@keyframes classTextIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 进度条 */
+.trans-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--honor-gold), #ffd970);
+  z-index: 8;
+  box-shadow: 0 0 12px rgba(240, 180, 41, 0.5);
+}
+.trans-progress.animating {
+  animation: transProgress 8s linear forwards;
+}
+@keyframes transProgress {
+  to {
+    width: 100%;
+  }
+}
+
+/* 跳过按钮 */
+.skip-btn {
+  position: absolute;
+  bottom: 32px;
+  right: 40px;
+  z-index: 10;
+  padding: 8px 24px;
+  border-radius: 20px;
+  font-size: 13px;
+  letter-spacing: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: rgba(255, 255, 255, 0.45);
+  cursor: pointer;
+  transition: all 0.3s;
+  font-family: var(--font-stack);
+  backdrop-filter: blur(8px);
+}
+@media (hover: hover) and (pointer: fine) {
+  .skip-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: rgba(255, 255, 255, 0.8);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+}
+
+
+/* 最终白闪过渡 */
+.trans-flash {
+  position: absolute;
+  inset: 0;
+  z-index: 9;
+  background: #ffffff;
+  opacity: 0;
+  pointer-events: none;
+}
+.trans-flash.active {
+  animation: flashOut 0.8s ease-in forwards;
+}
+@keyframes flashOut {
+  0% {
+    opacity: 0;
+  }
+  60% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+/* 刚进入教室的电影级对焦落幅动画 */
+.classroom-enter-scene {
+  animation: classRevealCinematic 1.5s cubic-bezier(0.25, 1, 0.5, 1)
+    forwards;
+}
+@keyframes classRevealCinematic {
+  0% {
+    filter: blur(25px) brightness(1.5);
+    transform: scale(1.15);
+  }
+  100% {
+    filter: blur(0) brightness(1);
+    transform: scale(1);
+  }
+}

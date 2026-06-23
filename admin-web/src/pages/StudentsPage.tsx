@@ -32,6 +32,7 @@ import {
   formatEnabledStatus,
   normalizeKeyword
 } from '../utils/adminForms';
+import { matchPinyinOrChinese } from '../utils/pinyin';
 import { canDeleteAcademicExams, canEditStudents, canImportStudents } from '../utils/adminPermissions';
 import { canShowScoreRecordReverse } from '../utils/scoreRecordReverse';
 import { parseAcademicScoreWorkbook, inferAcademicPeriodLabel, resolveAcademicImportDraft, parseLegacyXlsRows } from '../utils/academicImport';
@@ -258,7 +259,7 @@ export function StudentsPage({
       const classInfo = classMap.get(row.classId);
       const matchesKeyword =
         !keyword ||
-        normalizeKeyword(row.name).includes(keyword) ||
+        matchPinyinOrChinese(row.name, keyword) ||
         normalizeKeyword(row.studentNo).includes(keyword) ||
         normalizeKeyword(row.className).includes(keyword);
       const matchesGrade = gradeFilter === 'all' || classInfo?.gradeName === gradeFilter;
@@ -1113,6 +1114,21 @@ export function StudentsPage({
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',
+    });
+  }
+
+  function formatAiSnapshotTime(value: string | null | undefined) {
+    if (!value) return '暂无缓存时间';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '暂无缓存时间';
+    return date.toLocaleString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
     });
   }
 
@@ -2755,12 +2771,22 @@ export function StudentsPage({
                 <div>
                   <h4>AI 学情分析</h4>
                   <p>基于课堂、作业、学科和测评相关积分事件生成阶段性总结。</p>
+                  {selectedStudentAiSummary ? (
+                    <span className="student-ai-cache-time">
+                      当前缓存生成时间：{formatAiSnapshotTime(selectedStudentAiSummary.generatedAt ?? selectedStudentAiSummary.snapshotDate)}
+                    </span>
+                  ) : null}
+                  {selectedStudentAiSummary?.hasNewerBehaviorRecord ? (
+                    <span className="student-ai-cache-warning">
+                      缓存后有新评价记录（{formatAiSnapshotTime(selectedStudentAiSummary.latestBehaviorRecordAt)}），建议重新生成。
+                    </span>
+                  ) : null}
                 </div>
                 {selectedStudentAiSummary ? (
                   <div className="student-ai-actions">
                     <select value={aiPeriodType} onChange={(event) => setAiPeriodType(event.target.value as 'weekly' | 'monthly')}>
-                      <option value="weekly">本周</option>
-                      <option value="monthly">本月</option>
+                      <option value="weekly">近7天</option>
+                      <option value="monthly">近30天</option>
                     </select>
                     <button
                       className="btn btn-primary"
@@ -2899,8 +2925,8 @@ export function StudentsPage({
                   </div>
                   <div className="student-ai-actions">
                     <select value={aiPeriodType} onChange={(event) => setAiPeriodType(event.target.value as 'weekly' | 'monthly')}>
-                      <option value="weekly">本周</option>
-                      <option value="monthly">本月</option>
+                      <option value="weekly">近7天</option>
+                      <option value="monthly">近30天</option>
                     </select>
                     <button
                       className="btn btn-primary"

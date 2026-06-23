@@ -17,6 +17,7 @@ export class AdminInsightsController {
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
     @Query('subjectCode') subjectCode?: string,
+    @Query('skipDetailSummary') skipDetailSummary?: string,
   ) {
     return this.adminInsightsService.analyticsSummary(authorization, {
       gradeName,
@@ -24,7 +25,13 @@ export class AdminInsightsController {
       startDate,
       endDate,
       subjectCode,
+      skipDetailSummary: skipDetailSummary === 'true',
     });
+  }
+
+  @Get('analytics/realtime-monitor')
+  realtimeMonitorStats(@Headers('authorization') authorization: string | undefined) {
+    return this.adminInsightsService.realtimeMonitorStats(authorization);
   }
 
   @Get('analytics/heatmap')
@@ -35,6 +42,7 @@ export class AdminInsightsController {
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
     @Query('subjectCode') subjectCode?: string,
+    @Query('skipDetailSummary') skipDetailSummary?: string,
   ) {
     return this.adminInsightsService.analyticsHeatmap(authorization, {
       gradeName,
@@ -42,6 +50,7 @@ export class AdminInsightsController {
       startDate,
       endDate,
       subjectCode,
+      skipDetailSummary: skipDetailSummary === 'true',
     });
   }
 
@@ -54,6 +63,7 @@ export class AdminInsightsController {
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
     @Query('subjectCode') subjectCode?: string,
+    @Query('skipDetailSummary') skipDetailSummary?: string,
   ) {
     return this.adminInsightsService.analyticsAi(authorization, {
       gradeName,
@@ -62,6 +72,7 @@ export class AdminInsightsController {
       startDate,
       endDate,
       subjectCode,
+      skipDetailSummary: skipDetailSummary === 'true',
     });
   }
 

@@ -29,6 +29,18 @@ function isMissingAuthorization(status: number, message: string) {
   return status === HttpStatus.UNAUTHORIZED && message === '缺少 Authorization';
 }
 
+function buildErrorLogDetail(exception: unknown, status: number) {
+  if (!(exception instanceof Error)) {
+    return { message: String(exception) };
+  }
+
+  if (status >= 500) {
+    return { name: exception.name, message: exception.message, stack: exception.stack };
+  }
+
+  return { name: exception.name, message: exception.message };
+}
+
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost) {
@@ -67,10 +79,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       method: request.method,
       path: httpLogPath(request.originalUrl ?? request.url),
       statusCode: status,
-      error:
-        exception instanceof Error
-          ? { name: exception.name, message: exception.message, stack: exception.stack }
-          : { message: String(exception) },
+      error: buildErrorLogDetail(exception, status),
     };
 
     if (isMissingAuthorization(status, exceptionMessage)) {

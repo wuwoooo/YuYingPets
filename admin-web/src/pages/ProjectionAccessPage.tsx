@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import presentationLogo from "../assets/presentation-logo.svg";
 import { adminApi } from "../lib/api";
+import { setAdminLoginCredentials } from "../lib/session";
 import "./ProjectionModePage.css";
 
 type ProjectionAccessPageProps = {
@@ -25,6 +26,7 @@ export function ProjectionAccessPage({ onAuthorized }: ProjectionAccessPageProps
     setSubmitting(true);
     try {
       const response = await adminApi.projectionLogin(username, password);
+      setAdminLoginCredentials(username, password);
       onAuthorized(response.data.token);
     } catch (err) {
       setError(err instanceof Error ? err.message : "投屏验证失败");

@@ -15,9 +15,8 @@ import { PresentationHero3D } from "../components/PresentationHero3D";
 import { ProjectionHeroThree } from "../components/ProjectionHeroThree";
 import { resolveSubjectLabel, ruleSceneLabelMap } from "../constants/admin";
 import {
+  ApiError,
   adminApi,
-  type AcademicExamListItem,
-  type AcademicScoreListRow,
   type AdminClass,
   type AdminStudent,
   type AnalyticsData,
@@ -30,8 +29,15 @@ import {
   type ScoreRule,
   type SessionUser,
 } from "../lib/api";
-import { buildAcademicGrowthSummary } from "../utils/academicGrowth";
-import { normalizeAcademicPeriodLabel } from "../utils/academicImport";
+import { getAdminLoginCredentials, setProjectionToken } from "../lib/session";
+import {
+  buildAcademicGrowthSummary,
+  type AcademicGrowthSummary,
+} from "../utils/academicGrowth";
+import {
+  formatAcademicExamDisplayName,
+  normalizeAcademicPeriodLabel,
+} from "../utils/academicImport";
 import { canViewSchoolPresentation } from "../utils/adminPermissions";
 import "./ProjectionModePage.css";
 import "./ProjectionModePage.outdoor.css";
@@ -47,6 +53,8 @@ import {
 type ProjectionModePageProps = {
   token: string;
   user: SessionUser | null;
+  onUnauthorized?: () => void;
+  onTokenRecovered?: (token: string) => void;
 };
 
 type ConnectionStatus = "connecting" | "online" | "offline";
@@ -70,6 +78,14 @@ const PROJECTION_DESKTOP_PROGRESS_LEADER_LIMIT = 20;
 const PROJECTION_RISK_PREVIEW_LIMIT = 18;
 /** 电脑可读布局风险名单展示条数 */
 const PROJECTION_DESKTOP_RISK_PREVIEW_LIMIT = 18;
+/** 投屏页按年级轮播间隔 */
+const PROJECTION_GRADE_ROTATION_INTERVAL_MS = 30_000;
+/** 当前服务器九年级暂无积分数据，投屏暂时只轮播七、八年级 */
+const PROJECTION_ROTATION_GRADE_NAMES = ["七年级", "八年级"];
+
+type ProjectionGradeGrowthGroup = AcademicGrowthSummary & {
+  gradeName: string;
+};
 
 function formatRiskLevelShort(level: "high" | "medium" | "low") {
   if (level === "high") return "高";
@@ -158,8 +174,7 @@ type ProjectionSnapshot = {
   analytics: AnalyticsData | null;
   scoreRecords: ScoreRecord[];
   honorRecords: HonorRecord[];
-  academicExams: AcademicExamListItem[];
-  academicScores: AcademicScoreListRow[];
+  academicGrowth: AcademicGrowthSummary | null;
   displayTerminals: DisplayTerminal[];
   weatherInfo: DisplayWeatherPayload | null;
   weatherLabel: string;
@@ -175,8 +190,7 @@ const emptySnapshot: ProjectionSnapshot = {
   analytics: null,
   scoreRecords: [],
   honorRecords: [],
-  academicExams: [],
-  academicScores: [],
+  academicGrowth: null,
   displayTerminals: [],
   weatherInfo: null,
   weatherLabel: "大理",
@@ -279,6 +293,21 @@ function isTransientGatewayError(message: string) {
   return /接口请求失败: (502|503|504)/.test(message);
 }
 
+function isProjectionAuthFailure(reason: unknown) {
+  if (reason instanceof ApiError) {
+    return reason.status === 401;
+  }
+  const message =
+    reason instanceof Error
+      ? reason.message
+      : typeof reason === "string"
+        ? reason
+        : "";
+  return /(^|：)(无效的 token|缺少 Authorization|用户不存在或已禁用)/.test(
+    message,
+  );
+}
+
 function waitMs(ms: number) {
   return new Promise<void>((resolve) => {
     window.setTimeout(resolve, ms);
@@ -342,16 +371,97 @@ function resolveProjectionLayoutMode(
   return resolveAutoProjectionLayout(viewportWidth, viewportHeight);
 }
 
+function normalizeProjectionSnapshot(raw: {
+  classes: AdminClass[];
+  students: AdminStudent[];
+  rules: ScoreRule[];
+  honors: Honor[];
+  rewards: Reward[];
+  analytics: AnalyticsData | null;
+  scoreRecords: ScoreRecord[];
+  honorRecords: HonorRecord[];
+  academicGrowth: Record<string, unknown> | null;
+  displayTerminals: DisplayTerminal[];
+  weatherInfo: DisplayWeatherPayload | null;
+  weatherLabel: string;
+  semesterName: string | null;
+}): ProjectionSnapshot {
+  return {
+    classes: raw.classes ?? [],
+    students: raw.students ?? [],
+    rules: raw.rules ?? [],
+    honors: raw.honors ?? [],
+    rewards: raw.rewards ?? [],
+    analytics: raw.analytics ?? null,
+    scoreRecords: (raw.scoreRecords ?? [])
+      .slice()
+      .sort(
+        (left, right) =>
+          new Date(right.createdAt).getTime() -
+          new Date(left.createdAt).getTime(),
+      ),
+    honorRecords: (raw.honorRecords ?? [])
+      .slice()
+      .sort(
+        (left, right) =>
+          new Date(right.grantedAt).getTime() -
+          new Date(left.grantedAt).getTime(),
+      ),
+    academicGrowth: raw.academicGrowth as AcademicGrowthSummary | null,
+    displayTerminals: raw.displayTerminals ?? [],
+    weatherInfo: raw.weatherInfo ?? null,
+    weatherLabel: raw.weatherLabel?.trim() || "大理",
+    semesterName: raw.semesterName
+      ? normalizeAcademicPeriodLabel(raw.semesterName)
+      : null,
+  };
+}
+
 async function loadProjectionSnapshot(
   token: string,
   analyticsWeekRange: ReturnType<typeof getProjectionWeekAnalyticsRange>,
-): Promise<{ snapshot: ProjectionSnapshot; failures: string[] }> {
+): Promise<{
+  snapshot: ProjectionSnapshot;
+  failures: string[];
+  authFailed: boolean;
+}> {
+  try {
+    const response = await adminApi.projectionSnapshot(
+      token,
+      analyticsWeekRange,
+    );
+    return {
+      snapshot: normalizeProjectionSnapshot(response.data),
+      failures: [],
+      authFailed: false,
+    };
+  } catch (error) {
+    if (isProjectionAuthFailure(error)) {
+      return {
+        snapshot: emptySnapshot,
+        failures: ["投屏身份已失效"],
+        authFailed: true,
+      };
+    }
+    return loadProjectionSnapshotLegacy(token, analyticsWeekRange);
+  }
+}
+
+async function loadProjectionSnapshotLegacy(
+  token: string,
+  analyticsWeekRange: ReturnType<typeof getProjectionWeekAnalyticsRange>,
+): Promise<{
+  snapshot: ProjectionSnapshot;
+  failures: string[];
+  authFailed: boolean;
+}> {
   const failures: string[] = [];
+  let authFailed = false;
 
   const [coreResults, extraResults] = await Promise.all([
     Promise.allSettled([
       adminApi.classes(token),
-      adminApi.students(token),
+      adminApi.students(token, { includeLatestAcademic: false }),
       adminApi.scoreRecords(token),
       adminApi
         .displayTerminals(token)
@@ -363,15 +473,23 @@ async function loadProjectionSnapshot(
         adminApi.honors(token),
         adminApi.rewards(token).catch(() => ({ data: [] as Reward[] })),
         adminApi
-          .analyticsSummary(token, analyticsWeekRange)
+          .analyticsSummary(token, {
+            ...analyticsWeekRange,
+            skipDetailSummary: true,
+          })
           .catch(() => ({ data: null as AnalyticsData | null })),
         adminApi
-          .analyticsHeatmap(token, analyticsWeekRange)
+          .analyticsHeatmap(token, {
+            ...analyticsWeekRange,
+            skipDetailSummary: true,
+          })
           .catch(() => ({ data: null as AnalyticsData | null })),
         adminApi.honorRecords(token),
-        adminApi.academicExams(token),
-        adminApi.academicScores(token, { includeSubjects: true }),
+        adminApi.academicSchoolGrowth(token, { currentSemesterOnly: true }),
         adminApi.displaySettings(token),
+        adminApi
+          .displayWeather(token)
+          .catch(() => ({ data: null as DisplayWeatherPayload | null })),
       ]),
     ),
   ]);
@@ -389,9 +507,9 @@ async function loadProjectionSnapshot(
     analyticsResult,
     heatmapResult,
     honorRecordsResult,
-    academicExamsResult,
-    academicScoresResult,
+    academicGrowthResult,
     displaySettingsResult,
+    weatherResult,
   ] = extraResults;
 
   const trackFailure = (
@@ -399,6 +517,9 @@ async function loadProjectionSnapshot(
     result: PromiseSettledResult<unknown>,
   ) => {
     if (result.status === "rejected") {
+      if (isProjectionAuthFailure(result.reason)) {
+        authFailed = true;
+      }
       failures.push(
         `${label}：${getSettledErrorMessage(result.reason, "加载失败")}`,
       );
@@ -412,8 +533,7 @@ async function loadProjectionSnapshot(
   trackFailure("荣誉", honorsResult);
   trackFailure("荣誉记录", honorRecordsResult);
   trackFailure("热力矩阵", heatmapResult);
-  trackFailure("学业考试", academicExamsResult);
-  trackFailure("学业成绩", academicScoresResult);
+  trackFailure("学业成长", academicGrowthResult);
   trackFailure("展示终端", displayTerminalsResult);
   trackFailure("展示设置", displaySettingsResult);
 
@@ -447,38 +567,25 @@ async function loadProjectionSnapshot(
     honorRecordsResult.status === "fulfilled"
       ? honorRecordsResult.value.data
       : [];
-  const academicExams =
-    academicExamsResult.status === "fulfilled"
-      ? academicExamsResult.value.data
-      : [];
-  const academicScores =
-    academicScoresResult.status === "fulfilled"
-      ? academicScoresResult.value.data
-      : [];
+  const academicGrowth =
+    academicGrowthResult.status === "fulfilled"
+      ? (academicGrowthResult.value.data as AcademicGrowthSummary)
+      : null;
   const displayTerminals =
     displayTerminalsResult.status === "fulfilled"
       ? displayTerminalsResult.value.data
       : [];
 
-  let weatherInfo: DisplayWeatherPayload | null = null;
+  let weatherInfo =
+    weatherResult.status === "fulfilled" ? weatherResult.value.data : null;
   let weatherLabel = "大理";
   let semesterName: string | null = null;
   if (displaySettingsResult.status === "fulfilled") {
     const displaySettings = displaySettingsResult.value.data;
-    const lat = Number(displaySettings.weatherLatitude);
-    const lng = Number(displaySettings.weatherLongitude);
     weatherLabel = displaySettings.weatherLabel?.trim() || "大理";
     semesterName = displaySettings.currentSemester?.name
       ? normalizeAcademicPeriodLabel(displaySettings.currentSemester.name)
       : null;
-    const weatherResponse = await adminApi
-      .displayWeather(token, {
-        latitude: Number.isFinite(lat) ? lat : undefined,
-        longitude: Number.isFinite(lng) ? lng : undefined,
-        label: weatherLabel,
-      })
-      .catch(() => ({ data: null as DisplayWeatherPayload | null }));
-    weatherInfo = weatherResponse.data;
   }
 
   return {
@@ -503,18 +610,35 @@ async function loadProjectionSnapshot(
             new Date(right.grantedAt).getTime() -
             new Date(left.grantedAt).getTime(),
         ),
-      academicExams,
-      academicScores,
+      academicGrowth,
       displayTerminals,
       weatherInfo,
       weatherLabel,
       semesterName,
     },
     failures,
+    authFailed,
   };
 }
 
-export function ProjectionModePage({ token, user }: ProjectionModePageProps) {
+async function recoverProjectionTokenFromStoredCredentials() {
+  const credentials = getAdminLoginCredentials();
+  if (!credentials?.username || !credentials.password) return null;
+  const response = await adminApi.projectionLogin(
+    credentials.username,
+    credentials.password,
+  );
+  const token = response.data.token;
+  setProjectionToken(token);
+  return token;
+}
+
+export function ProjectionModePage({
+  token,
+  user,
+  onUnauthorized,
+  onTokenRecovered,
+}: ProjectionModePageProps) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const returnTo = searchParams.get("returnTo") || "/dashboard";
@@ -590,6 +714,7 @@ export function ProjectionModePage({ token, user }: ProjectionModePageProps) {
   const [pollingFallback, setPollingFallback] = useState(false);
   const [refreshCount, setRefreshCount] = useState(0);
   const [clock, setClock] = useState(() => formatClock(new Date()));
+  const [gradeRotationIndex, setGradeRotationIndex] = useState(0);
   const refreshTimerRef = useRef<number | null>(null);
   const pollingTimerRef = useRef<number | null>(null);
   const heartbeatTimerRef = useRef<number | null>(null);
@@ -612,9 +737,38 @@ export function ProjectionModePage({ token, user }: ProjectionModePageProps) {
             setError(null);
           }
 
-          const { snapshot: nextSnapshot, failures } =
-            await loadProjectionSnapshot(token, analyticsWeekRange);
+          const {
+            snapshot: nextSnapshot,
+            failures,
+            authFailed,
+          } = await loadProjectionSnapshot(token, analyticsWeekRange);
           lastFailures = failures;
+          if (authFailed) {
+            const recoveredToken =
+              await recoverProjectionTokenFromStoredCredentials().catch(
+                () => null,
+              );
+            if (recoveredToken) {
+              onTokenRecovered?.(recoveredToken);
+              const retryResult = await loadProjectionSnapshot(
+                recoveredToken,
+                analyticsWeekRange,
+              );
+              if (!retryResult.authFailed) {
+                setSnapshot(retryResult.snapshot);
+                setLastUpdatedAt(formatClock(new Date()));
+                setRefreshCount(
+                  (value) => value + (source === "initial" ? 0 : 1),
+                );
+                setError(null);
+                loaded = true;
+                break;
+              }
+            }
+            setError("投屏身份已失效，请重新授权");
+            onUnauthorized?.();
+            return;
+          }
 
           const hasCoreData =
             nextSnapshot.classes.length > 0 || nextSnapshot.students.length > 0;
@@ -644,13 +798,39 @@ export function ProjectionModePage({ token, user }: ProjectionModePageProps) {
           setError(lastFailures[0] ?? "投屏数据加载失败");
         }
       } catch (err) {
+        if (isProjectionAuthFailure(err)) {
+          const recoveredToken =
+            await recoverProjectionTokenFromStoredCredentials().catch(
+              () => null,
+            );
+          if (recoveredToken) {
+            onTokenRecovered?.(recoveredToken);
+            const analyticsWeekRange = getProjectionWeekAnalyticsRange();
+            const retryResult = await loadProjectionSnapshot(
+              recoveredToken,
+              analyticsWeekRange,
+            );
+            if (!retryResult.authFailed) {
+              setSnapshot(retryResult.snapshot);
+              setLastUpdatedAt(formatClock(new Date()));
+              setRefreshCount(
+                (value) => value + (source === "initial" ? 0 : 1),
+              );
+              setError(null);
+              return;
+            }
+          }
+          setError("投屏身份已失效，请重新授权");
+          onUnauthorized?.();
+          return;
+        }
         setError(err instanceof Error ? err.message : "投屏数据加载失败");
       } finally {
         setLoading(false);
         inFlightRef.current = false;
       }
     },
-    [token],
+    [onTokenRecovered, onUnauthorized, token],
   );
 
   const scheduleRefresh = useCallback(() => {
@@ -807,8 +987,7 @@ export function ProjectionModePage({ token, user }: ProjectionModePageProps) {
     analytics,
     scoreRecords,
     honorRecords,
-    academicExams,
-    academicScores,
+    academicGrowth,
     displayTerminals,
     weatherInfo,
     weatherLabel,
@@ -835,20 +1014,65 @@ export function ProjectionModePage({ token, user }: ProjectionModePageProps) {
     () => scoreRecords.slice(0, 28),
     [scoreRecords],
   );
-  const academicGrowth = useMemo(
+  const academicGrowthSummary = useMemo(
     () =>
-      buildAcademicGrowthSummary(
-        academicExams,
-        academicScores,
-        classes,
-        students,
-      ),
-    [academicExams, academicScores, classes, students],
+      academicGrowth ?? buildAcademicGrowthSummary([], [], classes, students),
+    [academicGrowth, classes, students],
   );
+  const gradeGrowthGroups = useMemo(() => {
+    const payload = academicGrowthSummary as AcademicGrowthSummary & {
+      gradeGrowthGroups?: ProjectionGradeGrowthGroup[];
+    };
+    return payload.gradeGrowthGroups ?? [];
+  }, [academicGrowthSummary]);
+  const classById = useMemo(
+    () => new Map(classes.map((item) => [item.id, item])),
+    [classes],
+  );
+  const rotationGradeNames = useMemo(() => {
+    const availableGrades = new Set([
+      ...classes.map((item) => item.gradeName),
+      ...gradeGrowthGroups.map((item) => item.gradeName),
+    ]);
+    const configuredGrades = PROJECTION_ROTATION_GRADE_NAMES.filter(
+      (gradeName) => availableGrades.has(gradeName),
+    );
+    return configuredGrades.length
+      ? configuredGrades
+      : PROJECTION_ROTATION_GRADE_NAMES;
+  }, [classes, gradeGrowthGroups]);
+  const rotationGradeKey = rotationGradeNames.join("|");
+  const currentRotationGradeName =
+    rotationGradeNames[
+      gradeRotationIndex % Math.max(rotationGradeNames.length, 1)
+    ] ?? PROJECTION_ROTATION_GRADE_NAMES[0];
+  const emptyGradeGrowthSummary = useMemo(
+    () => buildAcademicGrowthSummary([], [], classes, students),
+    [classes, students],
+  );
+  const currentGradeGrowthSummary =
+    gradeGrowthGroups.find(
+      (item) => item.gradeName === currentRotationGradeName,
+    ) ??
+    (gradeGrowthGroups.length
+      ? emptyGradeGrowthSummary
+      : academicGrowthSummary);
 
-  const totalScore =
-    analytics?.totalScore ??
-    students.reduce((sum, item) => sum + item.currentScore, 0);
+  useEffect(() => {
+    setGradeRotationIndex(
+      (value) => value % Math.max(rotationGradeNames.length, 1),
+    );
+    if (rotationGradeNames.length <= 1) return;
+    const timer = window.setInterval(() => {
+      setGradeRotationIndex((value) => (value + 1) % rotationGradeNames.length);
+    }, PROJECTION_GRADE_ROTATION_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [rotationGradeKey, rotationGradeNames.length]);
+
+  const totalScore = students.reduce((sum, item) => sum + item.currentScore, 0);
+  const averageCurrentScore = students.length
+    ? Math.round(totalScore / students.length)
+    : 0;
   const activeStudents = students.filter(
     (item) => item.currentScore > 0 || item.currentPetLevel > 0,
   ).length;
@@ -875,7 +1099,7 @@ export function ProjectionModePage({ token, user }: ProjectionModePageProps) {
       },
       {
         label: "人均",
-        value: `${Math.round(analytics?.averageScore ?? totalScore / Math.max(students.length, 1))}`,
+        value: `${averageCurrentScore}`,
         sub: `样本${students.length}`,
         tone: "green",
         series: eventSeries,
@@ -916,7 +1140,7 @@ export function ProjectionModePage({ token, user }: ProjectionModePageProps) {
     ];
   }, [
     activeStudents,
-    analytics?.averageScore,
+    averageCurrentScore,
     dailySeries,
     honorRecords,
     positiveRate,
@@ -930,7 +1154,8 @@ export function ProjectionModePage({ token, user }: ProjectionModePageProps) {
 
   const topClasses = useMemo(() => {
     // 投屏页已加载完整班级列表，直接本地排序可展示全部 TOP10，避免 analytics 历史 8 条上限
-    return [...classes]
+    const rows = classes
+      .filter((item) => item.gradeName === currentRotationGradeName)
       .sort(
         (left, right) =>
           right.classScore - left.classScore ||
@@ -943,12 +1168,17 @@ export function ProjectionModePage({ token, user }: ProjectionModePageProps) {
         name: item.name,
         value: item.classScore,
       }));
-  }, [classes, topClassLimit]);
+    return withCompetitionRank(rows);
+  }, [classes, currentRotationGradeName, topClassLimit]);
 
   const topStudents = useMemo(() => {
     // 投屏页已加载完整学生列表，直接本地排序可展示完整 TOP，避免 analytics 15 条上限
     if (students.length) {
-      const rows = [...students]
+      const gradeStudents = students.filter(
+        (item) =>
+          classById.get(item.classId)?.gradeName === currentRotationGradeName,
+      );
+      const rows = [...gradeStudents]
         .sort(
           (left, right) =>
             right.currentScore - left.currentScore ||
@@ -968,6 +1198,10 @@ export function ProjectionModePage({ token, user }: ProjectionModePageProps) {
     }
     if (!analytics?.topStudents?.length) return [];
     const rows = analytics.topStudents
+      .filter(
+        (item) =>
+          classById.get(item.classId)?.gradeName === currentRotationGradeName,
+      )
       .slice(0, topStudentLimit)
       .map((item) => ({
         id: item.studentId,
@@ -978,10 +1212,19 @@ export function ProjectionModePage({ token, user }: ProjectionModePageProps) {
         petName: null,
       }));
     return withCompetitionRank(rows);
-  }, [analytics?.topStudents, students, topStudentLimit]);
+  }, [
+    analytics?.topStudents,
+    classById,
+    currentRotationGradeName,
+    students,
+    topStudentLimit,
+  ]);
 
   const progressLeaders = useMemo(() => {
-    const source = academicGrowth.progressLeaders.slice(0, progressLeaderLimit);
+    const source = currentGradeGrowthSummary.progressLeaders.slice(
+      0,
+      progressLeaderLimit,
+    );
     if (!source.length) return [];
     return Array.from({ length: progressLeaderLimit }, (_, index) => {
       const item = source[index];
@@ -1008,7 +1251,7 @@ export function ProjectionModePage({ token, user }: ProjectionModePageProps) {
         placeholder: true,
       };
     });
-  }, [academicGrowth.progressLeaders, classes, progressLeaderLimit]);
+  }, [classes, currentGradeGrowthSummary.progressLeaders, progressLeaderLimit]);
   const totalEvaluationCount =
     analytics?.totalScoreRecordCount ?? scoreRecords.length;
 
@@ -1167,7 +1410,7 @@ export function ProjectionModePage({ token, user }: ProjectionModePageProps) {
     0,
   );
 
-  const gaugeValue = clampPercent(academicGrowth.growthIndex);
+  const gaugeValue = clampPercent(currentGradeGrowthSummary.growthIndex);
   const tickerItems = useMemo(() => {
     const eventItems = recentRecords.slice(0, 8).map((item) => {
       const student = students.find((row) => row.id === item.studentId);
@@ -1178,7 +1421,7 @@ export function ProjectionModePage({ token, user }: ProjectionModePageProps) {
       .map(
         (item) => `${item.honorName} · ${item.studentName ?? item.className}`,
       );
-    const growthItems = academicGrowth.progressLeaders
+    const growthItems = currentGradeGrowthSummary.progressLeaders
       .slice(0, 8)
       .map(
         (item) =>
@@ -1199,7 +1442,7 @@ export function ProjectionModePage({ token, user }: ProjectionModePageProps) {
       ? [...items, ...items]
       : ["等待实时数据接入", "校园成长数据墙运行中", "班级与学生数据持续同步"];
   }, [
-    academicGrowth.progressLeaders,
+    currentGradeGrowthSummary.progressLeaders,
     honorRecords,
     recentRecords,
     students,
@@ -1209,10 +1452,6 @@ export function ProjectionModePage({ token, user }: ProjectionModePageProps) {
   const studentById = useMemo(
     () => new Map(students.map((item) => [item.id, item])),
     [students],
-  );
-  const classById = useMemo(
-    () => new Map(classes.map((item) => [item.id, item])),
-    [classes],
   );
   const trendPolyline = makeSparkline(
     dailySeries.map((item) => item.score),
@@ -1256,7 +1495,11 @@ export function ProjectionModePage({ token, user }: ProjectionModePageProps) {
     { label: "负向", value: `${negativeToday}`, tone: "red" },
     { label: "班级", value: `${classes.length}`, tone: "gold" },
     { label: "萌宠", value: `${petBoundCount}`, tone: "purple" },
-    { label: "学业", value: `${academicGrowth.growthIndex}`, tone: "cyan" },
+    {
+      label: "学业",
+      value: `${currentGradeGrowthSummary.growthIndex}`,
+      tone: "cyan",
+    },
     { label: "刷新", value: `${refreshCount}`, tone: "gold" },
   ];
 
@@ -1421,7 +1664,7 @@ export function ProjectionModePage({ token, user }: ProjectionModePageProps) {
                       风险<b>{highRiskCount}</b>
                     </span>
                     <span>
-                      成长<b>{academicGrowth.growthIndex}</b>
+                      成长<b>{currentGradeGrowthSummary.growthIndex}</b>
                     </span>
                     <span>
                       同步<b>{totalEvaluationCount}</b>
@@ -1651,11 +1894,13 @@ export function ProjectionModePage({ token, user }: ProjectionModePageProps) {
                 </div>
               </div>
               <div className="projection-panel projection-bars">
-                <div className="projection-panel-title">班级TOP</div>
+                <div className="projection-panel-title">
+                  {currentRotationGradeName} · 班级TOP
+                </div>
                 <div className="projection-bars-list">
-                  {topClasses.map((item, index) => (
+                  {topClasses.map((item) => (
                     <div className="projection-bar-row" key={item.id}>
-                      <span>{index + 1}</span>
+                      <span>{item.rank}</span>
                       <b>{item.name}</b>
                       <i>
                         <em
@@ -1672,7 +1917,9 @@ export function ProjectionModePage({ token, user }: ProjectionModePageProps) {
                 </div>
               </div>
               <div className="projection-panel projection-progress">
-                <div className="projection-panel-title">进步之星</div>
+                <div className="projection-panel-title">
+                  {currentRotationGradeName} · 进步之星
+                </div>
                 {progressLeaders.length ? (
                   <div className="projection-progress-list">
                     {progressLeaders.map((item) => (
@@ -1756,7 +2003,7 @@ export function ProjectionModePage({ token, user }: ProjectionModePageProps) {
 
             <div className="projection-panel projection-students">
               <div className="projection-panel-title">
-                学生TOP · TOP{topStudentLimit}
+                {currentRotationGradeName} · 学生TOP
               </div>
               <div className="projection-students-grid">
                 {topStudents.map((item) => (
@@ -1796,6 +2043,36 @@ export function ProjectionModePage({ token, user }: ProjectionModePageProps) {
             </div>
 
             <div className="projection-right-strip">
+              <div className="projection-panel projection-gauge projection-panel-strip">
+                <div className="projection-panel-title">
+                  {currentRotationGradeName} · 学业指数
+                </div>
+                <div
+                  className="projection-gauge-ring"
+                  style={{ ["--gauge" as string]: `${gaugeValue}%` }}
+                >
+                  <strong>{currentGradeGrowthSummary.growthIndex}</strong>
+                  <span>
+                    {formatAcademicExamDisplayName(
+                      currentGradeGrowthSummary.latestExam?.name,
+                    ) || "暂无考试"}
+                  </span>
+                </div>
+                <div className="projection-gauge-stats">
+                  <span>
+                    覆盖<b>{currentGradeGrowthSummary.coverageRate}%</b>
+                  </span>
+                  <span>
+                    参与<b>{currentGradeGrowthSummary.participantCount}</b>
+                  </span>
+                  <span>
+                    进步<b>{currentGradeGrowthSummary.progressCount}</b>
+                  </span>
+                  <span>
+                    预警<b>{currentGradeGrowthSummary.riskCount}</b>
+                  </span>
+                </div>
+              </div>
               <div className="projection-panel projection-radar projection-panel-strip">
                 <div className="projection-panel-title">终端雷达</div>
                 <div className="projection-radar-core">
@@ -1825,30 +2102,6 @@ export function ProjectionModePage({ token, user }: ProjectionModePageProps) {
                   </span>
                   <span>
                     保底<b>{pollingFallback ? "10s" : "60s"}</b>
-                  </span>
-                </div>
-              </div>
-              <div className="projection-panel projection-gauge projection-panel-strip">
-                <div className="projection-panel-title">学业指数</div>
-                <div
-                  className="projection-gauge-ring"
-                  style={{ ["--gauge" as string]: `${gaugeValue}%` }}
-                >
-                  <strong>{academicGrowth.growthIndex}</strong>
-                  <span>{academicGrowth.latestExam?.name ?? "暂无考试"}</span>
-                </div>
-                <div className="projection-gauge-stats">
-                  <span>
-                    覆盖<b>{academicGrowth.coverageRate}%</b>
-                  </span>
-                  <span>
-                    参与<b>{academicGrowth.participantCount}</b>
-                  </span>
-                  <span>
-                    进步<b>{academicGrowth.progressCount}</b>
-                  </span>
-                  <span>
-                    预警<b>{academicGrowth.riskCount}</b>
                   </span>
                 </div>
               </div>

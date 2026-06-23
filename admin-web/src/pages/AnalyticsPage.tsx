@@ -60,6 +60,7 @@ export function AnalyticsPage({
   const [pendingEndDate, setPendingEndDate] = useState(today);
   const pendingRangeRef = useRef({ start: defaultStartDate, end: today });
   const rangeCommitTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const analyticsRequestSeqRef = useRef(0);
   const quickRangeOptions = [
     { key: '7d', label: '近7天' },
     { key: '30d', label: '近30天' },
@@ -202,6 +203,8 @@ export function AnalyticsPage({
     showGeneratingMask?: boolean;
     successMessage?: string;
   }) {
+    const requestSeq = ++analyticsRequestSeqRef.current;
+    const isCurrentRequest = () => analyticsRequestSeqRef.current === requestSeq;
     if (classFilter === 'all') {
       if (teacherWorkbench) {
         setPageLoading(true);
@@ -215,13 +218,16 @@ export function AnalyticsPage({
         setReportMaskText('正在重新生成全局 AI 概览，请稍候...');
       }
       try {
+        let hasTodayReport = true;
         if (!options?.regenerateAi) {
           const status = await adminApi.analyticsReportStatus(token, {
             ...(gradeFilter !== 'all' ? { gradeName: gradeFilter } : {}),
             startDate,
             endDate,
           });
-          if (!status.data.hasTodayReport) {
+          if (!isCurrentRequest()) return;
+          hasTodayReport = status.data.hasTodayReport;
+          if (!hasTodayReport) {
             setReportGenerating(true);
             setReportMaskText('今日首次进入当前汇总视图，正在生成 AI 全局概览，请稍候...');
           }
@@ -232,9 +238,11 @@ export function AnalyticsPage({
           startDate,
           endDate,
           ...(options?.regenerateAi ? { regenerateAi: true } : {}),
+          skipDetailSummary: true,
         };
 
         const summaryResponse = await adminApi.analyticsSummary(token, queryParams);
+        if (!isCurrentRequest()) return;
         setAnalytics(summaryResponse.data);
         if (options?.successMessage) {
           setExportSuccess(options.successMessage);
@@ -245,18 +253,27 @@ export function AnalyticsPage({
 
         // 分批加载热力图与 AI
         adminApi.analyticsHeatmap(token, queryParams).then(res => {
+          if (!isCurrentRequest()) return;
           setAnalytics(prev => prev ? { ...prev, heatMap: res.data.heatMap } : prev);
         }).catch(console.error);
 
-        setReportGenerating(true);
-        setReportMaskText('正在由 AI 引擎分析班级数据，请稍候...');
+        const shouldShowAiMask = options?.regenerateAi || !hasTodayReport;
+        if (shouldShowAiMask) {
+          setReportGenerating(true);
+          setReportMaskText('正在由 AI 引擎分析班级数据，请稍候...');
+        }
         adminApi.analyticsAi(token, queryParams).then(res => {
+          if (!isCurrentRequest()) return;
           setAnalytics(prev => prev ? { ...prev, aiInsight: res.data.aiInsight } : prev);
         }).catch(console.error).finally(() => {
+          if (!isCurrentRequest()) return;
           setAiRefreshing(false);
-          setReportGenerating(false);
+          if (shouldShowAiMask) {
+            setReportGenerating(false);
+          }
         });
       } catch (err) {
+        if (!isCurrentRequest()) return;
         setPageError(err instanceof Error ? err.message : '分析数据加载失败');
         setPageLoading(false);
         setAiRefreshing(false);
@@ -274,6 +291,7 @@ export function AnalyticsPage({
     }
 
     try {
+      let hasTodayReport = true;
       if (!options?.regenerateAi) {
         const status = await adminApi.analyticsReportStatus(token, {
           classId: Number(classFilter),
@@ -281,7 +299,9 @@ export function AnalyticsPage({
           endDate,
           ...(analyticsSubjectFilter ? { subjectCode: analyticsSubjectFilter } : {}),
         });
-        if (!status.data.hasTodayReport) {
+        if (!isCurrentRequest()) return;
+        hasTodayReport = status.data.hasTodayReport;
+        if (!hasTodayReport) {
           setReportGenerating(true);
           setReportMaskText('今日首次进入该班级，正在生成班级 AI 报告，请稍候...');
         }
@@ -294,9 +314,11 @@ export function AnalyticsPage({
         endDate,
         ...(analyticsSubjectFilter ? { subjectCode: analyticsSubjectFilter } : {}),
         ...(options?.regenerateAi ? { regenerateAi: true } : {}),
+        skipDetailSummary: true,
       };
 
       const summaryResponse = await adminApi.analyticsSummary(token, queryParams);
+      if (!isCurrentRequest()) return;
       setAnalytics(summaryResponse.data);
       if (options?.successMessage) {
         setExportSuccess(options.successMessage);
@@ -307,18 +329,27 @@ export function AnalyticsPage({
 
       // 分批加载热力图与 AI
       adminApi.analyticsHeatmap(token, queryParams).then(res => {
+        if (!isCurrentRequest()) return;
         setAnalytics(prev => prev ? { ...prev, heatMap: res.data.heatMap } : prev);
       }).catch(console.error);
 
-      setReportGenerating(true);
-      setReportMaskText('正在由 AI 引擎分析班级数据，请稍候...');
+      const shouldShowAiMask = options?.regenerateAi || !hasTodayReport;
+      if (shouldShowAiMask) {
+        setReportGenerating(true);
+        setReportMaskText('正在由 AI 引擎分析班级数据，请稍候...');
+      }
       adminApi.analyticsAi(token, queryParams).then(res => {
+        if (!isCurrentRequest()) return;
         setAnalytics(prev => prev ? { ...prev, aiInsight: res.data.aiInsight } : prev);
       }).catch(console.error).finally(() => {
+        if (!isCurrentRequest()) return;
         setAiRefreshing(false);
-        setReportGenerating(false);
+        if (shouldShowAiMask) {
+          setReportGenerating(false);
+        }
       });
     } catch (err) {
+      if (!isCurrentRequest()) return;
       setPageError(err instanceof Error ? err.message : '分析数据加载失败');
       setPageLoading(false);
       setAiRefreshing(false);
@@ -794,7 +825,7 @@ export function AnalyticsPage({
     }
     const rows: Array<Array<string | number>> = [
       ['指标', '值'],
-      ['本学期总积分', totalScore],
+      ['总积分', totalScore],
       ['正向规则数', positiveRuleCount],
       ['人均积分', averageScore],
       ['活跃天数', activeDays],
@@ -1250,7 +1281,7 @@ export function AnalyticsPage({
       <div className="analytics-summary">
         <div className="a-summary-card">
           <div className="a-s-icon">◫</div>
-          <div className="a-s-label">{isHomeroomTeacher ? '本周期总积分' : '本学期总积分'}</div>
+          <div className="a-s-label">总积分</div>
           <div className="a-s-value">{isAnalyticsDataLoading ? <span className="val-loading">...</span> : totalScore.toLocaleString('zh-CN')}</div>
           <div className="a-s-sub">来自班级真实积分汇总</div>
         </div>
@@ -1264,7 +1295,7 @@ export function AnalyticsPage({
           <div className="a-s-icon">✦</div>
           <div className="a-s-label">人均积分</div>
           <div className="a-s-value">{isAnalyticsDataLoading ? <span className="val-loading">...</span> : averageScore}</div>
-          <div className="a-s-sub">按学生当前积分均值计算</div>
+          <div className="a-s-sub">按当前筛选范围内人均净积分计算</div>
         </div>
         <div className="a-summary-card">
           <div className="a-s-icon">◌</div>

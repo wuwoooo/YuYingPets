@@ -29,11 +29,13 @@ import {
   buildAcademicGrowthSummary,
   type AcademicGrowthSummary,
 } from "../utils/academicGrowth";
+import { formatAcademicExamDisplayName } from "../utils/academicImport";
 import {
   buildTeacherDeskAcademicBrief,
   mapDeskOverviewGradeBench,
 } from "../utils/teacherDeskAcademicBrief";
 import type { AdminState } from "../types/admin";
+import { matchPinyinOrChinese } from "../utils/pinyin";
 
 type DashboardPageProps = Omit<AdminState, "token"> & {
   token: string;
@@ -187,6 +189,8 @@ export function DashboardPage({
   const [classCallQueue, setClassCallQueue] = useState<any[]>([]);
   const [callSubmitting, setCallSubmitting] = useState(false);
   const [callMessage, setCallMessage] = useState<string | null>(null);
+  const [callStudentSearchText, setCallStudentSearchText] = useState('');
+  const [callStudentFilterStatus, setCallStudentFilterStatus] = useState<'all' | 'selected' | 'unselected'>('all');
 
   const callGradeOptions = useMemo(() => {
     const grades = callQueueClasses.map(c => c.gradeName).filter(Boolean);
@@ -251,6 +255,8 @@ export function DashboardPage({
     setCallMessage(null);
     setCallLocation('');
     setSelectedCallStudentIds([]);
+    setCallStudentSearchText('');
+    setCallStudentFilterStatus('all');
 
     const nextClasses = await loadCallableClasses();
     setCallQueueClasses(nextClasses);
@@ -337,6 +343,23 @@ export function DashboardPage({
     return callQueueStudents.filter(s => s.classId === Number(selectedCallClassId));
   }, [callQueueStudents, selectedCallClassId]);
 
+  const filteredClassStudents = useMemo(() => {
+    if (!selectedCallClassId) return [];
+    let students = callQueueStudents.filter(s => s.classId === Number(selectedCallClassId));
+
+    if (callStudentSearchText.trim()) {
+      students = students.filter(s => matchPinyinOrChinese(s.name, callStudentSearchText));
+    }
+
+    if (callStudentFilterStatus === 'selected') {
+      students = students.filter(s => selectedCallStudentIds.includes(s.id));
+    } else if (callStudentFilterStatus === 'unselected') {
+      students = students.filter(s => !selectedCallStudentIds.includes(s.id));
+    }
+
+    return students;
+  }, [callQueueStudents, selectedCallClassId, callStudentSearchText, callStudentFilterStatus, selectedCallStudentIds]);
+
   const renderCallQueueModal = () => {
     if (!callQueueModalOpen) return null;
     return (
@@ -376,6 +399,8 @@ export function DashboardPage({
                       setSelectedCallGrade(e.target.value);
                       setSelectedCallClassId('');
                       setSelectedCallStudentIds([]);
+                      setCallStudentSearchText('');
+                      setCallStudentFilterStatus('all');
                     }}
                     style={{ flex: 1 }}
                   >
@@ -389,6 +414,8 @@ export function DashboardPage({
                     onChange={(e) => {
                       setSelectedCallClassId(e.target.value ? Number(e.target.value) : '');
                       setSelectedCallStudentIds([]);
+                      setCallStudentSearchText('');
+                      setCallStudentFilterStatus('all');
                     }}
                     style={{ flex: 1 }}
                   >
@@ -435,18 +462,95 @@ export function DashboardPage({
                   </label>
                   {classStudents.length > 0 && (
                     <div className="cq-student-actions">
-                      <button type="button" className="select-all" onClick={() => setSelectedCallStudentIds(classStudents.map(s => s.id))}>全选</button>
-                      <button type="button" className="clear-all" onClick={() => setSelectedCallStudentIds([])}>清空</button>
+                      <button
+                        type="button"
+                        className="select-all"
+                        onClick={() => {
+                          const newIds = [...selectedCallStudentIds];
+                          filteredClassStudents.forEach(s => {
+                            if (!newIds.includes(s.id)) {
+                              newIds.push(s.id);
+                            }
+                          });
+                          setSelectedCallStudentIds(newIds);
+                        }}
+                      >
+                        全选
+                      </button>
+                      <button
+                        type="button"
+                        className="clear-all"
+                        onClick={() => {
+                          if (!callStudentSearchText.trim() && callStudentFilterStatus === 'all') {
+                            setSelectedCallStudentIds([]);
+                          } else {
+                            const filteredIds = filteredClassStudents.map(s => s.id);
+                            setSelectedCallStudentIds(prev => prev.filter(id => !filteredIds.includes(id)));
+                          }
+                        }}
+                      >
+                        清空
+                      </button>
                     </div>
                   )}
                 </div>
+
+                {classStudents.length > 0 && !selectedCallClassOffline && (
+                  <div className="cq-student-search-bar">
+                    <div className="cq-search-input-wrapper">
+                      <span className="cq-search-icon">🔍</span>
+                      <input
+                        type="text"
+                        className="cq-student-search-input"
+                        placeholder="输入姓名或拼音首字母检索（如 zs）"
+                        value={callStudentSearchText}
+                        onChange={(e) => setCallStudentSearchText(e.target.value)}
+                      />
+                      {callStudentSearchText && (
+                        <button
+                          type="button"
+                          className="cq-search-clear-btn"
+                          onClick={() => setCallStudentSearchText('')}
+                        >
+                          ×
+                        </button>
+                      )}
+                    </div>
+                    <div className="cq-filter-tabs">
+                      <button
+                        type="button"
+                        className={`cq-filter-tab${callStudentFilterStatus === 'all' ? ' active' : ''}`}
+                        onClick={() => setCallStudentFilterStatus('all')}
+                      >
+                        全部
+                      </button>
+                      <button
+                        type="button"
+                        className={`cq-filter-tab${callStudentFilterStatus === 'selected' ? ' active' : ''}`}
+                        onClick={() => setCallStudentFilterStatus('selected')}
+                      >
+                        已选 ({selectedCallStudentIds.length})
+                      </button>
+                      <button
+                        type="button"
+                        className={`cq-filter-tab${callStudentFilterStatus === 'unselected' ? ' active' : ''}`}
+                        onClick={() => setCallStudentFilterStatus('unselected')}
+                      >
+                        未选
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <div className="cq-student-grid">
                   {selectedCallClassOffline ? (
                     <div className="cq-student-empty">当前班级大屏离线，无法发起叫号</div>
                   ) : classStudents.length === 0 ? (
                     <div className="cq-student-empty">请先选择班级</div>
+                  ) : filteredClassStudents.length === 0 ? (
+                    <div className="cq-student-empty">未匹配到符合条件的学生</div>
                   ) : (
-                    classStudents.map((s) => {
+                    filteredClassStudents.map((s) => {
                       const isChecked = selectedCallStudentIds.includes(s.id);
                       return (
                         <label key={s.id} className={`cq-student-chip${isChecked ? ' checked' : ''}`}>
@@ -600,9 +704,10 @@ export function DashboardPage({
     let active = true;
     setCockpitAnalyticsLoading(true);
     const canManageDisp = canManageDisplays(user?.roleCode);
+    const analyticsQuery = { skipDetailSummary: true };
     Promise.all([
-      adminApi.analyticsSummary(token),
-      adminApi.analyticsHeatmap(token),
+      adminApi.analyticsSummary(token, analyticsQuery),
+      adminApi.analyticsHeatmap(token, analyticsQuery),
       adminApi.scoreRecords(token),
       canManageDisp ? adminApi.displayTerminals(token) : Promise.resolve({ data: [] }),
       adminApi.academicExams(token, { currentSemesterOnly: true }),
@@ -669,7 +774,10 @@ export function DashboardPage({
     if (!isTeacherDashboard || !token) return;
     let active = true;
     setTeacherAcademicLoading(true);
-    Promise.all([adminApi.academicExams(token), adminApi.academicScores(token)])
+    Promise.all([
+      adminApi.academicExams(token, { currentSemesterOnly: true }),
+      adminApi.academicScores(token, { currentSemesterOnly: true, recentExamLimit: 6 }),
+    ])
       .then(([examsResp, scoresResp]) => {
         if (!active) return;
         setAcademicExams(examsResp.data);
@@ -1014,9 +1122,7 @@ export function DashboardPage({
    */
 
   const cockpitKpi = useMemo(() => {
-    const totalScore =
-      analyticsData?.totalScore ??
-      students.reduce((s, st) => s + st.currentScore, 0);
+    const totalScore = students.reduce((s, st) => s + st.currentScore, 0);
     const displayReadyClasses = classes.filter(
       (c) => c.displayStatus === "enabled",
     ).length;
@@ -3871,7 +3977,7 @@ export function DashboardPage({
               >
                 {academicExams.map((exam) => (
                   <option key={exam.id} value={exam.id}>
-                    {exam.name}
+                    {formatAcademicExamDisplayName(exam.name)}
                     {exam.gradeName ? ` · ${exam.gradeName}` : ""}
                   </option>
                 ))}
@@ -3881,7 +3987,10 @@ export function DashboardPage({
               {academicGrowth.growthIndex}
             </div>
             <div className="academic-growth-meta">
-              <span>{academicGrowth.latestExam?.name ?? "暂无考试数据"}</span>
+              <span>
+                {formatAcademicExamDisplayName(academicGrowth.latestExam?.name) ||
+                  "暂无考试数据"}
+              </span>
               <span>覆盖率 {academicGrowth.coverageRate}%</span>
               <span>参考 {academicGrowth.participantCount} 人</span>
             </div>
@@ -3999,7 +4108,9 @@ export function DashboardPage({
                   <div className="academic-trend-card" key={row.key}>
                     <div className="academic-trend-card-head">
                       <div>
-                        <strong title={item.examName}>{item.examName}</strong>
+                        <strong title={item.examName}>
+                          {formatAcademicExamDisplayName(item.examName)}
+                        </strong>
                         <span>
                           {examDate ? `${examDate} · ` : ""}
                           {item.participantCount} 人参考

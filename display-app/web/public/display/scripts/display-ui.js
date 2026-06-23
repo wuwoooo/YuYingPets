@@ -145,6 +145,202 @@
     return true;
   }
 
+  function renderSavedLoginAccounts(accounts = [], selectedUsername = "") {
+    const field = document.getElementById("loginSavedAccountField");
+    const select = document.getElementById("loginSavedAccount");
+    const deleteButton = document.getElementById("loginDeleteSavedAccount");
+    if (!field || !select) return;
+    field.hidden = accounts.length === 0;
+    select.replaceChildren();
+    if (!accounts.length) {
+      if (deleteButton) deleteButton.disabled = true;
+      return;
+    }
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "选择已保存账号快速登录";
+    select.appendChild(placeholder);
+    accounts.forEach((account) => {
+      const option = document.createElement("option");
+      option.value = account.username;
+      option.textContent =
+        account.displayName && account.displayName !== account.username
+          ? `${account.displayName}（${account.username}）`
+          : account.username;
+      select.appendChild(option);
+    });
+    select.value = selectedUsername || "";
+    if (deleteButton) deleteButton.disabled = !select.value;
+  }
+
+  function hydrateLoginUsername(account) {
+    if (!account) return;
+    const usernameInput = document.getElementById("loginUsername");
+    if (usernameInput) usernameInput.value = account.username;
+  }
+
+  function clearDisplayPasswordInputs() {
+    ["loginPassword", "setupAdminPassword"].forEach((id) => {
+      const input = document.getElementById(id);
+      if (input) input.value = "";
+    });
+  }
+
+  function focusPasswordInputWithKeyboard(input, options = {}) {
+    if (!input) return false;
+    input.readOnly = false;
+    input.removeAttribute("readonly");
+    if (document.activeElement === input || options.forceRefocus) {
+      input.blur();
+    }
+    global.requestAnimationFrame(() => {
+      input.focus({ preventScroll: true });
+      input.click();
+      try {
+        global.navigator?.virtualKeyboard?.show?.();
+      } catch (error) {
+        // 部分 WebView 不允许直接调用 virtualKeyboard，保留 focus/click 兜底。
+      }
+    });
+    return true;
+  }
+
+  function preparePasswordInputForTouchKeyboard(input) {
+    if (!input) return false;
+    input.readOnly = false;
+    input.removeAttribute("readonly");
+    if (document.activeElement === input) {
+      input.blur();
+    }
+    return true;
+  }
+
+  function prepareLoginPasswordKeyboard() {
+    return preparePasswordInputForTouchKeyboard(document.getElementById("loginPassword"));
+  }
+
+  function bindTouchKeyboardRecovery(input) {
+    if (!input || input.dataset.touchKeyboardRecoveryBound === "1") return;
+    input.dataset.touchKeyboardRecoveryBound = "1";
+    let lastRecoveryAt = 0;
+    const recover = () => {
+      const now = Date.now();
+      if (now - lastRecoveryAt < 120) return;
+      lastRecoveryAt = now;
+      focusPasswordInputWithKeyboard(input, {
+        forceRefocus: document.activeElement === input,
+      });
+    };
+    input.addEventListener("pointerdown", recover);
+    input.addEventListener("touchstart", recover, { passive: true });
+    input.addEventListener("mousedown", recover);
+  }
+
+  function suppressPasswordManagerPrompts() {
+    const inputConfigs = [
+      { id: "loginUsername", autocomplete: "off", readonly: false },
+      { id: "loginPassword", autocomplete: "new-password", readonly: true },
+      { id: "setupAdminUsername", autocomplete: "off", readonly: false },
+      { id: "setupAdminPassword", autocomplete: "new-password", readonly: true },
+    ];
+    inputConfigs.forEach(({ id, autocomplete, readonly }) => {
+      const input = document.getElementById(id);
+      if (!input) return;
+      input.setAttribute("autocomplete", autocomplete);
+      input.setAttribute("autocapitalize", "off");
+      input.setAttribute("autocorrect", "off");
+      input.setAttribute("spellcheck", "false");
+      input.setAttribute("data-lpignore", "true");
+      input.setAttribute("data-1p-ignore", "true");
+      if (readonly) {
+        input.readOnly = true;
+        const unlock = () => {
+          input.readOnly = false;
+        };
+        input.addEventListener("focus", unlock);
+        input.addEventListener("pointerdown", unlock);
+        input.addEventListener("touchstart", unlock);
+        bindTouchKeyboardRecovery(input);
+      }
+    });
+  }
+
+  function fillLoginCredentials(account) {
+    if (!account) return false;
+    const usernameInput = document.getElementById("loginUsername");
+    const passwordInput = document.getElementById("loginPassword");
+    if (usernameInput) usernameInput.value = account.username;
+    if (passwordInput) {
+      passwordInput.value = "";
+      passwordInput.focus();
+    }
+    return Boolean(account.username);
+  }
+
+  function getSelectedSavedLoginUsername() {
+    return document.getElementById("loginSavedAccount")?.value?.trim() || "";
+  }
+
+  function setSavedLoginDeleteDisabled(disabled) {
+    const deleteButton = document.getElementById("loginDeleteSavedAccount");
+    if (deleteButton) deleteButton.disabled = Boolean(disabled);
+  }
+
+  function clearLoginCredentialsIfUsername(username) {
+    const usernameInput = document.getElementById("loginUsername");
+    const passwordInput = document.getElementById("loginPassword");
+    if (usernameInput?.value?.trim() === username) {
+      usernameInput.value = "";
+    }
+    if (passwordInput) passwordInput.value = "";
+  }
+
+  function setSetupMessage(targetId, message, type = "error") {
+    const el = document.getElementById(targetId);
+    if (!el) return;
+    el.textContent = message || "";
+    el.style.color = type === "success" ? "#1e8e5a" : "#d64343";
+  }
+
+  function goSetupStep(step, context = {}) {
+    for (let i = 1; i <= 4; i += 1) {
+      document
+        .getElementById(`setupStep${i}`)
+        ?.classList.toggle("active", i === Math.min(step, 4));
+    }
+    for (let i = 1; i <= 5; i += 1) {
+      document
+        .getElementById(`setupPanel${i}`)
+        ?.classList.toggle("active", i === step);
+    }
+    if (step === 2) {
+      const codeEl = document.getElementById("setupTerminalCode");
+      const nameInput = document.getElementById("setupTerminalName");
+      if (codeEl) codeEl.textContent = context.terminalCode || "";
+      if (nameInput) nameInput.value = context.terminalName || "";
+    }
+  }
+
+  function renderSetupMode(textMap = {}, isRebind = false) {
+    [
+      ["setupBrandTitle", textMap.brandTitle],
+      ["setupBrandCopy", textMap.brandCopy],
+      ["setupWelcomeTitle", textMap.welcomeTitle],
+      ["setupWelcomeDesc", textMap.welcomeDesc],
+      ["setupWelcomeActionBtn", textMap.welcomeAction],
+      ["setupAuthTitle", textMap.authTitle],
+      ["setupAuthDesc", textMap.authDesc],
+      ["setupBindTitle", textMap.bindTitle],
+      ["setupBindDesc", textMap.bindDesc],
+      ["setupBindActionBtn", textMap.bindAction],
+      ["setupSuccessTitle", textMap.successTitle],
+    ].forEach(([id, value]) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = value || "";
+    });
+    document.getElementById("setupCloseBtn")?.classList.toggle("visible", isRebind);
+  }
+
   function closeConfirmModal(confirmed = false) {
     const overlay = document.getElementById("confirmModal");
     overlay?.classList.remove("active");
@@ -332,6 +528,18 @@
     setRealtimeStatus,
     renderLockMeta,
     renderLockOverlay,
+    renderSavedLoginAccounts,
+    hydrateLoginUsername,
+    clearDisplayPasswordInputs,
+    suppressPasswordManagerPrompts,
+    fillLoginCredentials,
+    prepareLoginPasswordKeyboard,
+    getSelectedSavedLoginUsername,
+    setSavedLoginDeleteDisabled,
+    clearLoginCredentialsIfUsername,
+    setSetupMessage,
+    goSetupStep,
+    renderSetupMode,
     closeConfirmModal,
     showConfirmModal,
     showDisplayAlert,
@@ -339,3 +547,4 @@
     showToast,
   };
 })(window);
+// 强制刷新大屏端缓存

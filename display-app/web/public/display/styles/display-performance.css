@@ -1,0 +1,182 @@
+/* ========== 响应式与性能降级 ========== */
+
+      /* ========== 响应式微调 ========== */
+      @media (max-width: 1600px) {
+        #page-classroom[data-grid-density="compact"] {
+          --grid-columns: 8;
+        }
+        #page-classroom[data-grid-density="standard"] {
+          --grid-columns: 6;
+        }
+        #page-classroom:not(.sidebar-collapsed) {
+          --sidebar-width: 300px;
+        }
+      }
+      @media (max-width: 1200px) {
+        #page-classroom[data-grid-density="compact"] {
+          --grid-columns: 7;
+        }
+        #page-classroom[data-grid-density="standard"] {
+          --grid-columns: 5;
+        }
+        #page-classroom:not(.sidebar-collapsed) {
+          --sidebar-width: 280px;
+        }
+        .adopt-pet-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        .adopt-stage-showcase {
+          grid-template-columns: 1fr;
+        }
+        .adopt-stage-arena {
+          min-height: 500px;
+        }
+        .adopt-stage-rail {
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+        }
+      }
+      body.standard-display {
+        --pet-visual-shadow:
+          drop-shadow(0 8px 12px rgba(10, 28, 48, 0.16));
+        --pet-visual-shadow-soft: drop-shadow(0 4px 8px rgba(10, 28, 48, 0.12));
+      }
+      body.standard-display .display-fullscreen-btn,
+      body.standard-display .display-toast,
+      body.standard-display .display-realtime-status,
+      body.standard-display .entry-corner-badge,
+      body.standard-display .setup-shell,
+      body.standard-display .login-card,
+      body.standard-display .pet-upgrade-overlay {
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+      }
+      body.standard-display .entry-starfield::before,
+      body.standard-display .star-layer,
+      body.standard-display .shooting-star::before {
+        filter: none;
+      }
+      body.standard-display .star-layer {
+        will-change: transform, opacity;
+      }
+      body.standard-display .star-layer-near {
+        opacity: 0.58;
+      }
+      body.standard-display .trans-bg.animating {
+        animation-name: transZoomStandard;
+      }
+      @keyframes transZoomStandard {
+        0% {
+          transform: scale(1);
+          filter: brightness(1);
+        }
+        55% {
+          transform: scale(1.45);
+          filter: brightness(1.12);
+        }
+        100% {
+          transform: scale(2.2);
+          filter: blur(2px) brightness(1.35);
+        }
+      }
+      body.standard-display .pet-upgrade-backdrop,
+      body.standard-display .pet-upgrade-aura {
+        filter: blur(8px);
+      }
+      body.standard-display .pet-upgrade-shockwave,
+      body.standard-display .pet-upgrade-overlay .evo-ring {
+        box-shadow: 0 0 22px var(--pet-color-fade-30);
+      }
+      body.standard-display .pet-upgrade-overlay .evo-ring-outer,
+      body.standard-display .pet-upgrade-overlay .evo-ring-inner {
+        box-shadow: 0 0 28px var(--pet-color-fade-30);
+      }
+      body.standard-display .pet-upgrade-avatar,
+      body.standard-display .pet-upgrade-seed,
+      body.standard-display .pet-upgrade-overlay .evo-text {
+        filter: drop-shadow(0 10px 24px var(--pet-color-fade-30));
+      }
+      body.standard-display .pet-adopt-seed-hatch,
+      body.standard-display .evo-pet-shine {
+        filter: drop-shadow(0 8px 20px var(--pet-color-fade-30));
+      }
+      body.standard-display #page-setup .entry-starfield {
+        opacity: 0.72;
+      }
+      body.standard-display .setup-shell {
+        background: rgba(16, 47, 76, 0.84);
+        border-color: rgba(255, 255, 255, 0.24);
+        box-shadow: 0 24px 56px rgba(7, 24, 40, 0.24);
+      }
+      body.standard-display .setup-side {
+        padding: 24px 22px;
+        border-radius: 28px;
+        background:
+          linear-gradient(180deg, rgba(52, 84, 116, 0.94), rgba(24, 55, 86, 0.92));
+        border: 1px solid rgba(255, 255, 255, 0.12);
+      }
+      body.standard-display .setup-kicker {
+        background: rgba(255, 255, 255, 0.18);
+      }
+      body.standard-display .setup-brand,
+      body.standard-display .setup-copy,
+      body.standard-display .setup-side > div:last-child {
+        color: rgba(255, 255, 255, 0.96);
+      }
+      body.standard-display .setup-step {
+        background: rgba(255, 255, 255, 0.13);
+        border-color: rgba(255, 255, 255, 0.12);
+      }
+      body.standard-display .setup-step.active {
+        background: rgba(255, 255, 255, 0.22);
+        border-color: rgba(255, 255, 255, 0.24);
+      }
+      body.standard-display .setup-step-index {
+        background: rgba(255, 255, 255, 0.26);
+      }
+      body.standard-display .setup-step-text span {
+        color: rgba(255, 255, 255, 0.86);
+      }
+      body.standard-display .setup-main {
+        background: rgba(255, 255, 255, 0.97);
+      }
+      body.standard-display .entry-corner-badge {
+        background: rgba(7, 31, 49, 0.68);
+        border-color: rgba(255, 255, 255, 0.18);
+      }
+      body.standard-display .entry-terminal-pill,
+      body.standard-display .entry-admin-btn,
+      body.standard-display .entry-btn {
+        background: rgba(255, 255, 255, 0.16);
+        border-color: rgba(255, 255, 255, 0.24);
+      }
+      body.standard-display #page-login::before {
+        background: rgba(6, 24, 43, 0.84);
+      }
+      body.standard-display .login-card {
+        background: rgba(255, 255, 255, 0.98);
+      }
+
+      /* 流畅模式：保留静态星点，关闭星云/流星/星层动画 */
+      body.low-spec .entry-starfield::before,
+      body.low-spec .shooting-star {
+        display: none !important;
+      }
+      body.low-spec .entry-starfield .star-layer {
+        animation: none !important;
+        will-change: auto;
+        filter: none;
+        mix-blend-mode: normal;
+      }
+      body.low-spec .star-layer-far {
+        opacity: 0.38;
+      }
+      body.low-spec .star-layer-mid {
+        opacity: 0.52;
+      }
+      body.low-spec .star-layer-near {
+        opacity: 0.58;
+      }
+      .entry-starfield.entry-starfield-suspended::before,
+      .entry-starfield.entry-starfield-suspended .star-layer {
+        animation-play-state: paused !important;
+      }

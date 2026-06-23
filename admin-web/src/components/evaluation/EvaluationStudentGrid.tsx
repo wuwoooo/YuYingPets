@@ -7,6 +7,7 @@ type EvaluationStudentGridProps = {
   students: AdminStudent[];
   groups: ClassGroupSummary[];
   mode: EvaluationMode;
+  selectionEditing?: boolean;
   keyword: string;
   groupFilter: number | 'all';
   sort: StudentSortKey;
@@ -20,6 +21,7 @@ export function EvaluationStudentGrid({
   students,
   groups,
   mode,
+  selectionEditing = false,
   keyword,
   groupFilter,
   sort,
@@ -50,6 +52,7 @@ export function EvaluationStudentGrid({
           key={student.id}
           student={student}
           mode={mode}
+          selectionEditing={selectionEditing}
           selected={selectedStudentIds.includes(student.id)}
           groupNo={groupMap.get(student.id)?.groupNo}
           onClick={() => onStudentClick(student.id)}
