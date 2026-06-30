@@ -74,7 +74,9 @@ async function bootstrap() {
   });
   app.enableShutdownHooks();
   app.useLogger(new NestPinoLogger());
-  app.getHttpAdapter().getInstance().disable('x-powered-by');
+  const httpApp = app.getHttpAdapter().getInstance();
+  httpApp.set('trust proxy', 1);
+  httpApp.disable('x-powered-by');
   validateRuntimeEnv();
 
   const redisIoAdapter = new RedisIoAdapter(app);

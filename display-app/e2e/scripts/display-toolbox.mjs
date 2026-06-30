@@ -163,19 +163,27 @@ async function run() {
       secondary: document.querySelector("#toolboxResetBtn")?.textContent?.trim(),
       phase: document.querySelector("#toolboxBreathPhase")?.textContent?.trim(),
       time: document.querySelector("#toolboxBreathTime")?.textContent?.trim(),
+      clockVisible:
+        getComputedStyle(
+          document.querySelector('.toolbox-scene[data-toolbox-scene="breath"] .mindfulness-hud'),
+        ).display !== "none",
       hasCycleLabel: Boolean(document.querySelector("#toolboxBreathCycle")),
       presetTexts: [...document.querySelectorAll(".breath-presets button")].map((button) =>
         button.textContent?.trim(),
       ),
+      pattern: toolboxState().settings.breathPattern,
       bgFilter: getComputedStyle(document.querySelector("#toolboxBg")).filter,
       runningChrome: document.querySelector("#page-toolbox")?.classList.contains("toolbox-breath-running"),
     }));
     assert(result.breathInitial.primary === "开始呼吸", "呼吸练习进入后应先展示开始按钮");
     assert(result.breathInitial.secondary === "返回", "呼吸练习未开始时应提供返回按钮");
-    assert(result.breathInitial.phase === "吸气" || result.breathInitial.phase === "准备", "呼吸练习应显示当前阶段");
+    assert(!result.breathInitial.phase, "呼吸练习未开始时不应显示准备字样");
+    assert(!result.breathInitial.clockVisible, "呼吸练习未开始时不应显示倒计时");
     assert(result.breathInitial.time === "01:00", "呼吸练习默认时长应为 1 分钟");
     assert(!result.breathInitial.hasCycleLabel, "呼吸练习首页不应再展示吸气呼气秒数文案");
-    assert(result.breathInitial.presetTexts.every((text) => !text.includes("秒/轮")), "呼吸练习首页不应再展示秒/轮节奏设置");
+    assert(result.breathInitial.presetTexts.includes("放松"), "呼吸练习应提供放松呼吸法");
+    assert(result.breathInitial.presetTexts.includes("专注"), "呼吸练习应提供专注呼吸法");
+    assert(result.breathInitial.pattern === "relax", "呼吸练习默认应为放松呼吸法");
     assert(!result.breathInitial.runningChrome, "呼吸练习未开始前不应进入运行沉浸态");
     await page.evaluate(() => runToolboxPrimaryAction());
     await page.waitForFunction(
@@ -194,11 +202,16 @@ async function run() {
     result.breathRunning = await page.evaluate(() => ({
       primary: document.querySelector("#toolboxPrimaryBtn")?.textContent?.trim(),
       phase: document.querySelector("#toolboxBreathPhase")?.textContent?.trim(),
+      clockVisible:
+        getComputedStyle(
+          document.querySelector('.toolbox-scene[data-toolbox-scene="breath"] .mindfulness-hud'),
+        ).display !== "none",
       rafActive: Boolean(toolboxState().breathRAF),
       bgFilter: getComputedStyle(document.querySelector("#toolboxBg")).filter,
       cues: window.__mindfulnessCues.map((cue) => cue.type),
     }));
     assert(result.breathRunning.primary === "暂停", "呼吸练习开始后主按钮应变为暂停");
+    assert(result.breathRunning.clockVisible, "呼吸练习开始后应显示倒计时");
     assert(result.breathRunning.rafActive, "呼吸练习开始后应持有 RAF");
     assert(result.breathRunning.bgFilter !== result.breathInitial.bgFilter, "呼吸练习开始后背景滤镜应改变为更暗状态");
     assert(result.breathRunning.cues.includes("inhale"), "呼吸练习开始后应播放吸气提示音");
@@ -222,9 +235,53 @@ async function run() {
       running: toolboxState().breathRunning || toolboxState().breathPaused,
     }));
     assert(result.breathEnded.primary === "再来一次", "呼吸练习结束后主按钮应支持再次开始");
-    assert(result.breathEnded.result.includes("完成"), "呼吸练习结束后应展示完成摘要");
+    assert(result.breathEnded.result.includes("已完成"), "呼吸练习结束后应展示完成摘要");
     assert(!result.breathEnded.rafActive && !result.breathEnded.running, "呼吸练习结束后不应残留 RAF 或运行态");
-    log("呼吸练习进入、开始、暂停、继续、结束状态正确");
+    await page.evaluate(() => {
+      window.__mindfulnessCues = [];
+      runToolboxPrimaryAction();
+    });
+    await page.waitForFunction(
+      () =>
+        document.querySelector("#toolboxBreathPhase")?.textContent?.trim() !== "完成" &&
+        Array.isArray(window.__mindfulnessCues) &&
+        window.__mindfulnessCues.some((cue) => cue.type === "inhale"),
+      null,
+      { timeout: 6500 },
+    );
+    result.breathRestarted = await page.evaluate(() => ({
+      phase: document.querySelector("#toolboxBreathPhase")?.textContent?.trim(),
+      primary: document.querySelector("#toolboxPrimaryBtn")?.textContent?.trim(),
+      running: toolboxState().breathRunning,
+      cues: window.__mindfulnessCues.map((cue) => cue.type),
+    }));
+    assert(result.breathRestarted.primary === "暂停", "呼吸练习结束后再次开始应回到运行态");
+    assert(result.breathRestarted.phase !== "完成", "再次开始后不应残留完成文案");
+    assert(result.breathRestarted.running, "再次开始后应恢复运行态");
+    assert(result.breathRestarted.cues.includes("inhale"), "再次开始后应恢复吸气提示音");
+    await page.evaluate(() => {
+      resetBreathTool();
+      window.__mindfulnessCues = [];
+      setBreathPattern("focus");
+      runToolboxPrimaryAction();
+    });
+    await page.waitForFunction(
+      () =>
+        Array.isArray(window.__mindfulnessCues) &&
+        window.__mindfulnessCues.some((cue) => cue.type === "hold"),
+      null,
+      { timeout: 9000 },
+    );
+    result.breathFocus = await page.evaluate(() => ({
+      pattern: toolboxState().settings.breathPattern,
+      cues: window.__mindfulnessCues.map((cue) => cue.type),
+      phase: document.querySelector("#toolboxBreathPhase")?.textContent?.trim(),
+    }));
+    assert(result.breathFocus.pattern === "focus", "切换到专注呼吸法后应更新设置");
+    assert(result.breathFocus.cues.includes("inhale"), "专注呼吸法开始后应播放吸气提示音");
+    assert(result.breathFocus.cues.includes("hold"), "专注呼吸法应播放停留提示音");
+    await page.evaluate(() => resetBreathTool());
+    log("呼吸练习进入、开始、暂停、继续、结束、再次开始、专注呼吸法状态正确");
 
     await page.evaluate(() => enterToolboxTool("meditation"));
     await page.waitForFunction(
@@ -304,7 +361,10 @@ async function run() {
     );
     assert(result.settingsScopes.garden.visible.every((label) => label.includes("安静") || label.includes("嘈杂")), "安静下来设置只应显示花园字段");
     assert(result.settingsScopes.breath.visible.every((label) => label.includes("呼吸")), "呼吸练习设置只应显示呼吸字段");
-    assert(result.settingsScopes.breath.visible.every((label) => !label.includes("节奏") && !label.includes("一轮")), "呼吸练习设置不应再显示节奏秒/轮字段");
+    assert(
+      result.settingsScopes.breath.visible.some((label) => label.includes("放松") || label.includes("专注")),
+      "呼吸练习设置应包含呼吸法选项",
+    );
     assert(result.settingsScopes.meditation.visible.every((label) => label.includes("冥想") || label.includes("静心")), "静心冥想设置只应显示冥想字段");
     assert(result.settingsScopes.lucky.visible.some((label) => label.includes("抽选")), "随机抽选设置应显示抽选字段");
     assert(result.settingsScopes.timer.visible.every((label) => label.includes("自定义")), "计时器设置只应显示计时字段");

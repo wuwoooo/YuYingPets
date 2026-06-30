@@ -137,6 +137,7 @@ const REQUIRED_RUNTIME_API = [
   'writeLowSpecModeEnabled',
   'readGridDensity',
   'writeGridDensity',
+  'clearGridDensity',
   'readSidebarCollapsed',
   'writeSidebarCollapsed',
   'getDisplayPerformanceTier',

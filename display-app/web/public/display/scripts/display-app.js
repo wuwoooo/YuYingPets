@@ -5743,7 +5743,7 @@ const runtimeState = {
       luckyExcludedIds: [],
       timerDuration: 300,
       breathDuration: 60,
-      breathCycleSeconds: 8,
+      breathPattern: "relax",
       meditationDuration: 120,
     },
     energyMode: "reading",
@@ -5952,6 +5952,17 @@ function writeGridDensity(mode) {
   } catch (error) {
     console.warn("无法保存视图密度设置", error);
   }
+}
+
+function resetGridDensityToDefault() {
+  try {
+    window.DisplayRuntime.clearGridDensity();
+  } catch (error) {
+    console.warn("无法重置视图密度设置", error);
+  }
+  gridDensity = "panorama";
+  syncGridDensityState();
+  schedulePanoramaLayout();
 }
 
 function readSidebarCollapsed() {
@@ -10814,6 +10825,7 @@ async function handleExitAction() {
   // 退出教师账号时只清登录/解锁态，不应抹掉终端已绑定的班级。
   // 否则多班教师下次登录会被误判为“未绑定终端”，进而弹出选班流程。
   clearAuthState({ preserveClassId: true });
+  resetGridDensityToDefault();
   applyLockOverlay();
   navigateTo("entry");
 }
@@ -10860,6 +10872,7 @@ function cancelClassSelection() {
 }
 
 async function finalizeTeacherSession() {
+  resetGridDensityToDefault();
   subscribeRealtimeRooms();
   setLoginMessage("登录成功，正在进入班级...", "success");
   await Promise.all([
@@ -11647,7 +11660,7 @@ function syncToolboxSettingsInputs() {
     ["toolboxGardenTarget", settings.gardenTarget !== undefined && settings.gardenTarget !== null ? settings.gardenTarget / 60 : 0],
     ["toolboxGardenThreshold", settings.gardenThreshold],
     ["toolboxBreathDuration", settings.breathDuration],
-    ["toolboxBreathCycleSeconds", settings.breathCycleSeconds],
+    ["toolboxBreathPattern", settings.breathPattern || "relax"],
     ["toolboxMeditationDuration", settings.meditationDuration],
     ["toolboxLuckyScopeSelect", settings.luckyScope],
     ["toolboxLuckyGroupSelect", settings.luckyGroupNo],
@@ -11682,7 +11695,9 @@ function readToolboxSettings() {
   settings.gardenTarget = Number(document.getElementById("toolboxGardenTarget")?.value ?? 0) * 60;
   settings.gardenThreshold = Number(document.getElementById("toolboxGardenThreshold")?.value || settings.gardenThreshold);
   settings.breathDuration = Math.max(60, Number(document.getElementById("toolboxBreathDuration")?.value || settings.breathDuration || 60));
-  settings.breathCycleSeconds = Math.max(6, Number(document.getElementById("toolboxBreathCycleSeconds")?.value || settings.breathCycleSeconds || 8));
+  settings.breathPattern = window.DisplayToolbox.normalizeBreathPattern(
+    document.getElementById("toolboxBreathPattern")?.value || settings.breathPattern || "relax",
+  );
   settings.meditationDuration = Math.max(60, Number(document.getElementById("toolboxMeditationDuration")?.value || settings.meditationDuration || 120));
   settings.luckyScope = document.getElementById("toolboxLuckyScopeSelect")?.value || settings.luckyScope;
   settings.luckyGroupNo = document.getElementById("toolboxLuckyGroupSelect")?.value || settings.luckyGroupNo;
@@ -12617,12 +12632,11 @@ function setBreathPreset(seconds) {
   resetBreathTool();
 }
 
-function setBreathCyclePreset(seconds) {
+function setBreathPattern(patternId) {
   const state = toolboxState();
-  const cycle = Math.max(6, Number(seconds) || 8);
-  state.settings.breathCycleSeconds = cycle;
-  const input = document.getElementById("toolboxBreathCycleSeconds");
-  if (input) input.value = String(cycle);
+  state.settings.breathPattern = window.DisplayToolbox.normalizeBreathPattern(patternId);
+  const input = document.getElementById("toolboxBreathPattern");
+  if (input) input.value = state.settings.breathPattern;
   resetBreathTool();
 }
 
@@ -12637,14 +12651,16 @@ function setMeditationPreset(seconds) {
 
 function syncMindfulnessPresetButtons() {
   const state = toolboxState();
-  document.querySelectorAll(".breath-presets button").forEach((btn) => {
-    const text = btn.textContent || "";
-    const minuteMatch = text.match(/(\d+)分钟/);
-    const cycleMatch = text.match(/(\d+)秒\/轮/);
-    const active =
-      (minuteMatch && Number(minuteMatch[1]) * 60 === Number(state.settings.breathDuration || 60)) ||
-      (cycleMatch && Number(cycleMatch[1]) === Number(state.settings.breathCycleSeconds || 8));
-    btn.classList.toggle("active", Boolean(active));
+  const pattern = window.DisplayToolbox.normalizeBreathPattern(state.settings.breathPattern || "relax");
+  document.querySelectorAll(".breath-pattern-presets button").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.breathPattern === pattern);
+  });
+  document.querySelectorAll(".breath-duration-presets button").forEach((btn) => {
+    const minuteMatch = (btn.textContent || "").match(/(\d+)分钟/);
+    btn.classList.toggle(
+      "active",
+      Boolean(minuteMatch && Number(minuteMatch[1]) * 60 === Number(state.settings.breathDuration || 60)),
+    );
   });
   document.querySelectorAll(".meditation-presets button").forEach((btn) => {
     const minuteMatch = (btn.textContent || "").match(/(\d+)分钟/);
@@ -12666,6 +12682,7 @@ function startBreathTool() {
     state.breathDurationMs = Math.max(60, Number(state.settings.breathDuration || 60)) * 1000;
     state.breathRemainingMs = state.breathDurationMs;
     state.breathCompletedMs = 0;
+    state.breathPhase = "ready";
     state.breathLastPhase = "";
   }
   state.breathRunning = true;
@@ -12673,7 +12690,13 @@ function startBreathTool() {
   state.breathStartedAt = now;
   state.breathDeadlineAt = now + state.breathRemainingMs;
   state.breathLastPhase = "";
-  setToolboxResult("toolboxBreathResult", "跟随光球：变亮时吸气，收小时呼气。");
+  const pattern = window.DisplayToolbox.getBreathPattern(state.settings.breathPattern);
+  setToolboxResult(
+    "toolboxBreathResult",
+    pattern.id === "focus"
+      ? "跟随光球：吸气、停留、呼气、再停留。"
+      : "跟随光球：展开时吸气，收拢时呼气。",
+  );
   stopBreathRAF();
   tickBreathTool();
   syncToolboxPrimaryButton();
@@ -12716,6 +12739,10 @@ function resetBreathTool(options = {}) {
   state.breathRemainingMs = state.breathDurationMs;
   state.breathCompletedMs = 0;
   if (!options.silent) {
+    const summaryTitle = document.querySelector(
+      '.toolbox-scene[data-toolbox-scene="breath"] .toolbox-live-copy h3',
+    );
+    if (summaryTitle) summaryTitle.textContent = "跟随光球慢慢呼吸";
     setToolboxResult("toolboxBreathResult", "一键开始后，光球会带领全班吸气与呼气。");
   }
   renderBreathTool();
@@ -12733,11 +12760,15 @@ function finishBreathTool(options = {}) {
   state.breathPhase = "done";
   const seconds = Math.max(1, Math.round(state.breathCompletedMs / 1000));
   const label = window.DisplayToolbox.formatStatsTime(seconds);
+  const summaryTitle = document.querySelector(
+    '.toolbox-scene[data-toolbox-scene="breath"] .toolbox-live-copy h3',
+  );
+  if (summaryTitle) summaryTitle.textContent = "呼吸完成";
   setToolboxResult(
     "toolboxBreathResult",
     options.manual
-      ? `本次呼吸已结束，完成 ${label}。准备把注意力带回课堂。`
-      : `呼吸练习完成 ${label}。现在可以安静地回到课堂。`,
+      ? `已完成 ${label}，准备把注意力带回课堂。`
+      : `已完成 ${label}，现在可以安静地回到课堂。`,
   );
   playMindfulnessCue("finish");
   renderBreathTool();
@@ -12769,77 +12800,96 @@ function tickBreathTool() {
 function renderBreathTool() {
   const state = toolboxState();
   const durationMs = Math.max(1000, state.breathDurationMs || Number(state.settings.breathDuration || 60) * 1000);
-  const isDone = state.breathPhase === "done";
+  const isDone =
+    state.breathPhase === "done" && !state.breathRunning && !state.breathPaused;
   const remainingMs =
     state.breathRunning || state.breathPaused || isDone
       ? Math.max(0, state.breathRemainingMs || 0)
       : durationMs;
   const elapsedMs = Math.max(0, durationMs - remainingMs);
-  const cycleSeconds = Math.max(6, Number(state.settings.breathCycleSeconds || 8));
-  const halfCycleMs = (cycleSeconds * 1000) / 2;
-  const cycleMs = cycleSeconds * 1000;
-  const cycleElapsed = elapsedMs % cycleMs;
-  const isInhale = cycleElapsed < halfCycleMs;
-  const phaseProgress = isInhale ? cycleElapsed / halfCycleMs : (cycleElapsed - halfCycleMs) / halfCycleMs;
-  const phase = isDone ? "done" : !state.breathRunning && !state.breathPaused ? "ready" : isInhale ? "inhale" : "exhale";
+  const patternId = window.DisplayToolbox.normalizeBreathPattern(state.settings.breathPattern || "relax");
+  const cycle = state.breathRunning || state.breathPaused
+    ? window.DisplayToolbox.resolveBreathCyclePhase(elapsedMs, patternId)
+    : { phase: "ready", holdAt: "", phaseProgress: 0, cycleMs: 10000 };
+  const activePhase = isDone ? "done" : !state.breathRunning && !state.breathPaused ? "ready" : cycle.phase;
+  const phaseProgress = cycle.phaseProgress || 0;
+  const holdAt = cycle.holdAt || "";
+  const isHold = activePhase === "hold";
+  const visualProgress = isHold ? (holdAt === "peak" ? 1 : 0) : phaseProgress;
+  const isExpanded = activePhase === "inhale" || (isHold && holdAt === "peak");
   const rippleScale =
-    phase === "done" || phase === "ready"
-      ? 0.88
-      : isInhale
-        ? 0.86 + phaseProgress * 0.28
-        : 1.14 - phaseProgress * 0.28;
+    activePhase === "done" || activePhase === "ready"
+      ? 0.86
+      : isHold
+        ? holdAt === "peak"
+          ? 1.06
+          : 0.84
+        : isExpanded
+          ? 0.84 + visualProgress * 0.22
+          : 1.06 - visualProgress * 0.22;
   const rippleOpacity =
-    phase === "done"
-      ? 0.2
-      : phase === "ready"
-        ? 0.44
-        : isInhale
-          ? 0.58 + phaseProgress * 0.26
-          : 0.84 - phaseProgress * 0.34;
-  state.breathPhase = phase;
+    activePhase === "done"
+      ? 0.28
+      : activePhase === "ready"
+        ? 0.42
+        : isHold
+          ? holdAt === "peak"
+            ? 0.76
+            : 0.52
+          : isExpanded
+            ? 0.52 + visualProgress * 0.24
+            : 0.76 - visualProgress * 0.3;
+  state.breathPhase = activePhase;
 
   const orb = document.getElementById("toolboxBreathOrb");
   if (orb) {
     const scale =
-      phase === "done" || phase === "ready"
-        ? 0.92
-        : isInhale
-          ? 0.76 + phaseProgress * 0.38
-          : 1.14 - phaseProgress * 0.38;
+      activePhase === "done" || activePhase === "ready"
+        ? activePhase === "done"
+          ? 0.82
+          : 0.88
+        : window.DisplayToolbox.getBreathVisualScale(activePhase, holdAt, visualProgress);
     orb.style.setProperty("--breath-scale", scale.toFixed(3));
     orb.style.setProperty("--breath-progress", String(Math.max(0.05, Math.min(1, elapsedMs / durationMs))));
-    orb.style.setProperty("--breath-phase-progress", String(Math.max(0, Math.min(1, phaseProgress))));
-    orb.dataset.phase = phase;
+    orb.style.setProperty("--breath-phase-progress", String(Math.max(0, Math.min(1, visualProgress))));
+    orb.dataset.phase = activePhase;
+    if (holdAt) {
+      orb.dataset.holdAt = holdAt;
+    } else {
+      delete orb.dataset.holdAt;
+    }
   }
   const phaseText =
-    phase === "done"
-      ? "完成"
-      : phase === "ready"
-        ? "准备"
+    activePhase === "done" || activePhase === "ready"
+      ? ""
       : state.breathPaused
         ? "暂停"
-        : isInhale
-          ? "吸气"
-          : "呼气";
+        : window.DisplayToolbox.getBreathPhaseLabel(activePhase);
   setText("toolboxBreathPhase", phaseText);
   setText("toolboxBreathTime", formatMindfulnessTime(remainingMs));
   const scene = document.querySelector('.toolbox-scene[data-toolbox-scene="breath"]');
   if (scene) {
     scene.dataset.mindfulnessActive = String(state.breathRunning || state.breathPaused);
-    scene.dataset.phase = phase;
-    scene.style.setProperty("--breath-scale", orb?.style.getPropertyValue("--breath-scale") || "0.92");
-    scene.style.setProperty("--breath-phase-progress", String(Math.max(0, Math.min(1, phaseProgress))));
+    scene.dataset.phase = activePhase;
+    scene.dataset.breathPattern = patternId;
+    if (holdAt) {
+      scene.dataset.holdAt = holdAt;
+    } else {
+      delete scene.dataset.holdAt;
+    }
+    scene.style.setProperty("--breath-scale", orb?.style.getPropertyValue("--breath-scale") || "0.88");
+    scene.style.setProperty("--breath-phase-progress", String(Math.max(0, Math.min(1, visualProgress))));
     scene.style.setProperty("--breath-ripple-scale", rippleScale.toFixed(3));
     scene.style.setProperty("--breath-ripple-opacity", rippleOpacity.toFixed(3));
   }
   if (
     state.breathRunning &&
-    state.breathLastPhase !== phase &&
-    (phase === "inhale" || phase === "exhale")
+    state.breathLastPhase !== activePhase &&
+    (activePhase === "inhale" || activePhase === "exhale" || activePhase === "hold")
   ) {
-    playMindfulnessCue(phase);
+    playMindfulnessCue(activePhase);
   }
-  state.breathLastPhase = phase;
+  state.breathLastPhase = activePhase;
   syncMindfulnessPresetButtons();
   syncDesktopFloatingBallStatus();
 }
@@ -12948,6 +12998,21 @@ function tickMeditationTool() {
   state.meditationRAF = requestAnimationFrame(tickMeditationTool);
 }
 
+const MEDITATION_PROMPTS = [
+  "把注意力轻轻放回呼吸",
+  "感受空气进入与离开",
+  "让肩膀慢慢沉下来",
+  "不必赶走念头，看见即可",
+  "这一刻，只做当下",
+  "温柔地回到呼吸",
+];
+
+function getMeditationPrompt(completedMs) {
+  const slotMs = 18000;
+  const index = Math.floor(Math.max(0, completedMs) / slotMs) % MEDITATION_PROMPTS.length;
+  return MEDITATION_PROMPTS[index];
+}
+
 function renderMeditationTool(options = {}) {
   const state = toolboxState();
   const durationMs = Math.max(1000, state.meditationDurationMs || Number(state.settings.meditationDuration || 120) * 1000);
@@ -12961,12 +13026,19 @@ function renderMeditationTool(options = {}) {
       : state.meditationPaused
         ? "已暂停"
         : state.meditationRunning
-          ? "把注意力轻轻放回呼吸"
+          ? getMeditationPrompt(state.meditationCompletedMs || 0)
           : "安静坐好，准备开始",
   );
   const scene = document.querySelector('.toolbox-scene[data-toolbox-scene="meditation"]');
   if (scene) {
     scene.dataset.mindfulnessActive = String(state.meditationRunning || state.meditationPaused);
+    scene.dataset.phase = options.done
+      ? "done"
+      : state.meditationPaused
+        ? "paused"
+        : state.meditationRunning
+          ? "running"
+          : "ready";
     scene.style.setProperty("--meditation-progress", progress.toFixed(4));
   }
   syncMindfulnessPresetButtons();

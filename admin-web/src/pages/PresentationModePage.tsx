@@ -41,26 +41,20 @@ export function PresentationModePage({
   const aiSummaryListRef = useRef<HTMLDivElement | null>(null);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const [snapshotData] = useState(() => ({
-    user: liveUser,
-    classes: liveClasses,
-    students: liveStudents,
-    rules: liveRules,
-    honors: liveHonors,
-    rewards: liveRewards,
-    clockText: new Intl.DateTimeFormat('zh-CN', {
+  const [clockText] = useState(() =>
+    new Intl.DateTimeFormat('zh-CN', {
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',
       hour12: false,
     }).format(new Date()),
-  }));
-  const user = snapshotData.user;
-  const classes = snapshotData.classes;
-  const students = snapshotData.students;
-  const rules = snapshotData.rules;
-  const honors = snapshotData.honors;
-  const rewards = snapshotData.rewards;
+  );
+  const user = liveUser;
+  const classes = liveClasses;
+  const students = liveStudents;
+  const rules = liveRules;
+  const honors = liveHonors;
+  const rewards = liveRewards;
   const [isActive, setIsActive] = useState(false);
   const [curtainOpen, setCurtainOpen] = useState(false);
   const [barsExpanded, setBarsExpanded] = useState(false);
@@ -75,7 +69,6 @@ export function PresentationModePage({
   const [weatherInfo, setWeatherInfo] = useState<DisplayWeatherPayload | null>(null);
   const [academicExams, setAcademicExams] = useState<AcademicExamListItem[]>([]);
   const [academicScores, setAcademicScores] = useState<AcademicScoreListRow[]>([]);
-  const clockText = snapshotData.clockText;
   const currentSemesterName = useCurrentSemesterName(token, user?.roleCode);
   const gradeFilter = searchParams.get('gradeName') || 'all';
   const classFilter = searchParams.get('classId') || 'all';
@@ -323,8 +316,12 @@ export function PresentationModePage({
 
   useEffect(() => {
     let active = true;
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(endDate.getDate() - 13);
+    const formatDate = (value: Date) => value.toISOString().slice(0, 10);
     adminApi
-      .scoreRecords(token)
+      .scoreRecords(token, { startDate: formatDate(startDate), endDate: formatDate(endDate) })
       .then((response) => {
         if (!active) return;
         setScoreRecords(
@@ -485,6 +482,7 @@ export function PresentationModePage({
   }, [academicSubjectSummaries]);
   const academicBoxRows = useMemo(() => {
     if (!academicGrowth.latestExam) return [];
+    const classSummaryById = new Map(academicGrowth.classSummaries.map((item) => [item.classId, item]));
     const latestRows = academicScores.filter((row) => row.examId === academicGrowth.latestExam?.id && row.totalScore !== null);
     const grouped = latestRows.reduce((map, row) => {
       const current = map.get(row.classId) ?? { className: row.className, values: [] as number[] };
@@ -505,38 +503,98 @@ export function PresentationModePage({
         const q1 = percentile(values, 0.25);
         const median = percentile(values, 0.5);
         const q3 = percentile(values, 0.75);
-        return { classId, className: item.className, min, q1, median, q3, max };
+        const summary = classSummaryById.get(classId);
+        return {
+          classId,
+          className: item.className,
+          min,
+          q1,
+          median,
+          q3,
+          max,
+          participantCount: summary?.participantCount ?? values.length,
+          growthIndex: summary?.growthIndex ?? 0,
+          progressCount: summary?.progressCount ?? 0,
+          declineCount: summary?.declineCount ?? 0,
+        };
       })
       .sort((left, right) => right.median - left.median)
-      .slice(0, 5);
-  }, [academicGrowth.latestExam, academicScores]);
+      .slice(0, 10);
+  }, [academicGrowth.classSummaries, academicGrowth.latestExam, academicScores]);
+  const academicScatterInsight = useMemo(() => {
+    if (!academicSubjectSummaries.length) return null;
+    const sorted = [...academicSubjectSummaries].sort((left, right) => right.relatedScore - left.relatedScore);
+    const avgRelated = Math.round(
+      (academicSubjectSummaries.reduce((sum, item) => sum + item.relatedScore, 0) / academicSubjectSummaries.length) * 100,
+    ) / 100;
+    return {
+      strongest: sorted[0] ?? null,
+      weakest: sorted[sorted.length - 1] ?? null,
+      avgRelated,
+      highImpactCount: academicSubjectSummaries.filter((item) => item.relatedScore >= 0.75).length,
+    };
+  }, [academicSubjectSummaries]);
+  const academicQuadrantTotal = useMemo(
+    () => academicGrowth.quadrants.reduce((sum, item) => sum + item.count, 0),
+    [academicGrowth.quadrants],
+  );
+  const academicTrendMini = useMemo(() => academicGrowth.trend.slice(-4), [academicGrowth.trend]);
 
   const topClasses = useMemo(() => [...classes].sort((left, right) => right.classScore - left.classScore).slice(0, 6), [classes]);
   const topStudents = useMemo(() => [...students].sort((left, right) => right.currentScore - left.currentScore).slice(0, 8), [students]);
   const classMatrixNodes = useMemo(() => {
+    const classSummaryById = new Map(academicGrowth.classSummaries.map((item) => [item.classId, item]));
     const candidates = [...classes].sort((left, right) => right.classScore - left.classScore).slice(0, 8);
     const maxScore = Math.max(...candidates.map((item) => item.classScore), 1);
-    const maxStudents = Math.max(...candidates.map((item) => item.studentCount), 1);
+    const minScore = Math.min(...candidates.map((item) => item.classScore), 0);
+    const scoreRange = Math.max(maxScore - minScore, 1);
+    const growthIndices = candidates.map((item) => {
+      const summary = classSummaryById.get(item.id);
+      return summary?.growthIndex ?? Math.round((item.classScore / maxScore) * 100);
+    });
+    const minGrowth = Math.min(...growthIndices);
+    const maxGrowth = Math.max(...growthIndices);
+    const growthSpread = Math.max(maxGrowth - minGrowth, 0);
     return candidates.map((item, index) => {
-      const x = 12 + (index % 4) * 24 + (index % 2 === 0 ? 3 : -2);
-      const y = 18 + Math.floor(index / 4) * 40 - Math.round((item.classScore / maxScore) * 10);
-      const size = 56 + Math.round((item.classScore / maxScore) * 42 + (item.studentCount / maxStudents) * 18);
+      const summary = classSummaryById.get(item.id);
+      const growthIndex = growthIndices[index] ?? 0;
+      const progressRate = summary?.participantCount
+        ? Math.round((summary.progressCount / summary.participantCount) * 100)
+        : growthIndex;
+      const xPercent = 10 + ((item.classScore - minScore) / scoreRange) * 78;
+      const yFromGrowth = 82 - ((growthIndex - minGrowth) / Math.max(growthSpread, 1)) * 66;
+      const yFromRank = 16 + (index / Math.max(candidates.length - 1, 1)) * 62;
+      const yPercent = growthSpread >= 8 ? yFromGrowth : yFromRank;
+      const size = 40 + Math.round((item.classScore / maxScore) * 26);
       return {
         id: item.id,
         name: item.name,
         score: item.classScore,
         gradeName: item.gradeName,
         studentCount: item.studentCount,
+        targetScore: item.targetScore ?? 0,
+        growthIndex,
+        progressRate,
+        progressCount: summary?.progressCount ?? 0,
+        declineCount: summary?.declineCount ?? 0,
+        rank: index + 1,
         size,
-        left: `${Math.min(88, Math.max(8, x))}%`,
-        top: `${Math.min(78, Math.max(12, y))}%`,
+        left: `${Math.min(90, Math.max(8, xPercent))}%`,
+        top: `${Math.min(84, Math.max(12, yPercent))}%`,
         hue: 196 + index * 14,
         floatDuration: `${11 + (index % 4) * 1.8}s`,
         pulseDuration: `${4.8 + (index % 5) * 0.7}s`,
         floatDelay: `${(index % 6) * 0.45}s`,
       };
     });
-  }, [classes]);
+  }, [academicGrowth.classSummaries, classes]);
+  const classMatrixInsight = useMemo(() => {
+    if (!classMatrixNodes.length) return null;
+    const avgScore = Math.round(classMatrixNodes.reduce((sum, item) => sum + item.score, 0) / classMatrixNodes.length);
+    const avgGrowth = Math.round(classMatrixNodes.reduce((sum, item) => sum + item.growthIndex, 0) / classMatrixNodes.length);
+    const leader = classMatrixNodes[0];
+    return { avgScore, avgGrowth, leader };
+  }, [classMatrixNodes]);
   const classSprintRows = useMemo(() => {
     const max = Math.max(...topClasses.map((item) => item.classScore), 1);
     return topClasses.slice(0, 5).map((item, index) => ({
@@ -668,7 +726,7 @@ export function PresentationModePage({
   }, [terminalSummary]);
   const recentPresentationEvents = useMemo(
     () =>
-      scoreRecords.slice(0, 10).map((item) => {
+      scoreRecords.slice(0, 16).map((item) => {
         const classInfo = classes.find((row) => row.id === item.classId);
         const student = students.find((row) => row.id === item.studentId);
         return {
@@ -678,6 +736,7 @@ export function PresentationModePage({
           ruleName: item.ruleName || item.tag || item.dimension || '学生评价',
           scoreDelta: item.scoreDelta,
           createdAt: item.createdAt,
+          dimension: item.dimension || item.tag || '综合',
         };
       }),
     [classes, scoreRecords, students],
@@ -760,24 +819,67 @@ export function PresentationModePage({
       }));
   }, [scoreRecords]);
 
-  const anomalyAreaMock = useMemo(() => {
-    // 3 lines: 考勤异常, 课堂违纪, 作业退步
-    return Array.from({length: 14}).map((_, i) => ({
-      day: `D${i+1}`,
-      attendance: 10 + Math.sin(i) * 5 + Math.random() * 5,
-      discipline: 20 + Math.cos(i) * 8 + Math.random() * 5,
-      homework: 15 + Math.sin(i * 0.5) * 6 + Math.random() * 5,
-    }));
-  }, []);
+  const classifyAnomalyRecord = (record: ScoreRecord) => {
+    const text = `${record.ruleName ?? ''} ${record.tag ?? ''} ${record.dimension ?? ''} ${record.sceneCode ?? ''}`;
+    if (/考勤|出勤|迟到|缺勤|早读/.test(text)) return 'attendance';
+    if (/违纪|纪律|违规|讲话|打架|手机/.test(text)) return 'discipline';
+    if (/作业|默写|背诵|练习|订正/.test(text)) return 'homework';
+    return 'other';
+  };
+  const anomalyTrendSeries = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return Array.from({ length: 14 }, (_, index) => {
+      const date = new Date(today);
+      date.setDate(today.getDate() - (13 - index));
+      const dayKey = date.toDateString();
+      const dayRecords = scoreRecords.filter(
+        (item) => new Date(item.createdAt).toDateString() === dayKey && item.scoreDelta < 0,
+      );
+      const attendance = dayRecords.filter((item) => classifyAnomalyRecord(item) === 'attendance').length;
+      const discipline = dayRecords.filter((item) => classifyAnomalyRecord(item) === 'discipline').length;
+      const homework = dayRecords.filter((item) => classifyAnomalyRecord(item) === 'homework').length;
+      return {
+        day: `${date.getMonth() + 1}/${date.getDate()}`,
+        shortDay: `D${index + 1}`,
+        attendance,
+        discipline,
+        homework,
+        total: dayRecords.length,
+      };
+    });
+  }, [scoreRecords]);
+  const anomalyTrendHasData = useMemo(
+    () => anomalyTrendSeries.some((item) => item.total > 0),
+    [anomalyTrendSeries],
+  );
+  const anomalyTrendInsight = useMemo(() => {
+    const attendanceTotal = anomalyTrendSeries.reduce((sum, item) => sum + item.attendance, 0);
+    const disciplineTotal = anomalyTrendSeries.reduce((sum, item) => sum + item.discipline, 0);
+    const homeworkTotal = anomalyTrendSeries.reduce((sum, item) => sum + item.homework, 0);
+    const peak = anomalyTrendSeries.reduce(
+      (best, item) => (item.total > best.total ? item : best),
+      anomalyTrendSeries[0] ?? { total: 0, day: '-', shortDay: '-' },
+    );
+    return { attendanceTotal, disciplineTotal, homeworkTotal, peak };
+  }, [anomalyTrendSeries]);
+  const buildAnomalyLine = (key: 'attendance' | 'discipline' | 'homework') => {
+    const values = anomalyTrendSeries.map((item) => item[key]);
+    const max = Math.max(...values, 1);
+    return anomalyTrendSeries
+      .map((item, index) => {
+        const x = 8 + index * 29;
+        const y = anomalyTrendHasData ? 158 - (item[key] / max) * 118 : 158;
+        return `${x},${y}`;
+      })
+      .join(' ');
+  };
+  const buildAnomalyArea = (key: 'attendance' | 'discipline' | 'homework') => {
+    const line = buildAnomalyLine(key);
+    const lastX = 8 + (anomalyTrendSeries.length - 1) * 29;
+    return `8,158 ${line} ${lastX},158`;
+  };
 
-  const funnelStagesMock = useMemo(() => {
-    return [
-      { label: '预警触发', value: 1240, color: 'rgba(0, 229, 255, 0.9)' },
-      { label: '规则匹配', value: 980, color: 'rgba(0, 150, 255, 0.8)' },
-      { label: '教师跟进', value: 650, color: 'rgba(255, 179, 0, 0.8)' },
-      { label: '闭环结案', value: 420, color: 'rgba(0, 230, 118, 0.8)' },
-    ];
-  }, []);
   const alerts = useMemo(() => {
     const lowClasses = [...classes]
       .sort((left, right) => left.classScore - right.classScore)
@@ -825,6 +927,40 @@ export function PresentationModePage({
       focusEvents,
     };
   }, [analytics?.riskStudentStats, analytics?.riskStudents, classById, scoreRecords, studentById]);
+  const warningFunnelStages = useMemo(() => {
+    const negativeRecords = scoreRecords.filter((item) => item.scoreDelta < 0);
+    const matchedRecords = negativeRecords.filter((item) => item.ruleName || item.tag || item.dimension);
+    const focusCount = Math.max(warningSummary.highCount + warningSummary.mediumCount, 0);
+    const followUpCount = focusCount > 0
+      ? Math.min(matchedRecords.length, focusCount + warningSummary.lowCount)
+      : Math.round(matchedRecords.length * 0.68);
+    const closedCount = Math.min(followUpCount, Math.max(0, followUpCount - Math.round(warningSummary.highCount * 0.35)));
+    const stages = [
+      { label: '预警触发', value: negativeRecords.length, color: 'rgba(0, 229, 255, 0.9)' },
+      { label: '规则匹配', value: matchedRecords.length, color: 'rgba(0, 150, 255, 0.82)' },
+      { label: '重点跟进', value: followUpCount, color: 'rgba(255, 179, 0, 0.82)' },
+      { label: '闭环结案', value: closedCount, color: 'rgba(0, 230, 118, 0.82)' },
+    ];
+    const max = Math.max(...stages.map((item) => item.value), 1);
+    return stages.map((stage, index) => {
+      const previous = index > 0 ? stages[index - 1]?.value ?? stage.value : stage.value;
+      return {
+        ...stage,
+        width: Math.max(stage.value > 0 ? 18 : 8, Math.round((stage.value / max) * 100)),
+        convertRate: previous ? Math.round((stage.value / previous) * 100) : 100,
+      };
+    });
+  }, [scoreRecords, warningSummary.affectedClasses, warningSummary.highCount, warningSummary.lowCount, warningSummary.mediumCount]);
+  const warningFunnelInsight = useMemo(() => {
+    const total = warningFunnelStages[0]?.value ?? 0;
+    const closed = warningFunnelStages[warningFunnelStages.length - 1]?.value ?? 0;
+    return {
+      total,
+      closed,
+      closeRate: total ? Math.round((closed / total) * 100) : 0,
+      affectedClasses: warningSummary.affectedClasses,
+    };
+  }, [warningFunnelStages, warningSummary.affectedClasses]);
   const riskShowcase = useMemo(() => {
     const positiveEvents = scoreRecords.filter((item) => item.scoreDelta > 0).length;
     const negativeEvents = scoreRecords.filter((item) => item.scoreDelta < 0).length;
@@ -907,34 +1043,136 @@ export function PresentationModePage({
     }
     return Array.from(grouped.entries()).sort((left, right) => right[1] - left[1]).slice(0, 4);
   }, [rules]);
+  const ruleDistributionDetail = useMemo(() => {
+    const grouped = new Map<string, number>();
+    for (const rule of rules) {
+      const key = rule.dimension ?? rule.sceneCode ?? '未分类';
+      grouped.set(key, (grouped.get(key) ?? 0) + 1);
+    }
+    const total = Math.max(rules.length, 1);
+    return Array.from(grouped.entries())
+      .sort((left, right) => right[1] - left[1])
+      .slice(0, 6)
+      .map(([name, count]) => ({ name, count, percent: Math.round((count / total) * 100) }));
+  }, [rules]);
+  const ruleDonutStyle = useMemo(() => {
+    if (!ruleDistributionDetail.length) return undefined;
+    const colors = ['#42b6ff', '#46e0b0', '#f6da76', '#ff8a66', '#bb86fc', '#66e0a0'];
+    let cursor = 0;
+    const slices = ruleDistributionDetail.map((item, index) => {
+      const next = cursor + Math.max(item.percent, 0);
+      const slice = `${colors[index % colors.length]} ${cursor}% ${next}%`;
+      cursor = next;
+      return slice;
+    });
+    return {
+      background: `radial-gradient(circle at center, #091b2c 38%, transparent 39%), conic-gradient(${slices.join(', ')})`,
+    } as const;
+  }, [ruleDistributionDetail]);
+  const weeklyScoreTrend = useMemo(() => {
+    const weekLabelsLocal = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return Array.from({ length: 7 }, (_, index) => {
+      const date = new Date(today);
+      date.setDate(today.getDate() - (6 - index));
+      const dayKey = date.toDateString();
+      const dayRecords = scoreRecords.filter((item) => new Date(item.createdAt).toDateString() === dayKey);
+      const eventCount = dayRecords.length;
+      const scoreSum = dayRecords.reduce((sum, item) => sum + item.scoreDelta, 0);
+      const positiveCount = dayRecords.filter((item) => item.scoreDelta > 0).length;
+      return {
+        label: weekLabelsLocal[date.getDay() === 0 ? 6 : date.getDay() - 1] ?? `D${index + 1}`,
+        shortLabel: `${date.getMonth() + 1}/${date.getDate()}`,
+        eventCount,
+        scoreSum,
+        positiveCount,
+        negativeCount: eventCount - positiveCount,
+      };
+    });
+  }, [scoreRecords]);
+  const weeklyTrendInsight = useMemo(() => {
+    const peak = weeklyScoreTrend.reduce((best, item) => (item.eventCount > best.eventCount ? item : best), weeklyScoreTrend[0] ?? { eventCount: 0, label: '-', scoreSum: 0 });
+    const totalEvents = weeklyScoreTrend.reduce((sum, item) => sum + item.eventCount, 0);
+    const totalScore = weeklyScoreTrend.reduce((sum, item) => sum + item.scoreSum, 0);
+    const positiveTotal = weeklyScoreTrend.reduce((sum, item) => sum + item.positiveCount, 0);
+    return {
+      peak,
+      totalEvents,
+      totalScore,
+      positiveRate: totalEvents ? Math.round((positiveTotal / totalEvents) * 100) : 0,
+      dailyAverage: Math.round(totalEvents / 7),
+    };
+  }, [weeklyScoreTrend]);
+  const cockpitFeedSummary = useMemo(() => {
+    const todayKey = new Date().toDateString();
+    const todayRecords = scoreRecords.filter((item) => new Date(item.createdAt).toDateString() === todayKey);
+    const positive = scoreRecords.filter((item) => item.scoreDelta > 0).length;
+    const negative = scoreRecords.filter((item) => item.scoreDelta < 0).length;
+    const classSet = new Set(scoreRecords.map((item) => item.classId));
+    return {
+      todayCount: todayRecords.length,
+      totalCount: scoreRecords.length,
+      positiveRate: scoreRecords.length ? Math.round((positive / scoreRecords.length) * 100) : 0,
+      negativeCount: negative,
+      activeClasses: classSet.size,
+    };
+  }, [scoreRecords]);
+  const weeklyTrendHasData = useMemo(
+    () => weeklyScoreTrend.some((item) => item.eventCount > 0),
+    [weeklyScoreTrend],
+  );
   const trendPoints = useMemo(() => {
-    const values = [...classes].sort((left, right) => right.classScore - left.classScore).slice(0, 7).map((item) => item.classScore).reverse();
-    const source = values.length > 1 ? values : [120, 180, 150, 210, 260, 240, 300];
-    const max = Math.max(...source, 1);
-    const min = Math.min(...source, 0);
+    const values = weeklyScoreTrend.map((item) => item.scoreSum);
+    if (!weeklyTrendHasData) {
+      return weeklyScoreTrend.map((item, index) => ({
+        x: 36 + index * 58,
+        y: 148,
+        value: 0,
+        ...item,
+      }));
+    }
+    const max = Math.max(...values, 1);
+    const min = Math.min(...values, 0);
     const range = Math.max(max - min, 1);
-    return source.map((value, index) => ({ x: 40 + index * 60, y: 150 - ((value - min) / range) * 100, value }));
-  }, [classes]);
+    return values.map((value, index) => ({
+      x: 36 + index * 58,
+      y: 148 - ((value - min) / range) * 96,
+      value,
+      ...weeklyScoreTrend[index],
+    }));
+  }, [weeklyScoreTrend, weeklyTrendHasData]);
   const trendPolyline = trendPoints.map((point) => `${point.x},${point.y}`).join(' ');
-  const trendArea = `${trendPolyline} ${trendPoints[trendPoints.length - 1]?.x ?? 400},150 40,150`;
+  const trendArea = `${trendPolyline} ${trendPoints[trendPoints.length - 1]?.x ?? 400},152 36,152`;
   const weekLabels = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
   const heatRows = ['早读', '上午', '下午', '课后'];
   const heatCols = ['一', '二', '三', '四', '五'];
   const operationBars = useMemo(() => {
-    const base = weekLabels.map((label, index) => {
-      const scoreSeed = trendPoints[index]?.value ?? Math.round((trendPoints[trendPoints.length - 1]?.value ?? 200) * (0.82 + index * 0.03));
-      const eventCount = Math.max(26, Math.round(scoreSeed / 6 + (index + 1) * 2));
-      const disposeMinutes = Math.max(12, Math.round(58 - index * 5 + (index % 2 === 0 ? 2 : -1)));
-      return { label, eventCount, disposeMinutes };
-    });
+    const base = weeklyScoreTrend.map((item) => ({
+      label: item.shortLabel,
+      fullLabel: item.label,
+      eventCount: item.eventCount,
+      disposeMinutes: item.eventCount > 0 ? Math.max(8, Math.round(42 - item.negativeCount * 1.2 + item.positiveCount * 0.4)) : 0,
+      scoreSum: item.scoreSum,
+      positiveCount: item.positiveCount,
+    }));
     const maxEvent = Math.max(...base.map((item) => item.eventCount), 1);
     const maxMinute = Math.max(...base.map((item) => item.disposeMinutes), 1);
     return base.map((item) => ({
       ...item,
-      barHeight: Math.max(20, Math.round((item.eventCount / maxEvent) * 100)),
-      lineY: 112 - Math.round((item.disposeMinutes / maxMinute) * 94),
+      barHeight: item.eventCount > 0 ? Math.max(12, Math.round((item.eventCount / maxEvent) * 100)) : 4,
+      lineY: 112 - Math.round(((item.disposeMinutes || maxMinute) / maxMinute) * 94),
     }));
-  }, [trendPoints, weekLabels]);
+  }, [weeklyScoreTrend]);
+  const operationInsight = useMemo(() => {
+    const totalEvents = operationBars.reduce((sum, item) => sum + item.eventCount, 0);
+    const avgMinutes = operationBars.length
+      ? Math.round(operationBars.reduce((sum, item) => sum + item.disposeMinutes, 0) / operationBars.length)
+      : 0;
+    const peak = operationBars.reduce((best, item) => (item.eventCount > best.eventCount ? item : best), operationBars[0] ?? { eventCount: 0, fullLabel: '-' });
+    const fastest = operationBars.reduce((best, item) => (item.disposeMinutes < best.disposeMinutes ? item : best), operationBars[0] ?? { disposeMinutes: 0, fullLabel: '-' });
+    return { totalEvents, avgMinutes, peak, fastest };
+  }, [operationBars]);
   const radarAxes = useMemo(() => {
     const studentActiveRate = students.length ? Math.round((students.filter((item) => item.currentScore > 0).length / students.length) * 100) : 0;
     const classCoverageRate = classes.length ? Math.round((activeClasses / classes.length) * 100) : 0;
@@ -1066,14 +1304,20 @@ export function PresentationModePage({
                   <PresentationGlyph name={item.icon} className="presentation-metric-icon" />
                   <div className="presentation-metric-label">{item.label}</div>
                   <div className={`presentation-metric-value ${item.glow}`}>{item.value}</div>
+                  <div className="presentation-metric-sub">{item.sub}</div>
                 </div>
               ))}
             </div>
             <div className="presentation-panel fade-up-panel cockpit-panel">
-              <div className="presentation-panel-title"><PresentationGlyph name="star" className="presentation-title-icon" />学生积分领跑榜 (TOP 5)</div>
+              <div className="presentation-panel-title"><PresentationGlyph name="star" className="presentation-title-icon" />学生积分领跑榜 TOP8</div>
+              <div className="presentation-cockpit-meta">
+                <span>均分 <strong>{students.length ? Math.round(totalScore / students.length) : 0}</strong></span>
+                <span>最高 <strong>{topStudents[0]?.currentScore ?? 0}</strong></span>
+                <span>覆盖 <strong>{students.length}</strong> 人</span>
+              </div>
               <div className="presentation-sprint-list">
-                {topStudents.slice(0, 5).map((item, index) => {
-                  const max = Math.max(...topStudents.map(s => s.currentScore), 1);
+                {topStudents.slice(0, 8).map((item, index) => {
+                  const max = Math.max(...topStudents.map((s) => s.currentScore), 1);
                   const width = Math.max(20, Math.round((item.currentScore / max) * 100));
                   return (
                     <div key={item.id} className="presentation-sprint-row">
@@ -1084,36 +1328,72 @@ export function PresentationModePage({
                           <strong>{item.currentScore} 分</strong>
                         </div>
                       </div>
-                      <span className="presentation-sprint-delta">{item.className}</span>
+                      <span className="presentation-sprint-delta">{item.className.replace('八年级', '')} · Lv.{item.currentPetLevel}</span>
                     </div>
                   );
                 })}
                 {topStudents.length === 0 ? <div className="presentation-summary-item">暂无学生数据。</div> : null}
               </div>
+              <div className="presentation-cockpit-mini-row">
+                {topClasses.slice(0, 3).map((item, index) => (
+                  <div key={item.id} className="presentation-cockpit-mini-chip">
+                    <span>班榜 {index + 1}</span>
+                    <strong>{item.name.replace('八年级', '')}</strong>
+                    <em>{item.classScore} 分</em>
+                  </div>
+                ))}
+              </div>
             </div>
             <div className="presentation-panel fade-up-panel cockpit-panel">
               <div className="presentation-panel-title"><PresentationGlyph name="trend" className="presentation-title-icon" />近 7 天全校积分趋势</div>
-              <svg className={`presentation-chart${lineAnimated ? ' animated' : ''}`} viewBox="0 0 420 190" aria-hidden="true">
+              <div className="presentation-cockpit-meta">
+                <span>7日事件 <strong>{weeklyTrendInsight.totalEvents}</strong></span>
+                <span>积分变动 <strong>{weeklyTrendInsight.totalScore > 0 ? '+' : ''}{weeklyTrendInsight.totalScore}</strong></span>
+                <span>正向率 <strong>{weeklyTrendInsight.positiveRate}%</strong></span>
+                <span>峰值 <strong>{weeklyTrendInsight.peak?.label} {weeklyTrendInsight.peak?.eventCount}件</strong></span>
+              </div>
+              <svg className={`presentation-chart presentation-chart-compact${lineAnimated ? ' animated' : ''}`} viewBox="0 0 420 168" aria-hidden="true">
                 <defs>
                   <linearGradient id="presentationTrendEnhanced" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="rgba(93,173,226,0.45)" />
                     <stop offset="100%" stopColor="rgba(93,173,226,0)" />
                   </linearGradient>
                 </defs>
-                <polyline className="chart-area" points={trendArea} fill="url(#presentationTrendEnhanced)" />
-                <polyline className="chart-line" points={trendPolyline} fill="none" stroke="#5DADE2" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+                {weeklyTrendHasData ? (
+                  <>
+                    <polyline className="chart-area" points={trendArea} fill="url(#presentationTrendEnhanced)" />
+                    <polyline className="chart-line" points={trendPolyline} fill="none" stroke="#5DADE2" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+                  </>
+                ) : (
+                  <line x1="36" y1="148" x2="384" y2="148" className="presentation-academic-axis" />
+                )}
                 {trendPoints.map((point, index) => (
                   <g key={`${point.x}-${point.y}`}>
-                    <circle className="chart-dot" cx={point.x} cy={point.y} r="4.5" fill={index === trendPoints.length - 1 ? '#F7DC6F' : '#5DADE2'} />
-                    <text x={point.x - 12} y="185" className="presentation-axis-text">{weekLabels[index] ?? `D${index + 1}`}</text>
+                    {weeklyTrendHasData ? (
+                      <circle className="chart-dot" cx={point.x} cy={point.y} r="4.5" fill={index === trendPoints.length - 1 ? '#F7DC6F' : '#5DADE2'} />
+                    ) : null}
+                    {weeklyTrendHasData ? (
+                      <text x={point.x - 10} y={point.y - 10} className="presentation-axis-text presentation-chart-value">
+                        {point.value > 0 ? '+' : ''}{point.value}
+                      </text>
+                    ) : null}
+                    <text x={point.x - 14} y="162" className="presentation-axis-text">{point.shortLabel ?? weekLabels[index] ?? `D${index + 1}`}</text>
                   </g>
                 ))}
               </svg>
+              {!weeklyTrendHasData ? <div className="presentation-summary-item presentation-summary-item--compact">近 7 日暂无积分流水</div> : null}
+              {weeklyTrendHasData ? (
+                <div className="presentation-cockpit-trend-foot">
+                  {weeklyScoreTrend.map((item) => (
+                    <span key={item.shortLabel}>+{item.positiveCount}/-{item.negativeCount}</span>
+                  ))}
+                </div>
+              ) : null}
             </div>
           </div>
 
           {/* 中央枢纽：大标题 + 3D 全息建筑 */}
-          <div className="cockpit-center-hub" style={{ flexDirection: 'column', justifyContent: 'flex-start' }}>
+          <div className="cockpit-center-hub">
             <section id="presentation-hero-stage" className="presentation-hero">
               <div className="presentation-hero-title">校级数据驾驶舱</div>
               <div className="presentation-hero-sub">SCHOOL DATA COCKPIT</div>
@@ -1122,16 +1402,24 @@ export function PresentationModePage({
               <PresentationHero3D />
             </section>
 
-            <div className="presentation-panel fade-up-panel cockpit-panel" style={{ width: '90%', marginTop: 'auto', marginBottom: '20px' }}>
-              <div className="presentation-panel-title"><PresentationGlyph name="trend" className="presentation-title-icon" />事件量 & 处置时效（双轴建模）</div>
+            <div className="presentation-panel fade-up-panel cockpit-panel cockpit-panel-center">
+              <div className="presentation-panel-title"><PresentationGlyph name="trend" className="presentation-title-icon" />事件量 & 处置时效（近7天双轴）</div>
+              <div className="presentation-cockpit-meta">
+                <span>事件总量 <strong>{operationInsight.totalEvents}</strong></span>
+                <span>平均时效 <strong>{operationInsight.avgMinutes} 分钟</strong></span>
+                <span>峰值日 <strong>{operationInsight.peak?.fullLabel} {operationInsight.peak?.eventCount}件</strong></span>
+                <span>最快 <strong>{operationInsight.fastest?.fullLabel} {operationInsight.fastest?.disposeMinutes}分</strong></span>
+              </div>
               <div className="presentation-dual-axis">
                 <div className="presentation-dual-axis-bars">
                   {operationBars.map((item) => (
                     <div key={item.label} className="presentation-dual-bar-col">
+                      <strong className="presentation-dual-bar-value">{item.eventCount}</strong>
                       <div className="presentation-dual-bar-track">
-                        <div className="presentation-dual-bar-fill" style={{ height: barsExpanded ? `${item.barHeight}%` : '0%' }} />
+                        <div className="presentation-dual-bar-fill" style={{ height: barsExpanded ? `${item.barHeight}%` : '0%' }} title={`+${item.positiveCount} / 积分${item.scoreSum}`} />
                       </div>
                       <div className="presentation-dual-bar-label">{item.label}</div>
+                      <small className="presentation-dual-bar-sub">{item.disposeMinutes}分</small>
                     </div>
                   ))}
                 </div>
@@ -1147,7 +1435,11 @@ export function PresentationModePage({
                   ))}
                 </svg>
               </div>
-              <div className="presentation-panel-footnote">事件总量 <strong>{operationBars.reduce((sum, item) => sum + item.eventCount, 0)}</strong> 件 · 平均时效 <span>{Math.round(operationBars.reduce((sum, item) => sum + item.disposeMinutes, 0) / operationBars.length)} 分钟</span></div>
+              <div className="presentation-panel-footnote">
+                近7日积分变动 <strong>{weeklyTrendInsight.totalScore > 0 ? '+' : ''}{weeklyTrendInsight.totalScore}</strong>
+                · 正向事件率 <span>{weeklyTrendInsight.positiveRate}%</span>
+                · 日均 <strong>{weeklyTrendInsight.dailyAverage}</strong> 件
+              </div>
             </div>
           </div>
 
@@ -1159,6 +1451,7 @@ export function PresentationModePage({
                   <PresentationGlyph name={item.icon} className="presentation-metric-icon" />
                   <div className="presentation-metric-label">{item.label}</div>
                   <div className={`presentation-metric-value ${item.glow}`}>{item.value}</div>
+                  <div className="presentation-metric-sub">{item.sub}</div>
                 </div>
               ))}
             </div>
@@ -1166,50 +1459,79 @@ export function PresentationModePage({
             <div className="presentation-panel fade-up-panel cockpit-panel">
               <div className="presentation-panel-title"><PresentationGlyph name="shield" className="presentation-title-icon" />治理能力雷达图</div>
               <div className="presentation-radar-wrap">
-                <svg viewBox="0 0 220 220" className="presentation-radar-chart" aria-hidden="true" style={{ transform: 'scale(0.85)', margin: '-15px 0' }}>
+                <svg viewBox="0 0 220 220" className="presentation-radar-chart presentation-radar-chart-compact" aria-hidden="true">
                   <circle cx="110" cy="110" r="82" className="presentation-radar-ring" />
                   <circle cx="110" cy="110" r="58" className="presentation-radar-ring" />
                   <circle cx="110" cy="110" r="34" className="presentation-radar-ring" />
                   {radarPoints.map((item) => (
-                    <line key={`${item.name}-line`} x1="110" y1="110" x2={item.outerX} y2={item.outerY} className="presentation-radar-axis" />
+                    <g key={`${item.name}-line`}>
+                      <line x1="110" y1="110" x2={item.outerX} y2={item.outerY} className="presentation-radar-axis" />
+                      <text x={item.outerX + (item.outerX > 110 ? 4 : -4)} y={item.outerY + 4} className="presentation-radar-axis-label" textAnchor={item.outerX > 110 ? 'start' : 'end'}>{item.name}</text>
+                    </g>
                   ))}
                   <polygon points={radarPolygon} className="presentation-radar-polygon" />
                   {radarPoints.map((item) => (
                     <circle key={`${item.name}-dot`} cx={item.valueX} cy={item.valueY} r="4.2" className="presentation-radar-dot" />
                   ))}
                 </svg>
-                <div className="presentation-radar-score" style={{ minWidth: '90px', padding: '8px' }}>
-                  <span>综合治理指数</span>
-                  <strong style={{ fontSize: '28px' }}>{radarScore}</strong>
+                <div className="presentation-radar-side">
+                  <div className="presentation-radar-score">
+                    <span>综合治理指数</span>
+                    <strong>{radarScore}</strong>
+                    <small>6维加权均值</small>
+                  </div>
+                  <div className="presentation-radar-legend presentation-radar-legend-compact">
+                    {radarAxes.map((item) => (
+                      <div key={item.name} className="presentation-radar-legend-item">
+                        <span>{item.name}</span>
+                        <strong>{item.value}%</strong>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>
 
             <div className="presentation-panel fade-up-panel cockpit-panel">
               <div className="presentation-panel-title"><PresentationGlyph name="pie" className="presentation-title-icon" />评价维度分布</div>
-              <div className="presentation-donut-wrap">
-                <div className="presentation-donut" style={{ width: '120px', height: '120px' }} />
-                <div className="presentation-legend-list" style={{ gap: '6px' }}>
-                  {ruleDistribution.map(([name, count], index) => (
-                    <div key={name} className="presentation-legend-item">
-                      <span className={`presentation-legend-dot dot-${index + 1}`} />
-                      <span style={{ fontSize: '12px' }}>{name}</span>
-                      <strong style={{ fontSize: '13px' }}>{count}项</strong>
+              <div className="presentation-cockpit-meta">
+                <span>规则总数 <strong>{rules.length}</strong></span>
+                <span>维度 <strong>{ruleDistributionDetail.length}</strong></span>
+                <span>正向规则 <strong>{rules.filter((item) => item.sentiment === 'positive').length}</strong></span>
+              </div>
+              <div className="presentation-donut-wrap presentation-donut-wrap-compact">
+                <div className="presentation-donut-shell">
+                  <div className="presentation-donut presentation-donut-compact" style={{ width: '96px', height: '96px', ...ruleDonutStyle }} />
+                </div>
+                <div className="presentation-legend-list presentation-legend-list-compact">
+                  {ruleDistributionDetail.length > 0 ? ruleDistributionDetail.map((item, index) => (
+                    <div key={item.name} className="presentation-legend-item">
+                      <span className={`presentation-legend-dot dot-${(index % 6) + 1}`} />
+                      <span>{item.name}</span>
+                      <strong>{item.count}项 · {item.percent}%</strong>
                     </div>
-                  ))}
+                  )) : <div className="presentation-summary-item">暂无规则维度数据</div>}
                 </div>
               </div>
             </div>
 
             <div className="presentation-panel fade-up-panel cockpit-panel">
               <div className="presentation-panel-title"><PresentationGlyph name="trend" className="presentation-title-icon" />数据实时流入 (Live Feed)</div>
+              <div className="presentation-cockpit-meta">
+                <span>今日 <strong>{cockpitFeedSummary.todayCount}</strong></span>
+                <span>累计 <strong>{cockpitFeedSummary.totalCount}</strong></span>
+                <span>正向率 <strong>{cockpitFeedSummary.positiveRate}%</strong></span>
+                <span>活跃班 <strong>{cockpitFeedSummary.activeClasses}</strong></span>
+              </div>
               <div className="presentation-live-feed">
                 <div className="presentation-live-feed-inner">
-                  {recentPresentationEvents.slice(0, 10).map((item, i) => (
+                  {[...recentPresentationEvents, ...recentPresentationEvents].map((item, i) => (
                     <div key={`${item.id}-${i}`} className="live-feed-item">
-                      <span className="live-feed-time">{new Date(item.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'})}</span>
+                      <span className="live-feed-time">{new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+                      <span className="live-feed-class">{item.className.replace('八年级', '')}</span>
                       <span className="live-feed-name">{item.studentName}</span>
                       <span className="live-feed-action">{item.ruleName}</span>
+                      <span className="live-feed-dim">{item.dimension}</span>
                       <span className="live-feed-score" style={{ color: item.scoreDelta >= 0 ? '#ffb300' : '#ff1744' }}>
                         {item.scoreDelta > 0 ? '+' : ''}{item.scoreDelta}
                       </span>
@@ -1229,50 +1551,123 @@ export function PresentationModePage({
             <strong>学业成长成果</strong>
             <small>{academicGrowth.latestExam?.name ?? '暂无考试数据'}</small>
           </div>
-          <div className="presentation-academic-core">
+          <div className="presentation-academic-grid">
             <div className="presentation-academic-index">
-              <span>学业成长指数</span>
-              <strong>{academicGrowth.growthIndex}</strong>
-              <p>{academicGrowth.insight.report}</p>
+              <div className="presentation-academic-index-head">
+                <span>学业成长指数</span>
+                <strong>{academicGrowth.growthIndex}</strong>
+              </div>
+              <div className="presentation-academic-index-kpis">
+                <div><span>覆盖率</span><strong>{academicGrowth.coverageRate}%</strong></div>
+                <div><span>参考人数</span><strong>{academicGrowth.participantCount}</strong></div>
+                <div><span>年级均分</span><strong>{academicGrowth.averageScore}</strong></div>
+                <div><span>进步率</span><strong>{academicGrowth.participantCount ? Math.round((academicGrowth.progressCount / academicGrowth.participantCount) * 100) : 0}%</strong></div>
+                <div><span>进步学生</span><strong>{academicGrowth.progressCount}</strong></div>
+                <div><span>退步预警</span><strong>{academicGrowth.declineCount}</strong></div>
+              </div>
+              {academicTrendMini.length > 1 ? (
+                <div className="presentation-academic-index-trend">
+                  {academicTrendMini.map((item) => (
+                    <div className="presentation-academic-index-trend-item" key={item.examId}>
+                      <span title={item.examName}>{item.examName.replace(/^[\d\-学年上下学期\s]+/, '').slice(0, 8)}</span>
+                      <div className="presentation-academic-index-trend-track">
+                        <i style={{ width: `${Math.max(8, Math.min(100, item.progressRate))}%` }} />
+                      </div>
+                      <strong>{item.averageScore}</strong>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              <p>{academicGrowth.insight.headline}</p>
+              <small>{academicGrowth.insight.suggestion}</small>
             </div>
             <div className="presentation-academic-orbit">
-              {academicGrowth.quadrants.map((item, index) => (
-                <div
-                  key={item.key}
-                  className={`presentation-academic-planet ${item.tone}`}
-                  style={{
-                    left: `${16 + (index % 2) * 58}%`,
-                    top: `${18 + Math.floor(index / 2) * 46}%`,
-                    width: `${62 + Math.min(34, item.count * 2)}px`,
-                    height: `${62 + Math.min(34, item.count * 2)}px`,
-                    animationDelay: `${index * 0.35}s`,
-                  }}
-                >
-                  <strong>{item.count}</strong>
-                  <span>{item.label}</span>
-                </div>
-              ))}
+              <div className="presentation-academic-orbit-core">
+                <strong>{academicQuadrantTotal}</strong>
+                <span>画像样本</span>
+              </div>
+              {academicGrowth.quadrants.map((item, index) => {
+                const percent = academicQuadrantTotal ? Math.round((item.count / academicQuadrantTotal) * 100) : 0;
+                return (
+                  <div
+                    key={item.key}
+                    className={`presentation-academic-planet ${item.tone}`}
+                    style={{
+                      left: `${16 + (index % 2) * 58}%`,
+                      top: `${14 + Math.floor(index / 2) * 42}%`,
+                      width: `${58 + Math.min(28, item.count * 1.6)}px`,
+                      height: `${58 + Math.min(28, item.count * 1.6)}px`,
+                      animationDelay: `${index * 0.35}s`,
+                    }}
+                  >
+                    <strong>{item.count}</strong>
+                    <b>{percent}%</b>
+                    <span>{item.label}</span>
+                  </div>
+                );
+              })}
+              <div className="presentation-academic-orbit-legend">
+                {academicGrowth.quadrants.map((item) => (
+                  <div key={item.key} className={`presentation-academic-orbit-legend-item ${item.tone}`}>
+                    <strong>{item.count}</strong>
+                    <span>{item.label}</span>
+                  </div>
+                ))}
+              </div>
             </div>
             <div className="presentation-academic-leaders">
-              <div className="presentation-panel-title compact"><PresentationGlyph name="trend" className="presentation-title-icon" />进步样本</div>
-              {academicGrowth.progressLeaders.slice(0, 5).map((item, index) => (
-                <div className="presentation-academic-leader" key={item.studentId}>
-                  <span>{index + 1}</span>
-                  <strong>{item.studentName}</strong>
-                  <em>{item.className} · {item.rankDelta > 0 ? '+' : ''}{item.rankDelta}</em>
+              <div className="presentation-academic-leaders-grid">
+                <div className="presentation-academic-leaders-col">
+                  <div className="presentation-panel-title compact"><PresentationGlyph name="trend" className="presentation-title-icon" />进步样本 TOP6</div>
+                  {academicGrowth.progressLeaders.slice(0, 6).map((item, index) => (
+                    <div className="presentation-academic-leader" key={item.studentId}>
+                      <span>{index + 1}</span>
+                      <div className="presentation-academic-leader-main">
+                        <strong>{item.studentName}</strong>
+                        <small>{item.className.replace('八年级', '')} · 总分 {item.totalScore}</small>
+                      </div>
+                      <em>+{item.rankDelta || item.scoreDelta}</em>
+                    </div>
+                  ))}
+                  {academicGrowth.progressLeaders.length === 0 ? <div className="presentation-summary-item">暂无进步样本</div> : null}
                 </div>
-              ))}
-              {academicGrowth.progressLeaders.length === 0 ? <div className="presentation-summary-item">暂无进步样本，导入多次考试后自动生成。</div> : null}
+                <div className="presentation-academic-leaders-col">
+                  <div className="presentation-panel-title compact is-risk"><PresentationGlyph name="shield" className="presentation-title-icon" />退步预警 TOP4</div>
+                  {academicGrowth.riskStudents.slice(0, 4).map((item, index) => (
+                    <div className="presentation-academic-leader is-risk" key={item.studentId}>
+                      <span>{index + 1}</span>
+                      <div className="presentation-academic-leader-main">
+                        <strong>{item.studentName}</strong>
+                        <small>{item.className.replace('八年级', '')} · 总分 {item.totalScore}</small>
+                      </div>
+                      <em>{item.rankDelta || item.scoreDelta}</em>
+                    </div>
+                  ))}
+                  {academicGrowth.riskStudents.length === 0 ? <div className="presentation-summary-item">暂无退步预警</div> : null}
+                </div>
+              </div>
             </div>
-          </div>
-          <div className="presentation-academic-chart-row">
+
             <div className="presentation-academic-chart-card presentation-academic-chart-card-wide">
               <div className="presentation-panel-title compact"><PresentationGlyph name="chart" className="presentation-title-icon" />各科对总成绩影响散点图</div>
-              <svg className="presentation-academic-scatter" viewBox="0 0 540 260" aria-hidden="true">
+              {academicScatterInsight ? (
+                <div className="presentation-academic-chart-meta">
+                  <span>高相关科目 <strong>{academicScatterInsight.highImpactCount}</strong></span>
+                  <span>平均相关度 <strong>r {academicScatterInsight.avgRelated}</strong></span>
+                  <span>最强 <strong>{academicScatterInsight.strongest?.subjectName} r {academicScatterInsight.strongest?.relatedScore}</strong></span>
+                  <span>最弱 <strong>{academicScatterInsight.weakest?.subjectName} r {academicScatterInsight.weakest?.relatedScore}</strong></span>
+                </div>
+              ) : null}
+              <div className="presentation-academic-scatter-body">
+                <svg className="presentation-academic-scatter" viewBox="0 0 540 260" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
                 <line x1="60" y1="214" x2="484" y2="214" className="presentation-academic-axis" />
                 <line x1="60" y1="34" x2="60" y2="214" className="presentation-academic-axis" />
-                <line x1="60" y1="154" x2="484" y2="154" className="presentation-academic-grid-line" />
-                <line x1="60" y1="94" x2="484" y2="94" className="presentation-academic-grid-line" />
+                <line x1="272" y1="34" x2="272" y2="214" className="presentation-academic-grid-line is-dashed" />
+                <line x1="60" y1="124" x2="484" y2="124" className="presentation-academic-grid-line is-dashed" />
+                <line x1="60" y1="174" x2="484" y2="174" className="presentation-academic-grid-line" />
+                <line x1="60" y1="74" x2="484" y2="74" className="presentation-academic-grid-line" />
+                <text x="278" y="48" className="presentation-academic-quadrant-label">高相关</text>
+                <text x="278" y="206" className="presentation-academic-quadrant-label">低相关</text>
                 {academicScatterNodes.map((item) => (
                   <g key={item.subjectCode} style={{ animationDelay: item.delay }}>
                     <circle cx={item.x} cy={item.y} r={item.radius} fill={item.color} className="presentation-academic-scatter-dot" />
@@ -1284,30 +1679,57 @@ export function PresentationModePage({
                     >
                       {item.subjectName} · r {item.relatedScore}
                     </text>
+                    <text
+                      x={item.x + item.labelDx}
+                      y={item.y + item.labelDy + 12}
+                      className="presentation-academic-point-sub"
+                      textAnchor={item.labelDx < 0 ? 'end' : 'start'}
+                    >
+                      均分 {item.averageScore} · 贡献 {item.contributionRate}%
+                    </text>
                   </g>
                 ))}
                 <text x="406" y="246" className="presentation-academic-axis-label">科目均分相对位置</text>
                 <text x="8" y="28" className="presentation-academic-axis-label">总分相关度</text>
                 <text x="66" y="238" className="presentation-academic-axis-label">低</text>
                 <text x="464" y="238" className="presentation-academic-axis-label">高</text>
-              </svg>
+                </svg>
+              </div>
+              <div className="presentation-academic-scatter-legend">
+                <span><i className="is-strong" />高相关 r≥0.75</span>
+                <span><i className="is-mid" />中相关 r≥0.45</span>
+                <span><i className="is-weak" />弱相关</span>
+                <span>圆点大小 = 贡献占比</span>
+              </div>
               {academicScatterNodes.length === 0 ? <div className="presentation-summary-item">暂无各科成绩数据。</div> : null}
             </div>
 
             <div className="presentation-academic-chart-card">
               <div className="presentation-panel-title compact"><PresentationGlyph name="trend" className="presentation-title-icon" />学科均衡条带图</div>
+              <div className="presentation-academic-subject-legend">
+                <span><i className="is-average" />年级均分</span>
+                <span><i className="is-spread" />班际差</span>
+              </div>
               <div className="presentation-academic-subject-bands">
-                {academicSubjectSummaries.slice(0, 7).map((item) => {
+                {academicSubjectSummaries.map((item) => {
                   const maxAverage = Math.max(...academicSubjectSummaries.map((row) => row.averageScore), 1);
                   const maxSpread = Math.max(...academicSubjectSummaries.map((row) => row.classSpread), 1);
                   return (
                     <div className="presentation-academic-subject-band" key={item.subjectCode}>
-                      <span>{item.subjectName}</span>
+                      <div className="presentation-academic-subject-band-head">
+                        <span>{item.subjectName}</span>
+                        <strong>{item.averageScore}</strong>
+                      </div>
                       <div className="presentation-academic-subject-track">
                         <i style={{ width: `${Math.max(8, Math.round((item.averageScore / maxAverage) * 100))}%` }} />
                         <b style={{ width: `${Math.max(6, Math.round((item.classSpread / maxSpread) * 100))}%` }} />
                       </div>
-                      <strong>{item.averageScore}</strong>
+                      <div className="presentation-academic-subject-band-meta">
+                        <em>班际 {item.minAverage}~{item.maxAverage}</em>
+                        <em>差 {item.classSpread}</em>
+                        <em>r {item.relatedScore}</em>
+                        <em>{item.count}人</em>
+                      </div>
                     </div>
                   );
                 })}
@@ -1317,6 +1739,11 @@ export function PresentationModePage({
 
             <div className="presentation-academic-chart-card">
               <div className="presentation-panel-title compact"><PresentationGlyph name="summary" className="presentation-title-icon" />班级分布箱线图</div>
+              <div className="presentation-academic-boxplot-legend">
+                <span><i className="is-body" />四分位</span>
+                <span><i className="is-median" />中位数</span>
+                <span><i className="is-whisker" />极值</span>
+              </div>
               <div className="presentation-academic-boxplot">
                 {academicBoxRows.map((item) => {
                   const maxScore = Math.max(...academicBoxRows.map((row) => row.max), 1);
@@ -1327,13 +1754,20 @@ export function PresentationModePage({
                   const right = Math.round((item.max / maxScore) * 100);
                   return (
                     <div className="presentation-academic-box-row" key={item.classId}>
-                      <span>{item.className.replace('八年级', '')}</span>
+                      <div className="presentation-academic-box-label">
+                        <span>{item.className.replace('八年级', '')}</span>
+                        <small>{item.participantCount}人 · 指数 {item.growthIndex}</small>
+                      </div>
                       <div className="presentation-academic-box-track">
                         <i className="presentation-academic-box-whisker" style={{ left: `${left}%`, width: `${Math.max(2, right - left)}%` }} />
                         <i className="presentation-academic-box-body" style={{ left: `${q1}%`, width: `${Math.max(3, q3 - q1)}%` }} />
                         <b style={{ left: `${median}%` }} />
                       </div>
-                      <strong>{item.median}</strong>
+                      <div className="presentation-academic-box-stats">
+                        <strong>{item.median}</strong>
+                        <small>{item.min}~{item.max}</small>
+                        <em>↑{item.progressCount} ↓{item.declineCount}</em>
+                      </div>
                     </div>
                   );
                 })}
@@ -1393,40 +1827,72 @@ export function PresentationModePage({
         </section>
 
         <section className="presentation-row presentation-row-main">
-          <div className="presentation-panel first-row-panel">
+          <div className="presentation-panel first-row-panel presentation-panel-fill">
             <div className="presentation-panel-title"><PresentationGlyph name="chart" className="presentation-title-icon" />班级势能矩阵（TOP 8）</div>
-            <div className="presentation-matrix">
-              <div className="presentation-matrix-grid" />
-              {classMatrixNodes.map((item) => (
-                <div
-                  key={item.id}
-                  className="presentation-matrix-node"
-                  style={{
-                    left: item.left,
-                    top: item.top,
-                    width: `${item.size}px`,
-                    height: `${item.size}px`,
-                    opacity: barsExpanded ? 1 : 0,
-                    ['--node-scale' as string]: barsExpanded ? 1 : 0.55,
-                    ['--float-duration' as string]: item.floatDuration,
-                    ['--pulse-duration' as string]: item.pulseDuration,
-                    ['--float-delay' as string]: item.floatDelay,
-                    background: `radial-gradient(circle at 32% 28%, hsla(${item.hue}, 98%, 76%, .95), hsla(${item.hue}, 90%, 47%, .58) 52%, rgba(8, 21, 36, .62) 100%)`,
-                    boxShadow: `0 0 ${16 + item.size / 8}px hsla(${item.hue}, 100%, 60%, .36)`,
-                  }}
-                >
-                  <div className="presentation-node-core">
-                    <span className="presentation-matrix-node-name">{item.name}</span>
-                    <strong>{item.score}</strong>
-                    <small>{item.gradeName} · {item.studentCount}人</small>
-                  </div>
+            {classMatrixInsight ? (
+              <div className="presentation-cockpit-meta">
+                <span>均分 <strong>{classMatrixInsight.avgScore}</strong></span>
+                <span>平均成长指数 <strong>{classMatrixInsight.avgGrowth}</strong></span>
+                <span>榜首 <strong>{classMatrixInsight.leader?.name} {classMatrixInsight.leader?.score}</strong></span>
+                <span>样本 <strong>{classMatrixNodes.length}</strong> 班</span>
+              </div>
+            ) : null}
+            <div className="presentation-matrix-stack">
+              <div className="presentation-matrix presentation-matrix-dense">
+                <div className="presentation-matrix-grid" />
+                <div className="presentation-matrix-quadrants" aria-hidden="true">
+                  <span className="presentation-matrix-quadrant tl">高势能</span>
+                  <span className="presentation-matrix-quadrant tr">领先区</span>
+                  <span className="presentation-matrix-quadrant bl">待提升</span>
+                  <span className="presentation-matrix-quadrant br">基础盘</span>
                 </div>
-              ))}
-              <div className="presentation-matrix-axis x">班级综合评分</div>
-              <div className="presentation-matrix-axis y">成长势能</div>
+                {classMatrixNodes.map((item) => (
+                  <div
+                    key={item.id}
+                    className="presentation-matrix-node"
+                    style={{
+                      left: item.left,
+                      top: item.top,
+                      width: `${item.size}px`,
+                      height: `${item.size}px`,
+                      opacity: barsExpanded ? 1 : 0,
+                      ['--node-scale' as string]: barsExpanded ? 1 : 0.55,
+                      ['--float-duration' as string]: item.floatDuration,
+                      ['--pulse-duration' as string]: item.pulseDuration,
+                      ['--float-delay' as string]: item.floatDelay,
+                      background: `radial-gradient(circle at 32% 28%, hsla(${item.hue}, 98%, 76%, .95), hsla(${item.hue}, 90%, 47%, .58) 52%, rgba(8, 21, 36, .62) 100%)`,
+                      boxShadow: `0 0 ${12 + item.size / 10}px hsla(${item.hue}, 100%, 60%, .36)`,
+                    }}
+                  >
+                    <div className="presentation-node-core">
+                      <span className="presentation-matrix-node-rank">#{item.rank}</span>
+                      <span className="presentation-matrix-node-name">{item.name}</span>
+                      <strong>{item.score}</strong>
+                      <small>{item.gradeName} · {item.studentCount}人</small>
+                      <em>势 {item.progressRate}% · 指 {item.growthIndex}</em>
+                    </div>
+                  </div>
+                ))}
+                <div className="presentation-matrix-axis x">班级综合评分 →</div>
+                <div className="presentation-matrix-axis y">成长势能 ↑</div>
+              </div>
+              <div className="presentation-matrix-legend presentation-matrix-legend-full">
+                {classMatrixNodes.map((item) => (
+                  <div key={item.id} className="presentation-matrix-legend-item">
+                    <span className="presentation-matrix-legend-rank">#{item.rank}</span>
+                    <span>{item.name}</span>
+                    <strong>{item.score}</strong>
+                    <em>势 {item.progressRate}% · 指 {item.growthIndex}</em>
+                    <em className="presentation-matrix-legend-delta">↑{item.progressCount} ↓{item.declineCount}</em>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="presentation-panel-footnote presentation-panel-footnote--tight">
+              横轴班级积分 · 纵轴成长指数 · 气泡大小随积分变化
             </div>
           </div>
-          <div className="presentation-panel first-row-panel second">
+          <div className="presentation-panel first-row-panel second presentation-panel-fill">
             <div className="presentation-panel-title"><PresentationGlyph name="award" className="presentation-title-icon" />冠军冲刺赛道（班级）</div>
             <div className="presentation-sprint-list">
               {classSprintRows.map((item, index) => (
@@ -1569,43 +2035,70 @@ export function PresentationModePage({
             </div>
           </div>
 
-          <div className="presentation-panel fade-up-panel">
+          <div className="presentation-panel fade-up-panel presentation-insight-panel presentation-panel-fill">
             <div className="presentation-panel-title"><PresentationGlyph name="trend" className="presentation-title-icon" />异常事件分布趋势</div>
-            <svg className={`presentation-chart${lineAnimated ? ' animated' : ''}`} viewBox="0 0 420 190" aria-hidden="true">
+            <div className="presentation-cockpit-meta">
+              <span>考勤 <strong>{anomalyTrendInsight.attendanceTotal}</strong></span>
+              <span>违纪 <strong>{anomalyTrendInsight.disciplineTotal}</strong></span>
+              <span>作业 <strong>{anomalyTrendInsight.homeworkTotal}</strong></span>
+              <span>峰值 <strong>{anomalyTrendInsight.peak.day} {anomalyTrendInsight.peak.total}件</strong></span>
+            </div>
+            <svg className={`presentation-chart presentation-chart-insight${lineAnimated ? ' animated' : ''}`} viewBox="0 0 420 168" aria-hidden="true">
                <defs>
                  <linearGradient id="area-attend" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="rgba(255, 179, 0, 0.4)"/><stop offset="100%" stopColor="rgba(255, 179, 0, 0)"/></linearGradient>
                  <linearGradient id="area-disc" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="rgba(255, 23, 68, 0.4)"/><stop offset="100%" stopColor="rgba(255, 23, 68, 0)"/></linearGradient>
                  <linearGradient id="area-hw" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="rgba(0, 229, 255, 0.4)"/><stop offset="100%" stopColor="rgba(0, 229, 255, 0)"/></linearGradient>
                </defs>
-               <polyline className="chart-area" points={`0,190 ${anomalyAreaMock.map((p,i) => `${i * 32},${190 - p.attendance * 4}`).join(' ')} 416,190`} fill="url(#area-attend)" />
-               <polyline className="chart-line" points={anomalyAreaMock.map((p,i) => `${i * 32},${190 - p.attendance * 4}`).join(' ')} fill="none" stroke="#ffb300" strokeWidth="2" />
-               
-               <polyline className="chart-area" points={`0,190 ${anomalyAreaMock.map((p,i) => `${i * 32},${190 - p.discipline * 4}`).join(' ')} 416,190`} fill="url(#area-disc)" />
-               <polyline className="chart-line" points={anomalyAreaMock.map((p,i) => `${i * 32},${190 - p.discipline * 4}`).join(' ')} fill="none" stroke="#ff1744" strokeWidth="2" />
-               
-               {anomalyAreaMock.map((p, i) => (
-                 i % 3 === 0 ? <text key={i} x={i * 32} y="185" className="presentation-axis-text">{p.day}</text> : null
+               {anomalyTrendHasData ? (
+                 <>
+                   <polyline className="chart-area" points={buildAnomalyArea('attendance')} fill="url(#area-attend)" />
+                   <polyline className="chart-line" points={buildAnomalyLine('attendance')} fill="none" stroke="#ffb300" strokeWidth="2" />
+                   <polyline className="chart-area" points={buildAnomalyArea('discipline')} fill="url(#area-disc)" />
+                   <polyline className="chart-line" points={buildAnomalyLine('discipline')} fill="none" stroke="#ff1744" strokeWidth="2" />
+                   <polyline className="chart-area" points={buildAnomalyArea('homework')} fill="url(#area-hw)" />
+                   <polyline className="chart-line" points={buildAnomalyLine('homework')} fill="none" stroke="#00e5ff" strokeWidth="2" />
+                 </>
+               ) : (
+                 <line x1="8" y1="158" x2="412" y2="158" className="presentation-academic-axis" />
+               )}
+               {anomalyTrendSeries.map((point, index) => (
+                 index % 3 === 0 ? (
+                   <text key={point.shortDay} x={8 + index * 29} y="165" className="presentation-axis-text">{point.day}</text>
+                 ) : null
                ))}
-               <text x="350" y="20" className="presentation-axis-text" fill="#ffb300">● 考勤</text>
-               <text x="350" y="40" className="presentation-axis-text" fill="#ff1744">● 违纪</text>
+               <text x="318" y="18" className="presentation-axis-text" fill="#ffb300">● 考勤</text>
+               <text x="318" y="34" className="presentation-axis-text" fill="#ff1744">● 违纪</text>
+               <text x="318" y="50" className="presentation-axis-text" fill="#00e5ff">● 作业</text>
             </svg>
+            {!anomalyTrendHasData ? <div className="presentation-summary-item presentation-summary-item--compact">近 14 日暂无负向事件</div> : null}
+            <div className="presentation-cockpit-trend-foot">
+              {anomalyTrendSeries.map((item) => (
+                <span key={item.shortDay}>{item.total}</span>
+              ))}
+            </div>
           </div>
 
-          <div className="presentation-panel fade-up-panel">
+          <div className="presentation-panel fade-up-panel presentation-insight-panel presentation-panel-fill">
             <div className="presentation-panel-title"><PresentationGlyph name="shield" className="presentation-title-icon" />预警处理时效转化漏斗</div>
-            <div className="presentation-funnel-wrap">
-              {funnelStagesMock.map((stage, index) => {
-                const max = funnelStagesMock[0].value;
-                const width = (stage.value / max) * 100;
-                return (
-                  <div key={stage.label} className="funnel-stage">
-                    <div className="funnel-bar" style={{ width: barsExpanded ? `${width}%` : '0%', background: stage.color }}>
-                      <span className="funnel-label">{stage.label}</span>
-                      <strong className="funnel-value">{stage.value}</strong>
-                    </div>
+            <div className="presentation-cockpit-meta">
+              <span>触发 <strong>{warningFunnelInsight.total}</strong></span>
+              <span>闭环 <strong>{warningFunnelInsight.closed}</strong></span>
+              <span>闭环率 <strong>{warningFunnelInsight.closeRate}%</strong></span>
+              <span>涉及班级 <strong>{warningFunnelInsight.affectedClasses}</strong></span>
+            </div>
+            <div className="presentation-funnel-wrap presentation-funnel-wrap-dense">
+              {warningFunnelStages.map((stage) => (
+                <div key={stage.label} className="funnel-stage">
+                  <div className="funnel-bar" style={{ width: barsExpanded ? `${stage.width}%` : '0%', background: stage.color }}>
+                    <span className="funnel-label">{stage.label}</span>
+                    <strong className="funnel-value">{stage.value}</strong>
                   </div>
-                );
-              })}
+                  <small className="funnel-convert">转化 {stage.convertRate}%</small>
+                </div>
+              ))}
+            </div>
+            <div className="presentation-panel-footnote">
+              负向事件 <strong>{warningSummary.negativeEventCount}</strong> 件 · 高风险 <span>{warningSummary.highCount}</span> · 中风险 <span>{warningSummary.mediumCount}</span>
             </div>
           </div>
         </section>

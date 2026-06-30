@@ -101,6 +101,30 @@
     }
   }
 
+  function getSessionStorageItem(key) {
+    try {
+      return global.sessionStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  }
+
+  function setSessionStorageItem(key, value) {
+    try {
+      global.sessionStorage.setItem(key, value);
+    } catch {
+      // sessionStorage 可能在特殊浏览器策略下不可用，调用方仍可使用内存态继续运行。
+    }
+  }
+
+  function removeSessionStorageItem(key) {
+    try {
+      global.sessionStorage.removeItem(key);
+    } catch {
+      // sessionStorage 可能在特殊浏览器策略下不可用，调用方仍可使用默认值继续运行。
+    }
+  }
+
   function readLowSpecModeEnabled() {
     return getStorageItem(LOW_SPEC_MODE_KEY) === "true";
   }
@@ -113,12 +137,11 @@
     }
   }
 
+  // 视图密度仅保存在当前浏览器会话，不再写入 localStorage。
+  removeStorageItem(GRID_DENSITY_KEY);
+
   function readGridDensity(validModes, fallback = "panorama") {
-    let value = getStorageItem(GRID_DENSITY_KEY);
-    if (value === "compact") {
-      value = "panorama";
-      setStorageItem(GRID_DENSITY_KEY, "panorama");
-    }
+    const value = getSessionStorageItem(GRID_DENSITY_KEY);
     const valid = Array.isArray(validModes)
       ? validModes
       : Array.from(validModes || []);
@@ -126,7 +149,11 @@
   }
 
   function writeGridDensity(mode) {
-    setStorageItem(GRID_DENSITY_KEY, mode);
+    setSessionStorageItem(GRID_DENSITY_KEY, mode);
+  }
+
+  function clearGridDensity() {
+    removeSessionStorageItem(GRID_DENSITY_KEY);
   }
 
   function readSidebarCollapsed() {
@@ -568,6 +595,7 @@
     writeLowSpecModeEnabled,
     readGridDensity,
     writeGridDensity,
+    clearGridDensity,
     readSidebarCollapsed,
     writeSidebarCollapsed,
     getDisplayPerformanceTier,

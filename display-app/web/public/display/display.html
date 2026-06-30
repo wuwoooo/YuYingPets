@@ -6,7 +6,12 @@
     <title>育英星宠 · Display端</title>
     <link rel="stylesheet" href="./vendor/fontawesome/css/all.min.css" />
     <link rel="preload" href="./images/2.svg" as="image" type="image/svg+xml" />
-    <link rel="preload" href="./images/logo.svg" as="image" type="image/svg+xml" />
+    <link
+      rel="preload"
+      href="./images/logo.svg"
+      as="image"
+      type="image/svg+xml"
+    />
     <link rel="preload" href="./styles/display.css?v=202606181400" as="style" />
     <link
       rel="preload"
@@ -150,7 +155,10 @@
       rel="stylesheet"
       href="./styles/display-classroom-effects.css?v=202606181400"
     />
-    <link rel="stylesheet" href="./styles/display-performance.css?v=202606181400" />
+    <link
+      rel="stylesheet"
+      href="./styles/display-performance.css?v=202606181400"
+    />
     <link
       rel="stylesheet"
       href="./styles/display-entry-transition.css?v=202606181200"
@@ -167,8 +175,14 @@
     <link rel="stylesheet" href="./styles/display-pet-pk.css?v=202606181100" />
     <link rel="stylesheet" href="./styles/display-group.css?v=202606181200" />
     <link rel="stylesheet" href="./styles/display-adopt.css?v=202606181200" />
-    <link rel="stylesheet" href="./styles/display-academic.css?v=202606181100" />
-    <link rel="stylesheet" href="./styles/display-exchange.css?v=202606181100" />
+    <link
+      rel="stylesheet"
+      href="./styles/display-academic.css?v=202606181100"
+    />
+    <link
+      rel="stylesheet"
+      href="./styles/display-exchange.css?v=202606181100"
+    />
     <link
       rel="stylesheet"
       href="./styles/display-leaderboard.css?v=202606181100"
@@ -746,7 +760,9 @@
         <span class="trans-holiday-pop trans-holiday-pop-a"></span>
         <span class="trans-holiday-pop trans-holiday-pop-b"></span>
         <div class="trans-holiday-card">
-          <span class="trans-holiday-kicker" id="transHolidayKicker">儿童节彩蛋已开启</span>
+          <span class="trans-holiday-kicker" id="transHolidayKicker"
+            >儿童节彩蛋已开启</span
+          >
           <strong id="transHolidayTitle">六一儿童节快乐</strong>
           <span id="transHolidayCopy">愿每一颗星宠都和同学们一起闪闪发光</span>
         </div>
@@ -1636,7 +1652,9 @@
         aria-hidden="true"
       >
         <div class="holiday-badge">
-          <span class="holiday-badge-kicker" id="holidayBadgeKicker">6.1 儿童节</span>
+          <span class="holiday-badge-kicker" id="holidayBadgeKicker"
+            >6.1 儿童节</span
+          >
           <strong id="holidayBadgeTitle">童心闪闪 快乐成长</strong>
         </div>
         <div class="holiday-classroom-title">
@@ -2483,13 +2501,6 @@
           alt=""
         />
         <img
-          class="toolbox-deco toolbox-deco-meditation-stars"
-          data-src="images/toolbox/meditation-stars.png"
-          loading="lazy"
-          decoding="async"
-          alt=""
-        />
-        <img
           class="toolbox-deco toolbox-deco-ticket"
           data-src="images/toolbox/lucky-ticket.png"
           loading="lazy"
@@ -2634,13 +2645,6 @@
             <img
               class="ritual-card-prop prop-main"
               src="images/toolbox/meditation-lantern.png"
-              loading="lazy"
-              decoding="async"
-              alt=""
-            />
-            <img
-              class="ritual-card-prop prop-spark"
-              src="images/toolbox/meditation-stars.png"
               loading="lazy"
               decoding="async"
               alt=""
@@ -2943,34 +2947,76 @@
 
           <div class="toolbox-scene" data-toolbox-scene="breath">
             <div class="mindfulness-stage breath-stage">
-              <img
-                class="mindfulness-ripple breath-ripple-img"
-                src="images/toolbox/breath-ripple.png"
-                loading="lazy"
-                decoding="async"
-                alt=""
-              />
-              <div class="mindfulness-hud">
-                <div class="mindfulness-clock" id="toolboxBreathTime">01:00</div>
-              </div>
-              <div class="breath-orb-wrap" id="toolboxBreathOrb">
-                <img
-                  class="breath-orb-img"
-                  src="images/toolbox/breath-orb.png"
-                  loading="lazy"
-                  decoding="async"
-                  alt=""
-                />
-                <span id="toolboxBreathPhase">准备</span>
+              <div class="breath-layout">
+                <div class="mindfulness-hud">
+                  <div class="mindfulness-clock" id="toolboxBreathTime">
+                    01:00
+                  </div>
+                </div>
+                <div class="breath-visual-wrap">
+                  <img
+                    class="mindfulness-ripple breath-ripple-img"
+                    src="images/toolbox/breath-ripple.png"
+                    loading="lazy"
+                    decoding="async"
+                    alt=""
+                  />
+                  <div
+                    class="breath-orb-wrap"
+                    id="toolboxBreathOrb"
+                    data-phase="ready"
+                  >
+                    <img
+                      class="breath-orb-img"
+                      src="images/toolbox/breath-orb.png"
+                      loading="lazy"
+                      decoding="async"
+                      alt=""
+                    />
+                  </div>
+                </div>
+                <div class="breath-phase-label" id="toolboxBreathPhase"></div>
               </div>
             </div>
-            <div class="mindfulness-presets breath-presets" aria-label="呼吸时长预设">
+            <div
+              class="mindfulness-presets breath-presets breath-pattern-presets"
+              aria-label="呼吸法预设"
+            >
+              <span class="mindfulness-presets-label">模式</span>
+              <button
+                type="button"
+                class="active"
+                data-breath-pattern="relax"
+                onclick="setBreathPattern('relax')"
+              >
+                放松
+              </button>
+              <button
+                type="button"
+                data-breath-pattern="focus"
+                onclick="setBreathPattern('focus')"
+              >
+                专注
+              </button>
+            </div>
+            <div
+              class="mindfulness-presets breath-presets breath-duration-presets"
+              aria-label="呼吸时长预设"
+            >
               <span class="mindfulness-presets-label">时长</span>
-              <button type="button" class="active" onclick="setBreathPreset(60)">
+              <button
+                type="button"
+                class="active"
+                onclick="setBreathPreset(60)"
+              >
                 1分钟
               </button>
-              <button type="button" onclick="setBreathPreset(120)">2分钟</button>
-              <button type="button" onclick="setBreathPreset(180)">3分钟</button>
+              <button type="button" onclick="setBreathPreset(120)">
+                2分钟
+              </button>
+              <button type="button" onclick="setBreathPreset(180)">
+                3分钟
+              </button>
             </div>
             <div class="toolbox-live-copy">
               <h3>跟随光球慢慢呼吸</h3>
@@ -2980,40 +3026,65 @@
             </div>
           </div>
 
-          <div class="toolbox-scene" data-toolbox-scene="meditation">
+          <div
+            class="toolbox-scene"
+            data-toolbox-scene="meditation"
+            data-phase="ready"
+          >
             <div class="mindfulness-stage meditation-stage">
-              <img
-                class="meditation-stars-img"
-                src="images/toolbox/meditation-stars.png"
-                loading="lazy"
-                decoding="async"
-                alt=""
-              />
-              <img
-                class="meditation-lantern-img"
-                src="images/toolbox/meditation-lantern.png"
-                loading="lazy"
-                decoding="async"
-                alt=""
-              />
-              <div class="meditation-rings" aria-hidden="true">
-                <span></span><span></span><span></span>
-              </div>
-              <div class="mindfulness-hud">
-                <div class="mindfulness-clock" id="toolboxMeditationTime">02:00</div>
-                <div class="mindfulness-status" id="toolboxMeditationStatus">
-                  把注意力轻轻放回呼吸
+              <div class="meditation-layout">
+                <div class="mindfulness-hud meditation-hud">
+                  <div class="mindfulness-clock" id="toolboxMeditationTime">
+                    02:00
+                  </div>
+                </div>
+                <div class="meditation-prompt" id="toolboxMeditationStatus">
+                  安静坐好，准备开始
+                </div>
+                <div class="meditation-visual-wrap">
+                  <div class="meditation-veil" aria-hidden="true"></div>
+                  <div
+                    class="meditation-progress-ring"
+                    aria-hidden="true"
+                  ></div>
+                  <div class="meditation-focus" aria-hidden="true">
+                    <span class="meditation-focus-glow"></span>
+                    <span class="meditation-focus-core"></span>
+                  </div>
+                  <img
+                    class="meditation-lantern-img"
+                    src="images/toolbox/meditation-lantern.png"
+                    loading="lazy"
+                    decoding="async"
+                    alt=""
+                  />
+                  <div class="meditation-rings" aria-hidden="true">
+                    <span></span><span></span><span></span>
+                  </div>
                 </div>
               </div>
             </div>
-            <div class="mindfulness-presets meditation-presets" aria-label="冥想时长预设">
+            <div
+              class="mindfulness-presets meditation-presets"
+              aria-label="冥想时长预设"
+            >
               <span class="mindfulness-presets-label">时长</span>
-              <button type="button" onclick="setMeditationPreset(60)">1分钟</button>
-              <button type="button" class="active" onclick="setMeditationPreset(120)">
+              <button type="button" onclick="setMeditationPreset(60)">
+                1分钟
+              </button>
+              <button
+                type="button"
+                class="active"
+                onclick="setMeditationPreset(120)"
+              >
                 2分钟
               </button>
-              <button type="button" onclick="setMeditationPreset(180)">3分钟</button>
-              <button type="button" onclick="setMeditationPreset(300)">5分钟</button>
+              <button type="button" onclick="setMeditationPreset(180)">
+                3分钟
+              </button>
+              <button type="button" onclick="setMeditationPreset(300)">
+                5分钟
+              </button>
             </div>
             <div class="toolbox-live-copy">
               <h3>安静坐好，准备回到课堂</h3>
@@ -3260,6 +3331,13 @@
               </select>
             </label>
             <label class="toolbox-setting-field setting-breath">
+              呼吸法
+              <select id="toolboxBreathPattern">
+                <option value="relax" selected>放松 (4 吸 / 6 呼)</option>
+                <option value="focus">专注 (4-4-4-4)</option>
+              </select>
+            </label>
+            <label class="toolbox-setting-field setting-breath">
               呼吸练习时长
               <select id="toolboxBreathDuration">
                 <option value="60" selected>1 分钟</option>
@@ -3405,11 +3483,50 @@
             <span>分</span>
           </div>
           <p id="gardenResultFeedback">全班同学一起守护了安静的花园！</p>
-          <div class="toolbox-result-stats" style="display: flex; flex-wrap: wrap; justify-content: space-between; margin-bottom: 24px; font-size: 14px; background: rgba(255,255,255,0.06); border-radius: 12px; padding: 16px 20px; text-align: left; color: rgba(255,255,255,0.7); line-height: 1.8;">
-            <div style="width: 48%; margin-bottom: 8px;">峰值声浪：<strong id="gardenResultHighDb" style="color:#ffa39e; font-size: 16px; margin-left: 4px;">--</strong></div>
-            <div style="width: 48%; margin-bottom: 8px;">最静时刻：<strong id="gardenResultLowDb" style="color:#a8f1cf; font-size: 16px; margin-left: 4px;">--</strong></div>
-            <div style="width: 48%;">嘈杂时长：<strong id="gardenResultTimeAbove" style="color:#ffa39e; font-size: 16px; margin-left: 4px;">--</strong></div>
-            <div style="width: 48%;">安静时长：<strong id="gardenResultTimeBelow" style="color:#a8f1cf; font-size: 16px; margin-left: 4px;">--</strong></div>
+          <div
+            class="toolbox-result-stats"
+            style="
+              display: flex;
+              flex-wrap: wrap;
+              justify-content: space-between;
+              margin-bottom: 24px;
+              font-size: 14px;
+              background: rgba(255, 255, 255, 0.06);
+              border-radius: 12px;
+              padding: 16px 20px;
+              text-align: left;
+              color: rgba(255, 255, 255, 0.7);
+              line-height: 1.8;
+            "
+          >
+            <div style="width: 48%; margin-bottom: 8px">
+              峰值声浪：<strong
+                id="gardenResultHighDb"
+                style="color: #ffa39e; font-size: 16px; margin-left: 4px"
+                >--</strong
+              >
+            </div>
+            <div style="width: 48%; margin-bottom: 8px">
+              最静时刻：<strong
+                id="gardenResultLowDb"
+                style="color: #a8f1cf; font-size: 16px; margin-left: 4px"
+                >--</strong
+              >
+            </div>
+            <div style="width: 48%">
+              嘈杂时长：<strong
+                id="gardenResultTimeAbove"
+                style="color: #ffa39e; font-size: 16px; margin-left: 4px"
+                >--</strong
+              >
+            </div>
+            <div style="width: 48%">
+              安静时长：<strong
+                id="gardenResultTimeBelow"
+                style="color: #a8f1cf; font-size: 16px; margin-left: 4px"
+                >--</strong
+              >
+            </div>
           </div>
           <button
             type="button"
@@ -3445,11 +3562,50 @@
             <span>分</span>
           </div>
           <p id="energyResultFeedback">全班同学积聚了不可思议的星光能量！</p>
-          <div class="toolbox-result-stats" style="display: flex; flex-wrap: wrap; justify-content: space-between; margin-bottom: 24px; font-size: 14px; background: rgba(255,255,255,0.06); border-radius: 12px; padding: 16px 20px; text-align: left; color: rgba(255,255,255,0.7); line-height: 1.8;">
-            <div style="width: 48%; margin-bottom: 8px;">最高声浪：<strong id="energyResultHighDb" style="color:#ffe48e; font-size: 16px; margin-left: 4px;">--</strong></div>
-            <div style="width: 48%; margin-bottom: 8px;">最弱声量：<strong id="energyResultLowDb" style="color:#e2e8f0; font-size: 16px; margin-left: 4px;">--</strong></div>
-            <div style="width: 48%;">活跃时长：<strong id="energyResultTimeAbove" style="color:#ffe48e; font-size: 16px; margin-left: 4px;">--</strong></div>
-            <div style="width: 48%;">蓄力时长：<strong id="energyResultTimeBelow" style="color:#e2e8f0; font-size: 16px; margin-left: 4px;">--</strong></div>
+          <div
+            class="toolbox-result-stats"
+            style="
+              display: flex;
+              flex-wrap: wrap;
+              justify-content: space-between;
+              margin-bottom: 24px;
+              font-size: 14px;
+              background: rgba(255, 255, 255, 0.06);
+              border-radius: 12px;
+              padding: 16px 20px;
+              text-align: left;
+              color: rgba(255, 255, 255, 0.7);
+              line-height: 1.8;
+            "
+          >
+            <div style="width: 48%; margin-bottom: 8px">
+              最高声浪：<strong
+                id="energyResultHighDb"
+                style="color: #ffe48e; font-size: 16px; margin-left: 4px"
+                >--</strong
+              >
+            </div>
+            <div style="width: 48%; margin-bottom: 8px">
+              最弱声量：<strong
+                id="energyResultLowDb"
+                style="color: #e2e8f0; font-size: 16px; margin-left: 4px"
+                >--</strong
+              >
+            </div>
+            <div style="width: 48%">
+              活跃时长：<strong
+                id="energyResultTimeAbove"
+                style="color: #ffe48e; font-size: 16px; margin-left: 4px"
+                >--</strong
+              >
+            </div>
+            <div style="width: 48%">
+              蓄力时长：<strong
+                id="energyResultTimeBelow"
+                style="color: #e2e8f0; font-size: 16px; margin-left: 4px"
+                >--</strong
+              >
+            </div>
           </div>
           <button
             type="button"

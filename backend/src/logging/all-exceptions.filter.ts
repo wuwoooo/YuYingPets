@@ -8,6 +8,7 @@ import {
 import type { Request, Response } from 'express';
 import { httpLogPath } from '@/common/utils/redact-audit-detail';
 import { rootLogger } from '@/logging/root-logger';
+import { getRequestClientIp } from '@/logging/request-client-ip';
 
 const errLogger = rootLogger.child({ context: 'http_exception' });
 
@@ -73,12 +74,15 @@ export class AllExceptionsFilter implements ExceptionFilter {
           >);
 
     const exceptionMessage = extractExceptionMessage(exception, body);
+    const { clientIp, forwardedFor } = getRequestClientIp(request);
     const logPayload = {
       msg: 'request_failed',
       requestId: request.requestId,
       method: request.method,
       path: httpLogPath(request.originalUrl ?? request.url),
       statusCode: status,
+      clientIp,
+      forwardedFor,
       error: buildErrorLogDetail(exception, status),
     };
 

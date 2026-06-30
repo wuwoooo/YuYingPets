@@ -331,41 +331,97 @@
 /* ========================================================= */
 .scifi-theme .presentation-cockpit-layout {
   display: grid !important;
-  grid-template-columns: 460px 1fr 420px !important; /* 加宽两侧面板以容纳更多数据 */
+  grid-template-columns: 460px 1fr 420px !important;
   gap: 20px !important;
-  align-items: start !important;
+  align-items: stretch !important;
   margin-bottom: 40px !important;
   width: 100% !important;
+  min-height: 680px !important;
+}
+
+.scifi-theme .cockpit-left-wing,
+.scifi-theme .cockpit-right-wing,
+.scifi-theme .cockpit-center-hub {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 12px !important;
+  min-height: 100% !important;
+  height: 100% !important;
 }
 
 .scifi-theme .cockpit-left-wing,
 .scifi-theme .cockpit-right-wing {
-  display: flex !important;
-  flex-direction: column !important;
-  gap: 15px !important;
+  gap: 12px !important;
 }
 
-/* 将单列巨型指标卡压缩为 2列网格 微型指标卡 */
 .scifi-theme .cockpit-metrics-col {
   display: grid !important;
   grid-template-columns: 1fr 1fr !important;
   gap: 12px !important;
+  flex-shrink: 0 !important;
 }
 
 .scifi-theme .cockpit-center-hub {
   position: relative !important;
+  justify-content: space-between !important;
+  align-items: stretch !important;
+  margin-top: 0 !important;
+  padding-top: 8px !important;
+}
+
+.scifi-theme .cockpit-left-wing > .cockpit-panel,
+.scifi-theme .cockpit-right-wing > .cockpit-panel {
+  flex: 1 1 0 !important;
+  min-height: 0 !important;
   display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+}
+
+.scifi-theme .cockpit-center-hub > .cockpit-panel {
+  flex: 0 0 auto !important;
+  width: 100% !important;
+  max-width: 92% !important;
+  margin: 0 auto 12px !important;
+}
+
+.scifi-theme .cockpit-center-hub > .presentation-hero {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
   justify-content: center !important;
-  align-items: center !important;
-  margin-top: 40px !important;
 }
 
 /* --- 微调紧凑环境下的组件尺寸 --- */
 .scifi-theme .cockpit-panel {
-  padding: 12px !important;
+  padding: 10px 12px !important;
 }
+
+.scifi-theme .cockpit-panel .presentation-sprint-list,
+.scifi-theme .cockpit-panel .presentation-live-feed,
+.scifi-theme .cockpit-panel .presentation-radar-wrap,
+.scifi-theme .cockpit-panel .presentation-donut-wrap-compact {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  overflow-y: auto !important;
+}
+
+.scifi-theme .cockpit-panel .presentation-chart-compact {
+  height: 96px !important;
+  flex-shrink: 0 !important;
+}
+
+.scifi-theme .cockpit-panel .presentation-summary-item {
+  margin-top: 4px !important;
+  padding: 6px 8px !important;
+  font-size: 10px !important;
+  line-height: 1.4 !important;
+  border-radius: 8px !important;
+}
+
 .scifi-theme .presentation-sprint-list {
-  gap: 8px !important;
+  gap: 6px !important;
 }
 .scifi-theme .presentation-sprint-row {
   margin-bottom: 6px !important;
@@ -378,6 +434,152 @@
 }
 .scifi-theme .presentation-metric-label {
   font-size: 12px !important;
+}
+.scifi-theme .presentation-metric-sub {
+  margin-top: 4px !important;
+  color: rgba(0, 229, 255, 0.55) !important;
+  font-size: 10px !important;
+  line-height: 1.35 !important;
+}
+
+/* --- 开场总览信息密度 --- */
+.scifi-theme .presentation-cockpit-meta {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 6px 10px !important;
+  margin-bottom: 8px !important;
+}
+.scifi-theme .presentation-cockpit-meta span {
+  color: rgba(178, 235, 242, 0.62) !important;
+  font-size: 10px !important;
+}
+.scifi-theme .presentation-cockpit-meta strong {
+  color: #00e5ff !important;
+  font-weight: 800 !important;
+}
+.scifi-theme .presentation-cockpit-mini-row {
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  gap: 6px !important;
+  margin-top: 8px !important;
+}
+.scifi-theme .presentation-cockpit-mini-chip {
+  display: grid !important;
+  gap: 1px !important;
+  padding: 5px 6px !important;
+  border: 1px solid rgba(0, 229, 255, 0.18) !important;
+  border-radius: 6px !important;
+  background: rgba(0, 229, 255, 0.05) !important;
+  text-align: center !important;
+}
+.scifi-theme .presentation-cockpit-mini-chip span {
+  color: rgba(178, 235, 242, 0.55) !important;
+  font-size: 9px !important;
+}
+.scifi-theme .presentation-cockpit-mini-chip strong {
+  color: #fff !important;
+  font-size: 11px !important;
+}
+.scifi-theme .presentation-cockpit-mini-chip em {
+  color: #ffb300 !important;
+  font-size: 10px !important;
+  font-style: normal !important;
+}
+.scifi-theme .presentation-chart-compact {
+  height: 96px !important;
+}
+.scifi-theme .presentation-chart-value {
+  fill: #ffb300 !important;
+  font-size: 9px !important;
+  font-weight: 700 !important;
+}
+.scifi-theme .presentation-cockpit-trend-foot {
+  display: grid !important;
+  grid-template-columns: repeat(7, minmax(0, 1fr)) !important;
+  gap: 4px !important;
+  margin-top: 4px !important;
+}
+.scifi-theme .presentation-cockpit-trend-foot span {
+  color: rgba(178, 235, 242, 0.5) !important;
+  font-size: 9px !important;
+  text-align: center !important;
+}
+.scifi-theme .presentation-dual-bar-value {
+  color: #00e5ff !important;
+  font-size: 10px !important;
+  font-weight: 800 !important;
+  line-height: 1 !important;
+}
+.scifi-theme .presentation-dual-bar-sub {
+  color: #ffb300 !important;
+  font-size: 9px !important;
+}
+.scifi-theme .presentation-radar-chart-compact {
+  width: 168px !important;
+  height: 168px !important;
+  flex-shrink: 0 !important;
+}
+.scifi-theme .presentation-radar-axis-label {
+  fill: rgba(178, 235, 242, 0.55) !important;
+  font-size: 8px !important;
+}
+.scifi-theme .presentation-radar-side {
+  display: grid !important;
+  gap: 8px !important;
+  flex: 1 !important;
+  min-width: 0 !important;
+}
+.scifi-theme .presentation-radar-legend-compact {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 4px !important;
+}
+.scifi-theme .presentation-radar-legend-compact .presentation-radar-legend-item {
+  padding: 4px 6px !important;
+  font-size: 10px !important;
+}
+.scifi-theme .presentation-radar-score small {
+  color: rgba(178, 235, 242, 0.5) !important;
+  font-size: 9px !important;
+}
+.scifi-theme .presentation-donut-wrap-compact {
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+}
+.scifi-theme .presentation-donut-shell {
+  display: grid !important;
+  place-items: center !important;
+  width: 108px !important;
+  flex-shrink: 0 !important;
+}
+.scifi-theme .presentation-donut-compact {
+  width: 88px !important;
+  height: 88px !important;
+  margin: 0 !important;
+  transform: perspective(600px) rotateX(58deg) scale(1) !important;
+  transform-origin: center center !important;
+}
+.scifi-theme .presentation-legend-list-compact {
+  display: grid !important;
+  gap: 4px !important;
+  flex: 1 !important;
+  min-width: 0 !important;
+}
+.scifi-theme .presentation-legend-list-compact .presentation-legend-item {
+  font-size: 10px !important;
+  padding: 3px 0 !important;
+}
+.scifi-theme .live-feed-class,
+.scifi-theme .live-feed-dim {
+  color: rgba(0, 229, 255, 0.55) !important;
+  font-size: 11px !important;
+  flex-shrink: 0 !important;
+}
+.scifi-theme .live-feed-item {
+  padding: 4px 8px !important;
+  font-size: 11px !important;
+  gap: 6px !important;
 }
 
 /* ========================================================= */
@@ -451,12 +653,14 @@
 /* --- 实时动态播报流 (Live Feed) --- */
 /* ========================================================= */
 .scifi-theme .presentation-live-feed {
-  height: 180px !important;
+  height: auto !important;
+  flex: 1 1 auto !important;
+  min-height: 88px !important;
+  max-height: none !important;
   overflow: hidden !important;
   position: relative !important;
-  /* 上下边缘羽化特效 */
-  mask-image: linear-gradient(to bottom, transparent, black 10%, black 90%, transparent) !important;
-  -webkit-mask-image: linear-gradient(to bottom, transparent, black 10%, black 90%, transparent) !important;
+  mask-image: linear-gradient(to bottom, transparent, black 8%, black 92%, transparent) !important;
+  -webkit-mask-image: linear-gradient(to bottom, transparent, black 8%, black 92%, transparent) !important;
 }
 .scifi-theme .presentation-live-feed-inner {
   display: flex !important;
@@ -700,7 +904,96 @@
   background: rgba(255, 87, 87, 0.06) !important;
 }
 
+.scifi-theme .presentation-row-3 {
+  align-items: stretch !important;
+}
+
+.scifi-theme .presentation-row-3 .presentation-panel {
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+.scifi-theme .presentation-insight-panel {
+  min-height: 0 !important;
+}
+
+.scifi-theme .presentation-insight-panel .presentation-chart-insight {
+  flex: 1 !important;
+  min-height: 118px !important;
+}
+
 /* --- 漏斗图 (Funnel Chart) --- */
+.scifi-theme .presentation-matrix-dense {
+  flex: 1 1 auto !important;
+  min-height: 260px !important;
+  height: auto !important;
+}
+
+.scifi-theme .presentation-matrix-stack {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+}
+
+.scifi-theme .presentation-panel-fill {
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+.scifi-theme .presentation-matrix-legend-full {
+  grid-template-rows: repeat(2, minmax(52px, 1fr)) !important;
+}
+
+.scifi-theme .first-row-panel.second .presentation-stellar-wrap {
+  flex: 1 1 auto !important;
+  min-height: 170px !important;
+  height: auto !important;
+}
+
+.scifi-theme .presentation-matrix-node strong {
+  font-size: 13px !important;
+}
+
+.scifi-theme .presentation-matrix-legend {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 6px !important;
+  margin-top: 8px !important;
+}
+
+.scifi-theme .presentation-chart-insight {
+  flex: 1 1 auto !important;
+  min-height: 140px !important;
+  height: auto !important;
+}
+
+.scifi-theme .presentation-insight-panel .presentation-cockpit-trend-foot {
+  margin-top: 4px !important;
+}
+
+.scifi-theme .presentation-funnel-wrap-dense {
+  flex: 1 1 auto !important;
+  min-height: 160px !important;
+  height: auto !important;
+  gap: 6px !important;
+  justify-content: space-evenly !important;
+}
+
+.scifi-theme .funnel-stage {
+  flex-direction: column !important;
+  align-items: center !important;
+  gap: 2px !important;
+}
+
+.scifi-theme .funnel-bar {
+  height: 30px !important;
+  padding: 0 12px !important;
+}
+
+.scifi-theme .funnel-convert {
+  color: rgba(178, 235, 242, 0.55) !important;
+  font-size: 9px !important;
+}
+
 .scifi-theme .presentation-funnel-wrap {
   display: flex !important;
   flex-direction: column !important;

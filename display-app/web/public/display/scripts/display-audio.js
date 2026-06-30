@@ -141,6 +141,32 @@
     }
   }
 
+  function playBreathPhaseCue(context, now, type) {
+    // 轻柔钟罄：相位切换时短促提示，不做扫频或白噪声
+    const presets = {
+      inhale: { freq: 392.0, duration: 0.68, peak: 0.112, cutoff: 760 },
+      exhale: { freq: 329.63, duration: 0.84, peak: 0.112, cutoff: 940 },
+      hold: { freq: 349.23, duration: 0.64, peak: 0.108, cutoff: 900 },
+    };
+    const preset = presets[type] || presets.inhale;
+    const osc = context.createOscillator();
+    const gain = context.createGain();
+    const filter = context.createBiquadFilter();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(preset.freq, now);
+    filter.type = "lowpass";
+    filter.frequency.setValueAtTime(preset.cutoff || 760, now);
+    filter.Q.setValueAtTime(0.35, now);
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(preset.peak, now + 0.05);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + preset.duration);
+    osc.connect(gain);
+    gain.connect(filter);
+    filter.connect(context.destination);
+    osc.start(now);
+    osc.stop(now + preset.duration + 0.02);
+  }
+
   function playMindfulnessCue(type = "phase", helpers = {}) {
     const isLowSpecMode = helpers.isLowSpecMode || (() => false);
     if (isLowSpecMode() || document.body.classList.contains("low-spec")) {
@@ -153,18 +179,14 @@
       if (context.state !== "running") return;
 
       const now = context.currentTime;
+      if (type === "inhale" || type === "exhale" || type === "hold") {
+        playBreathPhaseCue(context, now, type);
+        return;
+      }
       const presets = {
         start: [
           { freq: 392.0, time: 0, duration: 0.46, peak: 0.088 },
           { freq: 523.25, time: 0.16, duration: 0.54, peak: 0.08 },
-        ],
-        inhale: [
-          { freq: 440.0, time: 0, duration: 0.26, peak: 0.115, wave: "sine", cutoff: 1700 },
-          { freq: 659.25, time: 0.11, duration: 0.42, peak: 0.09, wave: "triangle", cutoff: 2100 },
-        ],
-        exhale: [
-          { freq: 329.63, time: 0, duration: 0.28, peak: 0.108, wave: "triangle", cutoff: 1500 },
-          { freq: 261.63, time: 0.1, duration: 0.54, peak: 0.084, wave: "sine", cutoff: 1200 },
         ],
         phase: [{ freq: 349.23, time: 0, duration: 0.34, peak: 0.074, wave: "sine", cutoff: 1400 }],
         finish: [

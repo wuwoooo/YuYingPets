@@ -4,6 +4,7 @@ import { Observable } from 'rxjs';
 import { finalize } from 'rxjs/operators';
 import { httpLogPath } from '@/common/utils/redact-audit-detail';
 import { rootLogger } from '@/logging/root-logger';
+import { getRequestClientIp } from '@/logging/request-client-ip';
 
 const accessLogger = rootLogger.child({ context: 'http_access' });
 const slowRequestThresholdMs = Number(process.env.ACCESS_LOG_SLOW_REQUEST_MS ?? 1000);
@@ -32,6 +33,7 @@ export class HttpLoggingInterceptor implements NestInterceptor {
     return next.handle().pipe(
       finalize(() => {
         const durationMs = Date.now() - started;
+        const { clientIp, forwardedFor } = getRequestClientIp(req);
         const payload = {
           msg: 'request_completed',
           requestId: req.requestId,
@@ -39,6 +41,8 @@ export class HttpLoggingInterceptor implements NestInterceptor {
           path: httpLogPath(req.originalUrl ?? req.url),
           statusCode: res.statusCode,
           durationMs,
+          clientIp,
+          forwardedFor,
         };
         if (res.statusCode >= 500) {
           accessLogger.error(payload);

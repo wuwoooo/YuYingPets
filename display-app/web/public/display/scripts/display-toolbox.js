@@ -60,7 +60,6 @@
         ".toolbox-deco-breath-orb",
         ".toolbox-deco-breath-ripple",
         ".toolbox-deco-meditation-lantern",
-        ".toolbox-deco-meditation-stars",
         ".toolbox-deco-ticket",
         ".toolbox-deco-ribbon",
         ".toolbox-deco-hourglass",
@@ -81,7 +80,7 @@
     },
     meditation: {
       backgrounds: ["images/toolbox/toolbox-meditation-bg.webp"],
-      decos: [".toolbox-deco-meditation-lantern", ".toolbox-deco-meditation-stars"],
+      decos: [".toolbox-deco-meditation-lantern"],
     },
     lucky: {
       backgrounds: ["images/toolbox/toolbox-lucky-bg.webp"],
@@ -94,6 +93,80 @@
   };
 
   const preloadedToolboxAssets = new Set();
+
+  const BREATH_PATTERNS = {
+    relax: {
+      id: "relax",
+      label: "放松",
+      description: "4 吸 / 6 呼",
+      phases: [
+        { type: "inhale", seconds: 4 },
+        { type: "exhale", seconds: 6 },
+      ],
+    },
+    focus: {
+      id: "focus",
+      label: "专注",
+      description: "4-4-4-4",
+      phases: [
+        { type: "inhale", seconds: 4 },
+        { type: "hold", seconds: 4, holdAt: "peak" },
+        { type: "exhale", seconds: 4 },
+        { type: "hold", seconds: 4, holdAt: "valley" },
+      ],
+    },
+  };
+
+  function normalizeBreathPattern(value) {
+    return value === "focus" ? "focus" : "relax";
+  }
+
+  function getBreathPattern(patternId) {
+    return BREATH_PATTERNS[normalizeBreathPattern(patternId)];
+  }
+
+  function resolveBreathCyclePhase(elapsedMs, patternId) {
+    const pattern = getBreathPattern(patternId);
+    const phases = pattern.phases;
+    const cycleMs = phases.reduce((sum, segment) => sum + segment.seconds * 1000, 0);
+    const cycleElapsed = cycleMs > 0 ? elapsedMs % cycleMs : 0;
+    let cursor = 0;
+    for (const segment of phases) {
+      const segmentMs = segment.seconds * 1000;
+      if (cycleElapsed < cursor + segmentMs) {
+        return {
+          phase: segment.type,
+          holdAt: segment.holdAt || "",
+          phaseProgress: Math.max(0, Math.min(1, (cycleElapsed - cursor) / segmentMs)),
+          cycleMs,
+        };
+      }
+      cursor += segmentMs;
+    }
+    const last = phases[phases.length - 1];
+    return {
+      phase: last.type,
+      holdAt: last.holdAt || "",
+      phaseProgress: 0,
+      cycleMs,
+    };
+  }
+
+  function getBreathPhaseLabel(phase) {
+    if (phase === "inhale") return "吸气";
+    if (phase === "exhale") return "呼气";
+    if (phase === "hold") return "停";
+    return "";
+  }
+
+  function getBreathVisualScale(phase, holdAt, phaseProgress) {
+    const minScale = 0.78;
+    const maxScale = 1.08;
+    if (phase === "inhale") return minScale + phaseProgress * (maxScale - minScale);
+    if (phase === "exhale") return maxScale - phaseProgress * (maxScale - minScale);
+    if (phase === "hold") return holdAt === "peak" ? maxScale : minScale;
+    return 0.88;
+  }
 
   function createDefaultSettings(defaultTargetSeconds = 0) {
     return {
@@ -108,7 +181,7 @@
       luckyExcludedIds: [],
       timerDuration: 300,
       breathDuration: 60,
-      breathCycleSeconds: 8,
+      breathPattern: "relax",
       meditationDuration: 120,
     };
   }
@@ -218,6 +291,7 @@
     if (seconds < 60) return `${Math.round(seconds)}秒`;
     const m = Math.floor(seconds / 60);
     const s = Math.round(seconds % 60);
+    if (s === 0) return `${m}分钟`;
     return `${m}分${s}秒`;
   }
 
@@ -261,6 +335,7 @@
   global.DisplayToolbox = {
     TOOLBOX_CONFIG,
     TOOLBOX_MODE_ASSETS,
+    BREATH_PATTERNS,
     createDefaultSettings,
     preloadToolboxModeAssets,
     setText,
@@ -279,5 +354,10 @@
     resolveGardenLevel,
     formatTimerMs,
     setResult,
+    normalizeBreathPattern,
+    getBreathPattern,
+    resolveBreathCyclePhase,
+    getBreathPhaseLabel,
+    getBreathVisualScale,
   };
 })(window);
