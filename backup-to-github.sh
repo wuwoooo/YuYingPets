@@ -6,6 +6,7 @@ ACTIVE_REPO="/Users/wuwoo/Desktop/work/_育英星宠/YuYingPets"
 ALLOWED_BRANCH="main"
 REMOTE_NAME="backup-origin"
 DRY_RUN=0
+FORCE_WITH_LEASE_BACKUP=0
 MAX_FILE_MB=95
 WARN_FILE_MB=50
 STATUS_LIMIT=200
@@ -21,6 +22,8 @@ usage() {
   - 只能在 main 分支运行。
   - 只执行 add / commit / push，不执行 pull、fetch、merge、rebase。
   - --dry-run 仅展示将要备份的状态，不提交、不推送。
+  - --force-with-lease-backup 明确把 GitHub 备份分支覆盖为当前本地 main。
+    该模式会先读取远端 main 当前 SHA，再用精确 --force-with-lease 推送。
   - 默认阻断单文件超过 95MB 的待提交文件，避免 GitHub 100MB 硬限制。
   - 默认提示单文件超过 50MB 的待提交文件，避免 GitHub 大文件警告。
 EOF
@@ -30,6 +33,10 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --dry-run)
       DRY_RUN=1
+      shift
+      ;;
+    --force-with-lease-backup)
+      FORCE_WITH_LEASE_BACKUP=1
       shift
       ;;
     --max-file-mb)
@@ -259,6 +266,11 @@ echo "仓库根目录：$REPO_ROOT"
 echo "当前分支：$CURRENT_BRANCH"
 echo "目标远程：$REMOTE_NAME"
 echo "远程地址：$REMOTE_URL"
+if [ "$FORCE_WITH_LEASE_BACKUP" = "1" ]; then
+  echo "推送模式：force-with-lease 覆盖备份"
+else
+  echo "推送模式：普通 fast-forward 备份"
+fi
 echo "单文件阻断阈值：${MAX_FILE_MB}MB"
 echo "单文件警告阈值：${WARN_FILE_MB}MB"
 echo
@@ -307,6 +319,18 @@ if [ "$CONFIRM" != "YES" ]; then
   exit 1
 fi
 
+FORCE_LEASE_ARG=()
+if [ "$FORCE_WITH_LEASE_BACKUP" = "1" ]; then
+  REMOTE_REF="refs/heads/$ALLOWED_BRANCH"
+  REMOTE_SHA="$(git ls-remote --heads "$REMOTE_NAME" "$ALLOWED_BRANCH" | awk '{print $1}')"
+  if [ -z "$REMOTE_SHA" ]; then
+    echo "错误：未能读取远端 $REMOTE_NAME/$ALLOWED_BRANCH 的当前 SHA，已停止覆盖备份。"
+    exit 1
+  fi
+  FORCE_LEASE_ARG=("--force-with-lease=${REMOTE_REF}:${REMOTE_SHA}")
+  echo "覆盖备份 lease：$REMOTE_REF 当前为 $REMOTE_SHA"
+fi
+
 git add -A
 
 git diff --cached --name-only -z --diff-filter=ACMRTUXB -- >"$PENDING_NUL"
@@ -342,5 +366,5 @@ else
   git commit -m "$COMMIT_MESSAGE"
 fi
 
-git push --progress "$REMOTE_NAME" "HEAD:$ALLOWED_BRANCH"
+git push --progress "${FORCE_LEASE_ARG[@]}" "$REMOTE_NAME" "HEAD:$ALLOWED_BRANCH"
 echo "备份完成。"
