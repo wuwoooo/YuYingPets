@@ -6,6 +6,8 @@
     transition: "page-transition",
     classroom: "page-classroom",
     academic: "page-academic",
+    scoreRace: "page-term-recap",
+    termRecap: "page-term-recap",
     toolbox: "page-toolbox",
     leaderboard: "page-leaderboard",
     exchange: "page-exchange",
@@ -22,15 +24,16 @@
   }
 
   function activatePage(key) {
+    const effectiveKey = key === "termRecap" ? "scoreRace" : key;
     document
       .querySelectorAll(".page")
       .forEach((page) => page.classList.remove("active"));
-    const target = document.getElementById(DISPLAY_PAGE_MAP[key]);
+    const target = document.getElementById(DISPLAY_PAGE_MAP[effectiveKey]);
     if (target) {
       target.classList.add("active");
     }
     document.querySelectorAll(".bottom-tab").forEach((tab) => {
-      tab.classList.toggle("active", tab.dataset.target === key);
+      tab.classList.toggle("active", tab.dataset.target === effectiveKey);
     });
     return target || null;
   }

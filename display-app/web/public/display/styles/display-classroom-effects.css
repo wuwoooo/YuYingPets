@@ -94,7 +94,8 @@
         }
       }
 
-      .lb-entry-card {
+      .lb-entry-card,
+      .score-hub-trigger {
         background-size: 200% 200%;
         animation: lbEntryBreath 4s ease-in-out infinite;
       }

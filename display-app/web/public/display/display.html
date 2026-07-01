@@ -40,7 +40,7 @@
     />
     <link
       rel="preload"
-      href="./styles/display-sidebar.css?v=202606181300"
+      href="./styles/display-sidebar.css?v=202607011630"
       as="style"
     />
     <link
@@ -105,6 +105,11 @@
     />
     <link
       rel="preload"
+      href="./styles/display-term-recap.css?v=202607011400"
+      as="style"
+    />
+    <link
+      rel="preload"
       href="./styles/display-point-modal.css?v=202606181400"
       as="style"
     />
@@ -132,6 +137,7 @@
     </script>
     <script src="./vendor/socket.io/socket.io.min.js"></script>
     <script src="./vendor/morphdom/morphdom-umd.min.js"></script>
+    <script src="./vendor/echarts/echarts.min.js"></script>
     <link rel="stylesheet" href="./styles/display.css?v=202606181400" />
     <link
       rel="stylesheet"
@@ -150,7 +156,7 @@
       rel="stylesheet"
       href="./styles/display-modal-core.css?v=202606181300"
     />
-    <link rel="stylesheet" href="./styles/display-sidebar.css?v=202606181300" />
+    <link rel="stylesheet" href="./styles/display-sidebar.css?v=202607011630" />
     <link
       rel="stylesheet"
       href="./styles/display-classroom-effects.css?v=202606181400"
@@ -186,6 +192,10 @@
     <link
       rel="stylesheet"
       href="./styles/display-leaderboard.css?v=202606181100"
+    />
+    <link
+      rel="stylesheet"
+      href="./styles/display-term-recap.css?v=202607011400"
     />
     <link
       rel="stylesheet"
@@ -1914,46 +1924,91 @@
                 截止时间 --
               </div>
             </div>
-            <div class="lb-entry-card" onclick="navigateTo('leaderboard')">
-              <div class="lb-entry-icon">
-                <i class="fa-solid fa-trophy" aria-hidden="true"></i>
-              </div>
-              <div class="lb-entry-text">
-                <div class="lb-entry-title">光荣排行榜</div>
-                <div class="lb-entry-sub">查看全班英雄榜与各项成就</div>
-              </div>
-              <div class="lb-entry-arrow">
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2.5"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <path d="M5 12h14M12 5l7 7-7 7" />
-                </svg>
-              </div>
-            </div>
-            <div class="ex-entry-card" onclick="navigateTo('exchange')">
-              <div class="ex-entry-icon">
-                <i class="fa-solid fa-gift" aria-hidden="true"></i>
-              </div>
-              <div class="ex-entry-text">
-                <div class="ex-entry-title">积分兑换</div>
-                <div class="ex-entry-sub">使用积分兑换精美奖励</div>
-              </div>
-              <div class="ex-entry-arrow">
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2.5"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <path d="M5 12h14M12 5l7 7-7 7" />
-                </svg>
+            <div class="score-hub-entry" id="scoreHubEntry">
+              <button
+                type="button"
+                class="score-hub-trigger interact-card"
+                onclick="toggleScoreHubMenu(event)"
+                aria-expanded="false"
+                aria-controls="scoreHubMenu"
+              >
+                <div class="score-hub-icon">
+                  <i class="fa-solid fa-coins" aria-hidden="true"></i>
+                </div>
+                <div class="score-hub-text">
+                  <div class="score-hub-title">积分中心</div>
+                  <div class="score-hub-sub">排行榜 · 竞速 · 兑换</div>
+                </div>
+                <div class="score-hub-arrow" aria-hidden="true">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="M6 9l6 6 6-6" />
+                  </svg>
+                </div>
+              </button>
+              <div class="score-hub-menu" id="scoreHubMenu">
+                <div class="score-hub-menu-inner">
+                  <button
+                    type="button"
+                    class="score-hub-item score-hub-item-leaderboard interact-card"
+                    onclick="navigateScoreHub('leaderboard')"
+                  >
+                    <span class="score-hub-item-icon" aria-hidden="true">
+                      <i class="fa-solid fa-trophy"></i>
+                    </span>
+                    <span class="score-hub-item-copy">
+                      <strong>光荣排行榜</strong>
+                      <em>全班英雄榜与各项成就</em>
+                    </span>
+                    <span class="score-hub-item-go" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <path d="M5 12h14M12 5l7 7-7 7" />
+                      </svg>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    class="score-hub-item score-hub-item-race term-entry-card interact-card"
+                    onclick="navigateScoreHub('scoreRace')"
+                  >
+                    <span class="score-hub-item-icon" aria-hidden="true">
+                      <i class="fa-solid fa-gauge-high"></i>
+                    </span>
+                    <span class="score-hub-item-copy">
+                      <strong>积分竞速</strong>
+                      <em>实时播放班级积分追赶动画</em>
+                    </span>
+                    <span class="score-hub-item-go" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <path d="M5 12h14M12 5l7 7-7 7" />
+                      </svg>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    class="score-hub-item score-hub-item-exchange interact-card"
+                    onclick="navigateScoreHub('exchange')"
+                  >
+                    <span class="score-hub-item-icon" aria-hidden="true">
+                      <i class="fa-solid fa-gift"></i>
+                    </span>
+                    <span class="score-hub-item-copy">
+                      <strong>积分兑换</strong>
+                      <em>使用积分兑换精美奖励</em>
+                    </span>
+                    <span class="score-hub-item-go" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <path d="M5 12h14M12 5l7 7-7 7" />
+                      </svg>
+                    </span>
+                  </button>
+                </div>
               </div>
             </div>
             <div class="academic-entry-card" onclick="navigateTo('academic')">
@@ -2193,6 +2248,13 @@
           </button>
           <button
             class="bottom-tab"
+            data-target="scoreRace"
+            onclick="navigateTo('scoreRace')"
+          >
+            积分竞速
+          </button>
+          <button
+            class="bottom-tab"
             data-target="academic"
             onclick="navigateTo('academic')"
           >
@@ -2255,6 +2317,13 @@
             / 紧凑 / 全景。
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- ==================== D07-B 积分竞速实时看板 ==================== -->
+    <div id="page-term-recap" class="page" data-term-scene="race">
+      <div id="termRecapRoot" class="term-recap-root">
+        <div class="term-recap-loading">正在加载积分竞速...</div>
       </div>
     </div>
 
@@ -4583,12 +4652,13 @@
     <script src="./scripts/display-pet-profile.js?v=202606111200"></script>
     <script src="./scripts/display-deco.js?v=202606171300"></script>
     <script src="./scripts/display-academic.js?v=202606181100"></script>
+    <script src="./scripts/display-term-recap.js?v=202607011830"></script>
     <script src="./scripts/display-audio.js?v=202606181200"></script>
     <script src="./scripts/display-call.js?v=202606181200"></script>
     <script src="./scripts/display-entry-effects.js?v=202606181200"></script>
     <script src="./scripts/display-group.js?v=202606181300"></script>
     <script src="./scripts/display-toolbox.js?v=202606201000"></script>
     <script src="./scripts/display-settings.js?v=202606111200"></script>
-    <script src="./scripts/display-app.js?v=202606181700"></script>
+    <script src="./scripts/display-app.js?v=202607011630"></script>
   </body>
 </html>

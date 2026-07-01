@@ -80,6 +80,8 @@
         .adopt-pet-card,
         .lb-entry-card,
         .ex-entry-card,
+        .score-hub-trigger,
+        .score-hub-item,
         .academic-entry-card,
         .bottom-tab,
         .academic-fab-back,
@@ -143,6 +145,8 @@
         .classroom-settings-btn:active,
         .lb-entry-card:active,
         .ex-entry-card:active,
+        .score-hub-trigger:active,
+        .score-hub-item:active,
         .academic-entry-card:active {
           transform: scale(0.97);
         }
@@ -176,6 +180,7 @@
       body.display-animation-guard .card-pet-trigger,
       body.display-animation-guard .lb-entry-card,
       body.display-animation-guard .ex-entry-card,
+      body.display-animation-guard .score-hub-trigger,
       body.display-animation-guard .academic-entry-card,
       body.display-animation-guard .interact-card,
       body.display-animation-guard .academic-fab-back {

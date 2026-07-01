@@ -71,8 +71,8 @@ async function main() {
 
   const classroomA = await prisma.classroom.upsert({
     where: { id: 1n },
-    update: { schoolId: school.id, semesterId: semester.id, code: 'CLASS-0701', gradeCode: 'G7', gradeName: '七年级', name: '七(1)班', homeroomTeacherId: teacherDemo.id, slogan: '奋楫扬帆 向星而行', targetScore: 100, displayStatus: 'enabled', status: 'enabled' },
-    create: { id: 1n, schoolId: school.id, semesterId: semester.id, code: 'CLASS-0701', gradeCode: 'G7', gradeName: '七年级', name: '七(1)班', homeroomTeacherId: teacherDemo.id, slogan: '奋楫扬帆 向星而行', targetScore: 100, displayStatus: 'enabled', status: 'enabled' },
+    update: { schoolId: school.id, semesterId: semester.id, code: 'CLASS-0601', gradeCode: 'G6', gradeName: '六年级', name: '61班', homeroomTeacherId: teacherDemo.id, slogan: '奋楫扬帆 向星而行', targetScore: 3000, displayStatus: 'enabled', status: 'enabled' },
+    create: { id: 1n, schoolId: school.id, semesterId: semester.id, code: 'CLASS-0601', gradeCode: 'G6', gradeName: '六年级', name: '61班', homeroomTeacherId: teacherDemo.id, slogan: '奋楫扬帆 向星而行', targetScore: 3000, displayStatus: 'enabled', status: 'enabled' },
   });
   const classroomB = await prisma.classroom.upsert({
     where: { id: 2n },
@@ -118,10 +118,28 @@ async function main() {
     { id: 2n, classId: classroomA.id, studentNo: '20260102', name: '王宠宠', gender: '女' },
     { id: 3n, classId: classroomA.id, studentNo: '20260103', name: '陈晨光', gender: '男' },
     { id: 4n, classId: classroomA.id, studentNo: '20260104', name: '赵小满', gender: '女' },
-    { id: 5n, classId: classroomB.id, studentNo: '20260105', name: '林星河', gender: '男' },
-    { id: 6n, classId: classroomB.id, studentNo: '20260106', name: '许知夏', gender: '女' },
-    { id: 7n, classId: classroomB.id, studentNo: '20260107', name: '沈月白', gender: '男' },
-    { id: 8n, classId: classroomB.id, studentNo: '20260108', name: '顾言希', gender: '女' },
+    { id: 13n, classId: classroomA.id, studentNo: '20260105', name: '许晨曦', gender: '女' },
+    { id: 14n, classId: classroomA.id, studentNo: '20260106', name: '秦一鸣', gender: '男' },
+    { id: 15n, classId: classroomA.id, studentNo: '20260107', name: '梁若安', gender: '女' },
+    { id: 16n, classId: classroomA.id, studentNo: '20260108', name: '宋知夏', gender: '女' },
+    { id: 17n, classId: classroomA.id, studentNo: '20260109', name: '叶嘉树', gender: '男' },
+    { id: 18n, classId: classroomA.id, studentNo: '20260110', name: '顾星野', gender: '男' },
+    { id: 19n, classId: classroomA.id, studentNo: '20260111', name: '沈沐阳', gender: '男' },
+    { id: 20n, classId: classroomA.id, studentNo: '20260112', name: '陆清欢', gender: '女' },
+    { id: 21n, classId: classroomA.id, studentNo: '20260113', name: '程亦辰', gender: '男' },
+    { id: 22n, classId: classroomA.id, studentNo: '20260114', name: '苏念一', gender: '女' },
+    { id: 23n, classId: classroomA.id, studentNo: '20260115', name: '姜云舒', gender: '女' },
+    { id: 24n, classId: classroomA.id, studentNo: '20260116', name: '夏予航', gender: '男' },
+    { id: 25n, classId: classroomA.id, studentNo: '20260117', name: '傅明澈', gender: '男' },
+    { id: 26n, classId: classroomA.id, studentNo: '20260118', name: '白若宁', gender: '女' },
+    { id: 27n, classId: classroomA.id, studentNo: '20260119', name: '乔安然', gender: '女' },
+    { id: 28n, classId: classroomA.id, studentNo: '20260120', name: '谭景行', gender: '男' },
+    { id: 29n, classId: classroomA.id, studentNo: '20260121', name: '魏子衿', gender: '女' },
+    { id: 30n, classId: classroomA.id, studentNo: '20260122', name: '盛南栀', gender: '女' },
+    { id: 5n, classId: classroomB.id, studentNo: '20260205', name: '林星河', gender: '男' },
+    { id: 6n, classId: classroomB.id, studentNo: '20260206', name: '许知夏', gender: '女' },
+    { id: 7n, classId: classroomB.id, studentNo: '20260207', name: '沈月白', gender: '男' },
+    { id: 8n, classId: classroomB.id, studentNo: '20260208', name: '顾言希', gender: '女' },
     { id: 9n, classId: classroomC.id, studentNo: '20260201', name: '周若晨', gender: '男' },
     { id: 10n, classId: classroomC.id, studentNo: '20260202', name: '陆景明', gender: '男' },
     { id: 11n, classId: classroomC.id, studentNo: '20260203', name: '唐可可', gender: '女' },
@@ -164,6 +182,8 @@ async function main() {
   const groups = [
     { id: 1n, classId: classroomA.id, groupNo: 1, name: '启明星组' },
     { id: 2n, classId: classroomA.id, groupNo: 2, name: '北斗星组' },
+    { id: 7n, classId: classroomA.id, groupNo: 3, name: '追光组' },
+    { id: 8n, classId: classroomA.id, groupNo: 4, name: '凌云组' },
     { id: 3n, classId: classroomB.id, groupNo: 1, name: '晨曦组' },
     { id: 4n, classId: classroomB.id, groupNo: 2, name: '远航组' },
     { id: 5n, classId: classroomC.id, groupNo: 1, name: '星辰组' },
@@ -175,6 +195,10 @@ async function main() {
 
   const groupMap = new Map<bigint, bigint>([
     [1n, 1n], [2n, 1n], [3n, 2n], [4n, 2n],
+    [13n, 1n], [14n, 1n], [15n, 1n], [16n, 1n],
+    [17n, 2n], [18n, 2n], [19n, 2n], [20n, 2n],
+    [21n, 7n], [22n, 7n], [23n, 7n], [24n, 7n],
+    [25n, 8n], [26n, 8n], [27n, 8n], [28n, 8n], [29n, 8n], [30n, 8n],
     [5n, 3n], [6n, 3n], [7n, 4n], [8n, 4n],
     [9n, 5n], [10n, 5n], [11n, 6n], [12n, 6n],
   ]);
@@ -267,6 +291,7 @@ async function main() {
 
   const mockScoreRecordIds: bigint[] = [];
   let scoreRecordId = 900001n;
+  const classroomAStudents = students.filter((student) => student.classId === classroomA.id);
   for (let day = 1; day <= 35; day += 1) {
     for (let si = 0; si < students.length; si += 1) {
       const student = students[si];
@@ -278,6 +303,7 @@ async function main() {
       const rulesForSubject = (usePositive ? positiveBySubject : negativeBySubject).get(subjectKey) ?? [];
       const rule = rulesForSubject[(day * 3 + si) % rulesForSubject.length];
       const scoreDelta = rule.scoreType === 'add' ? rule.scoreValue : -Math.abs(rule.scoreValue);
+      const occurredAt = daysAgo(day, 8 + (si % 8));
 
       await prisma.scoreRecord.upsert({
         where: { id: scoreRecordId },
@@ -299,7 +325,8 @@ async function main() {
           sourceRole: usePositive ? 'homeroom_teacher' : 'subject_teacher',
           operatorId: usePositive ? classTeacher.id : subjectDemo.id,
           operatorName: usePositive ? classTeacher.name : subjectDemo.name,
-          createdAt: daysAgo(day, 8 + (si % 8)),
+          createdAt: occurredAt,
+          occurredAt,
         },
         create: {
           id: scoreRecordId,
@@ -320,7 +347,70 @@ async function main() {
           sourceRole: usePositive ? 'homeroom_teacher' : 'subject_teacher',
           operatorId: usePositive ? classTeacher.id : subjectDemo.id,
           operatorName: usePositive ? classTeacher.name : subjectDemo.name,
-          createdAt: daysAgo(day, 8 + (si % 8)),
+          createdAt: occurredAt,
+          occurredAt,
+        },
+      });
+
+      mockScoreRecordIds.push(scoreRecordId);
+      scoreRecordId += 1n;
+    }
+
+    for (let offset = 0; offset < 10; offset += 1) {
+      const si = (day * 3 + offset * 5) % classroomAStudents.length;
+      const student = classroomAStudents[si];
+      const classTeacher = classTeacherMap.get(student.classId)!;
+      const groupId = groupMap.get(student.id) ?? null;
+      const subjectKey = positiveSubjects[(day + offset) % positiveSubjects.length];
+      const rulesForSubject = positiveBySubject.get(subjectKey) ?? [];
+      const rule = rulesForSubject[(day * 5 + offset) % rulesForSubject.length];
+      const scoreDelta = Math.max(1, rule.scoreValue + ((day + offset) % 3));
+      const occurredAt = daysAgo(day, 10 + (offset % 7));
+
+      await prisma.scoreRecord.upsert({
+        where: { id: scoreRecordId },
+        update: {
+          schoolId: school.id,
+          semesterId: semester.id,
+          classId: student.classId,
+          studentId: student.id,
+          classGroupId: groupId,
+          ruleId: rule.id,
+          subjectCode: rule.subjectCode,
+          sceneCode: rule.sceneCode,
+          dimension: rule.dimension,
+          tag: rule.tag,
+          sentiment: rule.sentiment,
+          scoreDelta,
+          remark: '61班追赶加速记录',
+          sourceTerminal: TerminalType.admin,
+          sourceRole: 'homeroom_teacher',
+          operatorId: classTeacher.id,
+          operatorName: classTeacher.name,
+          createdAt: occurredAt,
+          occurredAt,
+        },
+        create: {
+          id: scoreRecordId,
+          schoolId: school.id,
+          semesterId: semester.id,
+          classId: student.classId,
+          studentId: student.id,
+          classGroupId: groupId,
+          ruleId: rule.id,
+          subjectCode: rule.subjectCode,
+          sceneCode: rule.sceneCode,
+          dimension: rule.dimension,
+          tag: rule.tag,
+          sentiment: rule.sentiment,
+          scoreDelta,
+          remark: '61班追赶加速记录',
+          sourceTerminal: TerminalType.admin,
+          sourceRole: 'homeroom_teacher',
+          operatorId: classTeacher.id,
+          operatorName: classTeacher.name,
+          createdAt: occurredAt,
+          occurredAt,
         },
       });
 
@@ -513,8 +603,8 @@ async function main() {
 
   await prisma.displayConfig.upsert({
     where: { id: 2n },
-    update: { schoolId: school.id, classId: classroomA.id, title: '育英星宠', subtitle: '欢迎进入七(1)班', defaultMode: 'class-home' },
-    create: { id: 2n, schoolId: school.id, classId: classroomA.id, title: '育英星宠', subtitle: '欢迎进入七(1)班', defaultMode: 'class-home' },
+    update: { schoolId: school.id, classId: classroomA.id, title: '育英星宠', subtitle: '欢迎进入61班', defaultMode: 'class-home' },
+    create: { id: 2n, schoolId: school.id, classId: classroomA.id, title: '育英星宠', subtitle: '欢迎进入61班', defaultMode: 'class-home' },
   });
   await prisma.displayConfig.upsert({
     where: { id: 3n },

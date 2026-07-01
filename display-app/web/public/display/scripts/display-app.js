@@ -240,6 +240,156 @@ const DISPLAY_DEMO_STUDENTS = [
     medals: 0,
     lv: 1,
   },
+  {
+    name: "许晨曦",
+    petId: "014",
+    petName: "暹罗猫",
+    ext: "jpg",
+    lv: 2,
+    pts: 232,
+    medals: 2,
+  },
+  {
+    name: "秦一鸣",
+    petId: "015",
+    petName: "雪纳瑞",
+    ext: "jpg",
+    lv: 2,
+    pts: 226,
+    medals: 2,
+  },
+  {
+    name: "梁若安",
+    petId: "016",
+    petName: "荷兰猪",
+    ext: "jpg",
+    lv: 2,
+    pts: 212,
+    medals: 2,
+  },
+  {
+    name: "宋知夏",
+    petId: "019",
+    petName: "美短",
+    ext: "jpg",
+    lv: 2,
+    pts: 205,
+    medals: 2,
+  },
+  {
+    name: "叶嘉树",
+    petId: "021",
+    petName: "蓝白猫",
+    ext: "jpg",
+    lv: 2,
+    pts: 194,
+    medals: 1,
+  },
+  {
+    name: "顾星野",
+    petId: "025",
+    petName: "柯尔鸭",
+    ext: "jpg",
+    lv: 2,
+    pts: 188,
+    medals: 1,
+  },
+  {
+    name: "沈沐阳",
+    petId: "028",
+    petName: "西施犬",
+    ext: "jpg",
+    lv: 2,
+    pts: 181,
+    medals: 1,
+  },
+  {
+    name: "陆清欢",
+    petId: "029",
+    petName: "缅因猫",
+    ext: "jpg",
+    lv: 2,
+    pts: 171,
+    medals: 1,
+  },
+  {
+    name: "程亦辰",
+    petId: "030",
+    petName: "小熊猫",
+    ext: "jpg",
+    lv: 2,
+    pts: 160,
+    medals: 1,
+  },
+  {
+    name: "苏念一",
+    petId: "031",
+    petName: "银狐犬",
+    ext: "jpg",
+    lv: 2,
+    pts: 152,
+    medals: 1,
+  },
+  {
+    name: "姜云舒",
+    petId: "032",
+    petName: "折耳猫",
+    ext: "jpg",
+    lv: 1,
+    pts: 143,
+    medals: 1,
+  },
+  {
+    name: "夏予航",
+    petId: "033",
+    petName: "阿拉斯加",
+    ext: "jpg",
+    lv: 1,
+    pts: 132,
+    medals: 0,
+  },
+  {
+    name: "傅明澈",
+    hasPet: false,
+    pts: 124,
+    medals: 0,
+    lv: 1,
+  },
+  {
+    name: "白若宁",
+    hasPet: false,
+    pts: 112,
+    medals: 0,
+    lv: 1,
+  },
+  {
+    name: "乔安然",
+    hasPet: false,
+    pts: 104,
+    medals: 0,
+    lv: 1,
+  },
+  {
+    name: "谭景行",
+    hasPet: false,
+    pts: 96,
+    medals: 0,
+    lv: 1,
+  },
+  {
+    name: "魏子衿",
+    hasPet: false,
+    pts: 88,
+    medals: 0,
+    lv: 1,
+  },
+  {
+    name: "盛南栀",
+    hasPet: false,
+    pts: 80,
+    medals: 0,
+    lv: 1,
+  },
 ];
 
 function isDisplayDemoMode() {
@@ -2753,21 +2903,26 @@ function scheduleDisplayHolidayDateSync() {
 window.syncDisplayHolidayState = syncDisplayHolidayState;
 
 function navigateTo(key) {
+  const pageKey = key === "termRecap" ? "scoreRace" : key;
   if (key !== "toolbox") {
     cleanupToolboxRuntime({ keepTimer: false });
   }
-  const target = window.DisplayUI.activatePage(key);
+  if (pageKey !== "scoreRace") {
+    window.DisplayScoreRace?.cleanup?.();
+  }
+  document.body.classList.toggle("term-recap-cinema-active", pageKey === "scoreRace");
+  const target = window.DisplayUI.activatePage(pageKey);
   if (target) {
-    if (key === "exchange" && !isLowSpecMode()) {
+    if (pageKey === "exchange" && !isLowSpecMode()) {
       const stars = target.querySelector(".deco-stars");
       if (stars && !stars.hasChildNodes()) {
         createDecoStars("exStars", 28);
       }
     }
-    if (key === "entry" || key === "setup" || key === "login") {
+    if (pageKey === "entry" || pageKey === "setup" || pageKey === "login") {
       requestAnimationFrame(() => ensureEntryStarfield(target));
     }
-    if (key === "classroom") {
+    if (pageKey === "classroom") {
       setTimeout(() => {
         const bar = document.getElementById("goalBar");
         if (bar) bar.style.width = "81.9%";
@@ -2777,21 +2932,29 @@ function navigateTo(key) {
       renderClassroomEntryViews({ force: true });
       syncDisplayHolidayState();
     }
-    if (key === "exchange") {
+    if (pageKey === "exchange") {
       renderRewardCenter();
     }
-    if (key === "academic") {
+    if (pageKey === "academic") {
       renderAcademicGrowth();
       /* 未来感增强：过场动画 → 粒子星网全屏展示 → 淡出 → 面板入场 */
       if (!isLowSpecMode()) {
         startAcademicSplash(target);
       }
     }
-    if (key === "toolbox") {
+    if (pageKey === "toolbox") {
       initToolboxPage();
     }
+    if (pageKey === "scoreRace") {
+      window.DisplayScoreRace?.init?.({
+        getStudents: () => students,
+        getRuntimeState: () => runtimeState,
+        apiFetch,
+        petImg: petImgVariant,
+      });
+    }
     /* 离开 academic 页时清理粒子动画 */
-    if (key !== "academic") {
+    if (pageKey !== "academic") {
       cleanupAcademicParticles();
       cleanupAcademicSplash();
     }
@@ -3214,6 +3377,8 @@ document.addEventListener("DOMContentLoaded", () => {
   enableClassroomGridDragScroll();
 
   const interactSelectors = [
+    ".score-hub-trigger",
+    ".score-hub-item",
     ".lb-entry-card",
     ".star-wrap",
     ".podium-slot",
@@ -6151,6 +6316,7 @@ function toggleSidebarCollapsed(force) {
   sidebarCollapsed = typeof force === "boolean" ? force : !sidebarCollapsed;
   writeSidebarCollapsed(sidebarCollapsed);
   syncGridDensityState();
+  if (sidebarCollapsed) collapseScoreHubMenu();
   if (gridDensity === "panorama") {
     schedulePanoramaLayout();
   }
@@ -6162,6 +6328,40 @@ function bindGridDensityUi() {
 
 window.setGridDensity = setGridDensity;
 window.toggleSidebarCollapsed = toggleSidebarCollapsed;
+
+function collapseScoreHubMenu() {
+  const entry = document.getElementById("scoreHubEntry");
+  if (!entry) return;
+  entry.classList.remove("expanded");
+  const trigger = entry.querySelector(".score-hub-trigger");
+  trigger?.setAttribute("aria-expanded", "false");
+}
+
+function toggleScoreHubMenu(event) {
+  event?.stopPropagation?.();
+  const entry = document.getElementById("scoreHubEntry");
+  if (!entry) return false;
+  const expanded = !entry.classList.contains("expanded");
+  entry.classList.toggle("expanded", expanded);
+  entry.querySelector(".score-hub-trigger")?.setAttribute("aria-expanded", expanded ? "true" : "false");
+  return expanded;
+}
+
+function navigateScoreHub(target) {
+  collapseScoreHubMenu();
+  navigateTo(target);
+}
+
+window.collapseScoreHubMenu = collapseScoreHubMenu;
+window.toggleScoreHubMenu = toggleScoreHubMenu;
+window.navigateScoreHub = navigateScoreHub;
+
+document.addEventListener("click", (event) => {
+  const entry = document.getElementById("scoreHubEntry");
+  if (!entry?.classList.contains("expanded")) return;
+  if (entry.contains(event.target)) return;
+  collapseScoreHubMenu();
+});
 
 function getDisplayPerformanceTier() {
   return window.DisplayRuntime.getDisplayPerformanceTier({

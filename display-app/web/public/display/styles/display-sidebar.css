@@ -106,7 +106,241 @@
         align-items: center;
         gap: 8px;
       }
-      /* 排行榜入口卡片 */
+      /* 积分中心折叠入口 */
+      .score-hub-entry {
+        position: relative;
+      }
+
+      .score-hub-trigger {
+        width: 100%;
+        border: 0;
+        background:
+          radial-gradient(circle at 18% 24%, rgba(255, 255, 255, 0.28), transparent 28%),
+          linear-gradient(135deg, #e6a23c 0%, #f5c659 34%, #3d8bff 68%, #1abc9c 100%);
+        border-radius: 12px;
+        padding: 16px 18px;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        cursor: pointer;
+        transition:
+          transform 0.28s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+          box-shadow 0.28s ease;
+        box-shadow: 0 6px 18px rgba(240, 180, 41, 0.24);
+        position: relative;
+        overflow: hidden;
+        text-align: left;
+      }
+
+      .score-hub-trigger::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: -100%;
+        width: 50%;
+        height: 100%;
+        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.42), transparent);
+        transform: skewX(-20deg);
+        transition: all 0.6s;
+      }
+
+      @media (hover: hover) and (pointer: fine) {
+        .score-hub-trigger:hover {
+          transform: translateY(-3px);
+          box-shadow: 0 10px 24px rgba(61, 139, 255, 0.28);
+        }
+
+        .score-hub-trigger:hover::before {
+          left: 200%;
+        }
+      }
+
+      .score-hub-icon {
+        width: 34px;
+        font-size: 28px;
+        color: #fff;
+        filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.16));
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+      }
+
+      .score-hub-text {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .score-hub-title {
+        font-size: 16px;
+        font-weight: 800;
+        color: #fff;
+        letter-spacing: 2px;
+        margin-bottom: 4px;
+        text-shadow: 0 1px 3px rgba(80, 60, 0, 0.42);
+      }
+
+      .score-hub-sub {
+        font-size: 11px;
+        color: rgba(255, 255, 255, 0.95);
+        letter-spacing: 1px;
+        text-shadow: 0 1px 2px rgba(80, 60, 0, 0.24);
+      }
+
+      .score-hub-arrow {
+        width: 28px;
+        height: 28px;
+        background: rgba(255, 255, 255, 0.25);
+        border-radius: 50%;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        color: #fff;
+        backdrop-filter: blur(4px);
+        transition:
+          background 0.28s ease,
+          transform 0.28s ease;
+        flex-shrink: 0;
+      }
+
+      .score-hub-arrow svg {
+        width: 14px;
+        height: 14px;
+      }
+
+      .score-hub-entry.expanded .score-hub-arrow {
+        transform: rotate(180deg);
+        background: rgba(255, 255, 255, 0.38);
+      }
+
+      .score-hub-menu {
+        display: grid;
+        grid-template-rows: 0fr;
+        transition: grid-template-rows 0.28s ease;
+      }
+
+      .score-hub-entry.expanded .score-hub-menu {
+        grid-template-rows: 1fr;
+      }
+
+      .score-hub-menu-inner {
+        overflow: hidden;
+      }
+
+      .score-hub-item {
+        width: 100%;
+        margin-top: 8px;
+        padding: 12px 14px;
+        border: 1px solid rgba(41, 128, 185, 0.12);
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.92);
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        cursor: pointer;
+        text-align: left;
+        transition:
+          transform 0.22s ease,
+          box-shadow 0.22s ease,
+          border-color 0.22s ease;
+        box-shadow: 0 4px 12px rgba(41, 128, 185, 0.08);
+      }
+
+      .score-hub-item-icon {
+        width: 34px;
+        height: 34px;
+        border-radius: 10px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: #fff;
+        font-size: 15px;
+        flex-shrink: 0;
+      }
+
+      .score-hub-item-copy {
+        flex: 1;
+        min-width: 0;
+        display: grid;
+        gap: 2px;
+      }
+
+      .score-hub-item-copy strong {
+        color: #2c3e50;
+        font-size: 14px;
+        font-weight: 800;
+        letter-spacing: 1px;
+      }
+
+      .score-hub-item-copy em {
+        color: #7f8c8d;
+        font-size: 11px;
+        font-style: normal;
+        letter-spacing: 0.5px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .score-hub-item-go {
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        background: rgba(41, 128, 185, 0.08);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: #2980b9;
+        flex-shrink: 0;
+      }
+
+      .score-hub-item-go svg {
+        width: 12px;
+        height: 12px;
+      }
+
+      .score-hub-item-leaderboard {
+        border-left: 4px solid #e6a23c;
+      }
+
+      .score-hub-item-leaderboard .score-hub-item-icon {
+        background: linear-gradient(135deg, #e6a23c, #f5c659);
+      }
+
+      .score-hub-item-race {
+        border-left: 4px solid #3d8bff;
+      }
+
+      .score-hub-item-race .score-hub-item-icon {
+        background: linear-gradient(135deg, #1a4fd6, #7b5cff);
+      }
+
+      .score-hub-item-exchange {
+        border-left: 4px solid #1abc9c;
+      }
+
+      .score-hub-item-exchange .score-hub-item-icon {
+        background: linear-gradient(135deg, #1abc9c, #48c9b0);
+      }
+
+      @media (hover: hover) and (pointer: fine) {
+        .score-hub-item:hover {
+          transform: translateX(3px);
+          border-color: rgba(41, 128, 185, 0.22);
+          box-shadow: 0 8px 18px rgba(41, 128, 185, 0.12);
+        }
+      }
+
+      .score-hub-item-race .score-hub-item-icon {
+        animation: scoreHubRaceIconPulse 2.6s ease-in-out infinite;
+      }
+
+      @keyframes scoreHubRaceIconPulse {
+        0%, 100% { transform: scale(1); }
+        50% { transform: scale(1.08); }
+      }
+
+      /* 排行榜入口卡片（保留样式供历史引用） */
       .lb-entry-card {
         background: linear-gradient(
           135deg,

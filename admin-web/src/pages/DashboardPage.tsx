@@ -17,6 +17,7 @@ import type {
   AnalyticsData,
   DisplayTerminal,
   HonorRecord,
+  OperationAuditLogItem,
   PermissionUser,
   RewardOrder,
   ScoreRecord,
@@ -72,6 +73,7 @@ function compareGradeName(a: string, b: string) {
 
 /** 校级驾驶舱「风险学生」面板默认展示条数 */
 const COCKPIT_RISK_PREVIEW_LIMIT = 6;
+const LEADERSHIP_WINDOW_DAYS = 7;
 
 function isClassCountdownPending(classInfo: AdminClass | null | undefined) {
   if (!classInfo?.countdownTitle?.trim() || !classInfo.countdownDeadlineAt) {
@@ -157,6 +159,9 @@ export function DashboardPage({
   const [displayTerminals, setDisplayTerminals] = useState<DisplayTerminal[]>(
     [],
   );
+  const [operationAuditLogs, setOperationAuditLogs] = useState<
+    OperationAuditLogItem[]
+  >([]);
   const [academicExams, setAcademicExams] = useState<AcademicExamListItem[]>(
     [],
   );
@@ -699,6 +704,7 @@ export function DashboardPage({
       setAnalyticsData(null);
       setRecentScoreRecords([]);
       setDisplayTerminals([]);
+      setOperationAuditLogs([]);
       return;
     }
     let active = true;
@@ -711,8 +717,11 @@ export function DashboardPage({
       adminApi.scoreRecords(token),
       canManageDisp ? adminApi.displayTerminals(token) : Promise.resolve({ data: [] }),
       adminApi.academicExams(token, { currentSemesterOnly: true }),
+      canViewGovernance
+        ? adminApi.operationAuditLogs(token, { limit: 100 })
+        : Promise.resolve({ data: { items: [] } }),
     ])
-      .then(([analyticsResp, heatmapResp, recordsResp, terminalsResp, examsResp]) => {
+      .then(([analyticsResp, heatmapResp, recordsResp, terminalsResp, examsResp, auditResp]) => {
         if (!active) return;
         setAnalyticsData({
           ...analyticsResp.data,
@@ -729,10 +738,12 @@ export function DashboardPage({
         );
         setDisplayTerminals(terminalsResp.data);
         setAcademicExams(examsResp.data);
+        setOperationAuditLogs(auditResp.data.items);
       })
       .catch(() => {
         if (!active) return;
         setAnalyticsData(null);
+        setOperationAuditLogs([]);
       })
       .finally(() => {
         if (!active) return;
@@ -741,7 +752,7 @@ export function DashboardPage({
     return () => {
       active = false;
     };
-  }, [isTeacherDashboard, token, user?.roleCode]);
+  }, [canViewGovernance, isTeacherDashboard, token, user?.roleCode]);
 
   const [teacherAcademicLoading, setTeacherAcademicLoading] = useState(false);
   const [teacherSubjectDesk, setTeacherSubjectDesk] =
@@ -2706,6 +2717,421 @@ export function DashboardPage({
     return items;
   }, [classes, displayTerminals, students]);
 
+  const leadershipOverview = useMemo(() => {
+    const nowMs = Date.now();
+    const windowStartMs =
+      nowMs - LEADERSHIP_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+    const isInWindow = (value: string | null | undefined) => {
+      if (!value) return false;
+      const time = new Date(value).getTime();
+      return Number.isFinite(time) && time >= windowStartMs;
+    };
+    const formatPercent = (value: number) => `${Math.round(value)}%`;
+    const enabledTeachers = governanceMetrics.teacherUsers.filter(
+      (item) => item.status !== "disabled",
+    );
+    const recentRecords = recentScoreRecords.filter((item) =>
+      isInWindow(item.createdAt),
+    );
+    const recentHonors = honorRecords.filter((item) =>
+      isInWindow(item.grantedAt),
+    );
+    const recentAuditLogs = operationAuditLogs.filter((item) =>
+      isInWindow(item.createdAt),
+    );
+
+    const teacherRows = enabledTeachers
+      .map((teacher) => {
+        const recordRows = recentRecords.filter(
+          (item) => item.operatorId === teacher.id,
+        );
+        const honorRows = recentHonors.filter(
+          (item) => item.grantedBy === teacher.id,
+        );
+        const auditRows = recentAuditLogs.filter(
+          (item) => item.userId === teacher.id,
+        );
+        const assignedClassIds = new Set([
+          ...teacher.classIds,
+          ...teacher.subjectScopes.map((item) => item.classId),
+        ]);
+        const assignedStudents = students.filter((item) =>
+          assignedClassIds.has(item.classId),
+        );
+        const touchedStudents = new Set(
+          recordRows.map((item) => item.studentId).filter(Boolean),
+        );
+        const touchedClasses = new Set(
+          recordRows.map((item) => item.classId).filter(Boolean),
+        );
+        const coverageRate =
+          assignedStudents.length > 0
+            ? (touchedStudents.size / assignedStudents.length) * 100
+            : 0;
+        const actionCount =
+          recordRows.length + honorRows.length + auditRows.length;
+        const positiveCount = recordRows.filter(
+          (item) => item.sentiment === "positive",
+        ).length;
+
+        return {
+          id: teacher.id,
+          name: teacher.name,
+          roleName: teacher.roleName,
+          classIds: Array.from(assignedClassIds),
+          actionCount,
+          recordCount: recordRows.length,
+          honorCount: honorRows.length,
+          auditCount: auditRows.length,
+          touchedStudentCount: touchedStudents.size,
+          touchedClassCount: touchedClasses.size,
+          assignedStudentCount: assignedStudents.length,
+          coverageRate,
+          positiveCount,
+          score:
+            actionCount * 3 +
+            coverageRate +
+            touchedClasses.size * 8 +
+            positiveCount,
+        };
+      })
+      .sort((left, right) => right.score - left.score);
+
+    const activeTeacherCount = teacherRows.filter(
+      (item) => item.actionCount > 0,
+    ).length;
+    const teacherActiveRate =
+      enabledTeachers.length > 0
+        ? (activeTeacherCount / enabledTeachers.length) * 100
+        : 0;
+
+    const riskStudentsByClassName = new Map<string, number>();
+    cockpitRiskStudents.forEach((item) => {
+      riskStudentsByClassName.set(
+        item.className,
+        (riskStudentsByClassName.get(item.className) ?? 0) + 1,
+      );
+    });
+    const academicClassById = new Map(
+      academicGrowth.classSummaries.map((item) => [item.classId, item]),
+    );
+
+    const classRows = classes
+      .map((item) => {
+        const classLabel = `${item.gradeName} ${item.name}`;
+        const classRecords = recentRecords.filter(
+          (record) => record.classId === item.id,
+        );
+        const classStudents = students.filter(
+          (student) => student.classId === item.id,
+        );
+        const activeStudentIds = new Set(
+          classRecords.map((record) => record.studentId).filter(Boolean),
+        );
+        const coverageRate =
+          classStudents.length > 0
+            ? (activeStudentIds.size / classStudents.length) * 100
+            : 0;
+        const positiveCount = classRecords.filter(
+          (record) => record.sentiment === "positive",
+        ).length;
+        const negativeCount = classRecords.filter(
+          (record) => record.sentiment === "negative",
+        ).length;
+        const positiveRate =
+          classRecords.length > 0 ? (positiveCount / classRecords.length) * 100 : 0;
+        const riskCount = Array.from(riskStudentsByClassName.entries()).reduce(
+          (sum, [name, count]) =>
+            name === item.name || name === classLabel || name.includes(item.name)
+              ? sum + count
+              : sum,
+          0,
+        );
+        const terminalOnline =
+          item.onlineStatus === "online" ||
+          displayTerminals.some(
+            (terminal) =>
+              terminal.classId === item.id &&
+              terminal.onlineStatus === "online",
+          );
+        const academicClass = academicClassById.get(item.id);
+        const academicBonus = academicClass
+          ? Math.max(-12, Math.min(15, academicClass.growthIndex - 60))
+          : 0;
+        const healthScore = Math.max(
+          0,
+          Math.min(
+            100,
+            (classRecords.length > 0 ? 20 : 0) +
+              Math.min(25, coverageRate * 0.6) +
+              Math.min(16, positiveRate * 0.16) +
+              (riskCount === 0 ? 15 : Math.max(0, 15 - riskCount * 5)) +
+              (terminalOnline || item.displayStatus === "enabled" ? 10 : 0) +
+              academicBonus,
+          ),
+        );
+
+        return {
+          id: item.id,
+          name: item.name,
+          gradeName: item.gradeName,
+          label: classLabel,
+          healthScore: Math.round(healthScore),
+          recordCount: classRecords.length,
+          activeStudentCount: activeStudentIds.size,
+          studentCount: classStudents.length,
+          coverageRate,
+          positiveCount,
+          negativeCount,
+          riskCount,
+          terminalOnline,
+          academicGrowthIndex: academicClass?.growthIndex ?? null,
+        };
+      })
+      .sort((left, right) => right.healthScore - left.healthScore);
+
+    const healthyClassCount = classRows.filter(
+      (item) => item.healthScore >= 70,
+    ).length;
+    const classHealthRate =
+      classRows.length > 0 ? (healthyClassCount / classRows.length) * 100 : 0;
+    const averageHealth =
+      classRows.length > 0
+        ? Math.round(
+            classRows.reduce((sum, item) => sum + item.healthScore, 0) /
+              classRows.length,
+          )
+        : 0;
+    const attentionClasses = [...classRows]
+      .filter(
+        (item) =>
+          item.healthScore < 55 || item.riskCount > 0 || item.recordCount === 0,
+      )
+      .sort(
+        (left, right) =>
+          left.healthScore - right.healthScore ||
+          right.riskCount - left.riskCount,
+      )
+      .slice(0, 4);
+    const spotlightTeachers = teacherRows
+      .filter((item) => item.actionCount > 0)
+      .slice(0, 3);
+    const attentionTeachers = [...teacherRows]
+      .filter(
+        (item) =>
+          item.actionCount === 0 ||
+          (item.assignedStudentCount > 0 && item.coverageRate < 10),
+      )
+      .sort(
+        (left, right) =>
+          left.actionCount - right.actionCount ||
+          left.coverageRate - right.coverageRate,
+      )
+      .slice(0, 3);
+    const teacherSignalRows = [
+      ...spotlightTeachers.slice(0, 2).map((item) => ({
+        ...item,
+        level: "active" as const,
+        badge: "亮点",
+        title: `${item.name} 工作信号活跃`,
+        detail: `动作 ${item.actionCount} 次 · 覆盖 ${formatPercent(item.coverageRate)} · 涉及 ${item.touchedClassCount} 个班级`,
+        actionLabel: "看教师",
+      })),
+      ...attentionTeachers.map((item) => ({
+        ...item,
+        level: "watch" as const,
+        badge: item.actionCount === 0 ? "低信号" : "待关注",
+        title: `${item.name} 需要年级组确认`,
+        detail:
+          item.actionCount === 0
+            ? "近 7 天未看到评价、荣誉或后台业务动作"
+            : `动作 ${item.actionCount} 次 · 覆盖 ${formatPercent(item.coverageRate)} · 可核对任教范围`,
+        actionLabel: "看教师",
+      })),
+    ].slice(0, 5);
+    const attentionClassIds = new Set(attentionClasses.map((item) => item.id));
+    const classSignalRows = [
+      ...attentionClasses.map((item) => ({
+        ...item,
+        level: "risk" as const,
+        badge: item.riskCount > 0 ? "风险" : "低活跃",
+        title: `${item.label} 需要关注`,
+        detail: `健康度 ${item.healthScore} · 风险 ${item.riskCount} · 覆盖 ${formatPercent(item.coverageRate)} · 评价 ${item.recordCount} 次`,
+        actionLabel: "看班级",
+      })),
+      ...classRows
+        .filter((item) => !attentionClassIds.has(item.id))
+        .slice(0, Math.max(0, 5 - attentionClasses.length))
+        .map((item) => ({
+          ...item,
+          level: "stable" as const,
+          badge: "稳定",
+          title: `${item.label} 运行稳定`,
+          detail: `健康度 ${item.healthScore} · 风险 ${item.riskCount} · 覆盖 ${formatPercent(item.coverageRate)} · 评价 ${item.recordCount} 次`,
+          actionLabel: "看班级",
+        })),
+    ].slice(0, 5);
+
+    const offlineTerminals = displayTerminals.filter(
+      (item) => item.onlineStatus === "offline",
+    ).length;
+    const focusItems: Array<{
+      level: "ok" | "watch" | "risk";
+      title: string;
+      detail: string;
+      actionLabel: string;
+      targetPath?: string;
+      targetQuery?: Record<string, string | number>;
+      targetHash?: string;
+    }> = [];
+
+    if (attentionClasses[0]) {
+      focusItems.push({
+        level: "risk",
+        title: `${attentionClasses[0].label} 需要关注`,
+        detail:
+          attentionClasses[0].recordCount === 0
+            ? "近 7 天暂无有效评价记录，建议年级组确认班级激励是否正常开展。"
+            : `健康度 ${attentionClasses[0].healthScore}，风险学生 ${attentionClasses[0].riskCount} 人，建议查看班级详情。`,
+        actionLabel: "看班级",
+        targetPath: "/classes",
+        targetQuery: { classId: attentionClasses[0].id },
+      });
+    }
+    if (attentionTeachers[0]) {
+      focusItems.push({
+        level: attentionTeachers[0].actionCount === 0 ? "risk" : "watch",
+        title: `${attentionTeachers[0].name} 的工作信号偏弱`,
+        detail:
+          attentionTeachers[0].actionCount === 0
+            ? "近 7 天未看到评价、荣誉或后台业务动作，可由年级组先做沟通确认。"
+            : `学生覆盖率 ${formatPercent(attentionTeachers[0].coverageRate)}，建议查看任教范围与近期记录。`,
+        actionLabel: "看教师",
+        targetPath: "/teachers",
+        targetQuery: { teacherView: "all", keyword: attentionTeachers[0].name },
+      });
+    }
+    if (cockpitKpi.riskCount > 0) {
+      focusItems.push({
+        level: "risk",
+        title: `行为风险学生 ${cockpitKpi.riskCount} 人`,
+        detail: "建议先看高风险学生是否集中在同一班级或同一类规则上。",
+        actionLabel: "看风险",
+        targetHash: "cockpit-risk-section",
+      });
+    }
+    if (academicGrowth.riskCount > 0) {
+      focusItems.push({
+        level: "watch",
+        title: `学业预警学生 ${academicGrowth.riskCount} 人`,
+        detail: academicGrowth.insight.suggestion,
+        actionLabel: "看学业",
+        targetHash: "academic-growth-section",
+      });
+    }
+    if (offlineTerminals > 0) {
+      focusItems.push({
+        level: "watch",
+        title: `${offlineTerminals} 台展示终端离线`,
+        detail: "班级展示端离线会影响现场展示与课堂氛围，建议信息化或班主任确认设备状态。",
+        actionLabel: "看监控",
+        targetPath: "/realtime-monitor",
+      });
+    }
+    if (focusItems.length === 0) {
+      focusItems.push({
+        level: "ok",
+        title: "本周暂无突出管理风险",
+        detail: "教师使用、班级运行、学生成长与终端状态整体稳定，可继续按周复盘。",
+        actionLabel: "继续观察",
+      });
+    }
+
+    const topClass = classRows[0];
+    const weakestClass = attentionClasses[0];
+    const summary =
+      focusItems[0]?.level === "ok"
+        ? `本周全校运转平稳，教师活跃率 ${formatPercent(teacherActiveRate)}，班级健康度平均 ${averageHealth}。`
+        : `本周需要重点关注 ${focusItems.filter((item) => item.level !== "ok").length} 类事项；${weakestClass ? `${weakestClass.label} 健康度偏低，` : ""}建议由年级组先做定向跟进。`;
+    const highlight =
+      spotlightTeachers[0] || topClass
+        ? `${spotlightTeachers[0] ? `${spotlightTeachers[0].name} 近 7 天工作信号较活跃` : ""}${spotlightTeachers[0] && topClass ? "；" : ""}${topClass ? `${topClass.label} 班级健康度 ${topClass.healthScore}` : ""}。`
+        : "暂无足够数据形成亮点判断。";
+
+    return {
+      summary,
+      highlight,
+      kpis: [
+        {
+          label: "教师活跃率",
+          value: formatPercent(teacherActiveRate),
+          sub: `${activeTeacherCount}/${enabledTeachers.length || 0} 位教师近 ${LEADERSHIP_WINDOW_DAYS} 天有有效动作`,
+          icon: "school" as const,
+          tone: "mc-blue",
+        },
+        {
+          label: "班级健康度",
+          value: `${averageHealth}`,
+          sub: `${healthyClassCount}/${classRows.length || 0} 个班级处于稳定区间`,
+          icon: "chart" as const,
+          tone: "mc-green",
+        },
+        {
+          label: "学生成长指数",
+          value: `${academicGrowth.growthIndex}`,
+          sub: academicGrowth.latestExam
+            ? `覆盖率 ${academicGrowth.coverageRate}% · 进步 ${academicGrowth.progressCount} 人`
+            : "等待成绩归档后形成学业口径",
+          icon: "student" as const,
+          tone: "mc-purple",
+        },
+        {
+          label: "风险变化",
+          value: cockpitAnalyticsLoading ? "—" : `${cockpitKpi.riskCount}`,
+          sub: cockpitAnalyticsLoading
+            ? "行为统计同步中"
+            : `行为风险 ${cockpitKpi.riskCount} · 学业预警 ${academicGrowth.riskCount}`,
+          icon: "paw" as const,
+          tone: "mc-red",
+          action: "risk" as const,
+        },
+        {
+          label: "重点事项",
+          value: `${focusItems.filter((item) => item.level !== "ok").length}`,
+          sub: focusItems[0]?.title ?? "暂无突出事项",
+          icon: "fire" as const,
+          tone: "mc-gold",
+        },
+      ],
+      teacherRows,
+      spotlightTeachers,
+      attentionTeachers,
+      teacherSignalRows,
+      classRows,
+      attentionClasses,
+      classSignalRows,
+      activeTeacherCount,
+      teacherCount: enabledTeachers.length,
+      healthyClassCount,
+      averageHealth,
+      classCount: classRows.length,
+      focusItems: focusItems.slice(0, 5),
+      classHealthRate,
+    };
+  }, [
+    academicGrowth,
+    classes,
+    cockpitAnalyticsLoading,
+    cockpitKpi.riskCount,
+    cockpitRiskStudents,
+    displayTerminals,
+    governanceMetrics.teacherUsers,
+    honorRecords,
+    operationAuditLogs,
+    recentScoreRecords,
+    students,
+  ]);
+
   function openHomeroomOverview(days: 7 | 30) {
     const endDate = new Date().toISOString().slice(0, 10);
     const start = new Date();
@@ -3840,107 +4266,202 @@ export function DashboardPage({
         </div>
       </div>
 
-      {/* 第一层：核心 KPI */}
-      <div className="ck-kpi-row">
-        <div className="ck-kpi mc-blue">
-          <div className="ck-kpi-icon">
-            <PresentationGlyph name="chart" />
+      {/* 第一层：领导结论与核心 KPI */}
+      <section className="ck-leadership-brief panel">
+        <div className="ck-leadership-copy">
+          <span className="ck-leadership-eyebrow">校领导摘要</span>
+          <h2>{leadershipOverview.summary}</h2>
+          <p>{leadershipOverview.highlight}</p>
+        </div>
+        <div className="ck-leadership-meta">
+          <div>
+            <span>统计窗口</span>
+            <strong>近 {LEADERSHIP_WINDOW_DAYS} 天</strong>
           </div>
-          <div className="ck-kpi-body">
-            <div className="ck-kpi-label">全校总积分</div>
-            <div className="ck-kpi-value">
-              {cockpitKpi.totalScore.toLocaleString("zh-CN")}
-            </div>
-            <div className="ck-kpi-sub">人均 {cockpitKpi.avgScore} 分</div>
+          <div>
+            <span>原始指标</span>
+            <strong>{cockpitKpi.totalScore.toLocaleString("zh-CN")} 分</strong>
+          </div>
+          <div>
+            <span>正负向事件</span>
+            <strong>
+              {cockpitKpi.positiveEvents}/{cockpitKpi.negativeEvents}
+            </strong>
           </div>
         </div>
-        <div className="ck-kpi mc-green">
-          <div className="ck-kpi-icon">
-            <PresentationGlyph name="school" />
-          </div>
-          <div className="ck-kpi-body">
-            <div className="ck-kpi-label">活跃班级</div>
-            <div className="ck-kpi-value">
-              {cockpitKpi.displayReadyClasses}
-              <span className="ck-kpi-frac">/{cockpitKpi.classCount}</span>
-            </div>
-            <div className="ck-kpi-sub">
-              {cockpitKpi.classCount > 0
-                ? `${((cockpitKpi.displayReadyClasses / cockpitKpi.classCount) * 100).toFixed(0)}% 覆盖率`
-                : "暂无数据"}
-            </div>
-          </div>
-        </div>
-        <div className="ck-kpi mc-purple">
-          <div className="ck-kpi-icon">
-            <PresentationGlyph name="student" />
-          </div>
-          <div className="ck-kpi-body">
-            <div className="ck-kpi-label">活跃学生</div>
-            <div className="ck-kpi-value">
-              {cockpitKpi.activeStudents}
-              <span className="ck-kpi-frac">/{cockpitKpi.studentCount}</span>
-            </div>
-            <div className="ck-kpi-sub">
-              {cockpitKpi.studentCount > 0
-                ? `${((cockpitKpi.activeStudents / cockpitKpi.studentCount) * 100).toFixed(0)}% 参与率`
-                : "暂无数据"}
-            </div>
-          </div>
-        </div>
-        <div className="ck-kpi mc-teal">
-          <div className="ck-kpi-icon">
-            <PresentationGlyph name="fire" />
-          </div>
-          <div className="ck-kpi-body">
-            <div className="ck-kpi-label">正向行为</div>
-            <div className="ck-kpi-value">
-              {cockpitKpi.positiveEvents.toLocaleString("zh-CN")}
-            </div>
-            <div className="ck-kpi-sub">
-              负向 {cockpitKpi.negativeEvents} 次
-            </div>
-          </div>
-        </div>
-        <div className="ck-kpi mc-gold">
-          <div className="ck-kpi-icon">
-            <PresentationGlyph name="medal" />
-          </div>
-          <div className="ck-kpi-body">
-            <div className="ck-kpi-label">勋章发放</div>
-            <div className="ck-kpi-value">{cockpitKpi.honorsGranted}</div>
-            <div className="ck-kpi-sub">累计授予</div>
-          </div>
-        </div>
-        <button
-          type="button"
-          className="ck-kpi mc-red ck-kpi--action"
-          onClick={() =>
-            document
-              .getElementById("cockpit-risk-section")
-              ?.scrollIntoView({ behavior: "smooth", block: "start" })
+      </section>
+
+      <div className="ck-kpi-row ck-leadership-kpis">
+        {leadershipOverview.kpis.map((item) => {
+          const content = (
+            <>
+              <div className="ck-kpi-icon">
+                <PresentationGlyph name={item.icon} />
+              </div>
+              <div className="ck-kpi-body">
+                <div className="ck-kpi-label">{item.label}</div>
+                <div
+                  className={`ck-kpi-value${item.value === "—" ? " ck-kpi-value--pending" : ""}`}
+                >
+                  {item.value}
+                </div>
+                <div className="ck-kpi-sub">{item.sub}</div>
+              </div>
+            </>
+          );
+          if (item.action === "risk") {
+            return (
+              <button
+                key={item.label}
+                type="button"
+                className={`ck-kpi ${item.tone} ck-kpi--action`}
+                onClick={() =>
+                  document
+                    .getElementById("cockpit-risk-section")
+                    ?.scrollIntoView({ behavior: "smooth", block: "start" })
+                }
+              >
+                {content}
+              </button>
+            );
           }
-        >
-          <div className="ck-kpi-icon">
-            <PresentationGlyph name="paw" />
-          </div>
-          <div className="ck-kpi-body">
-            <div className="ck-kpi-label">风险学生</div>
-            <div
-              className={`ck-kpi-value${cockpitAnalyticsLoading ? " ck-kpi-value--pending" : ""}`}
-            >
-              {cockpitAnalyticsLoading ? "—" : cockpitKpi.riskCount}
+          return (
+            <div key={item.label} className={`ck-kpi ${item.tone}`}>
+              {content}
             </div>
-            <div className="ck-kpi-sub">
-              {cockpitAnalyticsLoading
-                ? "行为统计同步中…"
-                : "需关注 · 点击查看详情"}
-            </div>
-          </div>
-        </button>
+          );
+        })}
       </div>
 
-      <div className="ck-section-label">
+      <div className="ck-leadership-grid">
+        <section className="panel ck-signal-panel">
+          <div className="panel-title">本周重点事项</div>
+          <div className="ck-focus-list">
+            {leadershipOverview.focusItems.map((item, index) => (
+              <button
+                key={`${item.title}-${index}`}
+                type="button"
+                className={`ck-focus-item ${item.level}`}
+                onClick={() => {
+                  if (item.targetHash) {
+                    document
+                      .getElementById(item.targetHash)
+                      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                    return;
+                  }
+                  if (item.targetPath) {
+                    navigateWithQuery(item.targetPath, item.targetQuery ?? {});
+                  }
+                }}
+              >
+                <span className="ck-focus-level">
+                  {item.level === "risk"
+                    ? "需介入"
+                    : item.level === "watch"
+                      ? "需关注"
+                      : "稳定"}
+                </span>
+                <div className="ck-focus-body">
+                  <strong>{item.title}</strong>
+                  <span>{item.detail}</span>
+                </div>
+                <b>{item.actionLabel}</b>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <section className="panel ck-signal-panel">
+          <div className="panel-title">教师工作状态信号</div>
+          <div className="ck-signal-summary-row">
+            <div>
+              <span>活跃教师</span>
+              <strong>
+                {leadershipOverview.activeTeacherCount}
+                <em>/{leadershipOverview.teacherCount}</em>
+              </strong>
+            </div>
+            <div>
+              <span>待关注</span>
+              <strong>{leadershipOverview.attentionTeachers.length}</strong>
+            </div>
+            <div>
+              <span>亮点样本</span>
+              <strong>{leadershipOverview.spotlightTeachers.length}</strong>
+            </div>
+          </div>
+          <div className="ck-signal-feed">
+            {leadershipOverview.teacherSignalRows.map((item) => (
+              <button
+                type="button"
+                key={`${item.level}-${item.id}`}
+                className={`ck-signal-row ${item.level}`}
+                onClick={() =>
+                  navigateWithQuery("/teachers", {
+                    teacherView: "all",
+                    keyword: item.name,
+                  })
+                }
+              >
+                <span className="ck-signal-badge">{item.badge}</span>
+                <div className="ck-signal-body">
+                  <strong>{item.title}</strong>
+                  <span>{item.detail}</span>
+                </div>
+                <b>{item.actionLabel}</b>
+              </button>
+            ))}
+            {leadershipOverview.teacherSignalRows.length === 0 ? (
+              <div className="ck-empty">暂无足够教师工作信号</div>
+            ) : null}
+          </div>
+        </section>
+
+        <section className="panel ck-signal-panel">
+          <div className="panel-title">班级健康信号</div>
+          <div className="ck-class-health-meter ck-class-health-meter--dense">
+            <div>
+              <strong>{Math.round(leadershipOverview.classHealthRate)}%</strong>
+              <span>班级处于稳定区间</span>
+            </div>
+            <div>
+              <strong>{leadershipOverview.averageHealth}</strong>
+              <span>平均健康度</span>
+            </div>
+            <div>
+              <strong>
+                {leadershipOverview.healthyClassCount}
+                <em>/{leadershipOverview.classCount}</em>
+              </strong>
+              <span>稳定班级</span>
+            </div>
+          </div>
+          <div className="ck-signal-feed">
+            {leadershipOverview.classSignalRows.map((item) => (
+              <button
+                type="button"
+                key={item.id}
+                className={`ck-signal-row ${item.level}`}
+                onClick={() =>
+                  navigateWithQuery("/classes", { classId: item.id })
+                }
+              >
+                <span className="ck-signal-badge">{item.badge}</span>
+                <div className="ck-signal-body">
+                  <strong>{item.title}</strong>
+                  <span>{item.detail}</span>
+                </div>
+                <b>{item.actionLabel}</b>
+              </button>
+            ))}
+            {leadershipOverview.classSignalRows.length === 0 ? (
+              <div className="ck-empty">暂无班级健康信号</div>
+            ) : null}
+          </div>
+        </section>
+      </div>
+
+      <div className="ck-section-label" id="academic-growth-section">
         <span>学业成长决策层</span>
       </div>
       <div className="academic-decision-grid">

@@ -40,6 +40,7 @@ export class ScoreRecordsService {
       this.authService.ensureCanAccessClass(user, classId);
     }
     const occurredAtFilter = this.buildOccurredAtFilter(query.startDate, query.endDate);
+    const limit = this.resolveListLimit(query.limit);
     const scoreRecordWhere = {
       classId: query.studentId ? undefined : classId,
       studentId: query.studentId ? BigInt(query.studentId) : undefined,
@@ -66,7 +67,7 @@ export class ScoreRecordsService {
           },
         },
         orderBy: { occurredAt: 'desc' },
-        take: 100,
+        take: limit,
       }),
       query.subjectCode
         ? Promise.resolve([])
@@ -96,7 +97,7 @@ export class ScoreRecordsService {
               },
             },
             orderBy: { createdAt: 'desc' },
-            take: 100,
+            take: limit,
           }),
     ]);
 
@@ -149,7 +150,7 @@ export class ScoreRecordsService {
 
     const rows = [...scoreItems, ...rewardOrderItems]
       .sort((a, b) => (b.occurredAt ?? b.createdAt).getTime() - (a.occurredAt ?? a.createdAt).getTime())
-      .slice(0, 100);
+      .slice(0, limit);
 
     return {
       code: 0,
@@ -165,6 +166,12 @@ export class ScoreRecordsService {
       gte: range.start,
       lte: range.end,
     };
+  }
+
+  private resolveListLimit(value?: string) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return 100;
+    return Math.max(1, Math.min(10000, Math.floor(parsed)));
   }
 
   private buildCreatedAtFilter(startDate?: string, endDate?: string): Prisma.DateTimeFilter | undefined {
