@@ -319,7 +319,6 @@ if [ "$CONFIRM" != "YES" ]; then
   exit 1
 fi
 
-FORCE_LEASE_ARG=()
 if [ "$FORCE_WITH_LEASE_BACKUP" = "1" ]; then
   REMOTE_REF="refs/heads/$ALLOWED_BRANCH"
   REMOTE_SHA="$(git ls-remote --heads "$REMOTE_NAME" "$ALLOWED_BRANCH" | awk '{print $1}')"
@@ -327,7 +326,6 @@ if [ "$FORCE_WITH_LEASE_BACKUP" = "1" ]; then
     echo "错误：未能读取远端 $REMOTE_NAME/$ALLOWED_BRANCH 的当前 SHA，已停止覆盖备份。"
     exit 1
   fi
-  FORCE_LEASE_ARG=("--force-with-lease=${REMOTE_REF}:${REMOTE_SHA}")
   echo "覆盖备份 lease：$REMOTE_REF 当前为 $REMOTE_SHA"
 fi
 
@@ -366,5 +364,9 @@ else
   git commit -m "$COMMIT_MESSAGE"
 fi
 
-git push --progress "${FORCE_LEASE_ARG[@]}" "$REMOTE_NAME" "HEAD:$ALLOWED_BRANCH"
+if [ "$FORCE_WITH_LEASE_BACKUP" = "1" ]; then
+  git push --progress "--force-with-lease=${REMOTE_REF}:${REMOTE_SHA}" "$REMOTE_NAME" "HEAD:$ALLOWED_BRANCH"
+else
+  git push --progress "$REMOTE_NAME" "HEAD:$ALLOWED_BRANCH"
+fi
 echo "备份完成。"
