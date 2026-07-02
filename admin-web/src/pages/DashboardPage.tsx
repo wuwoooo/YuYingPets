@@ -2805,16 +2805,14 @@ export function DashboardPage({
         ? (activeTeacherCount / enabledTeachers.length) * 100
         : 0;
 
-    const riskStudentsByClassName = new Map<string, number>();
+    const healthScoreHelp = "健康度试算：活跃记录 + 覆盖率 + 正向占比 + 风险学生";
+    const riskStudentsByClassId = new Map<number, number>();
     cockpitRiskStudents.forEach((item) => {
-      riskStudentsByClassName.set(
-        item.className,
-        (riskStudentsByClassName.get(item.className) ?? 0) + 1,
+      riskStudentsByClassId.set(
+        item.classId,
+        (riskStudentsByClassId.get(item.classId) ?? 0) + 1,
       );
     });
-    const academicClassById = new Map(
-      academicGrowth.classSummaries.map((item) => [item.classId, item]),
-    );
 
     const classRows = classes
       .map((item) => {
@@ -2840,34 +2838,15 @@ export function DashboardPage({
         ).length;
         const positiveRate =
           classRecords.length > 0 ? (positiveCount / classRecords.length) * 100 : 0;
-        const riskCount = Array.from(riskStudentsByClassName.entries()).reduce(
-          (sum, [name, count]) =>
-            name === item.name || name === classLabel || name.includes(item.name)
-              ? sum + count
-              : sum,
-          0,
-        );
-        const terminalOnline =
-          item.onlineStatus === "online" ||
-          displayTerminals.some(
-            (terminal) =>
-              terminal.classId === item.id &&
-              terminal.onlineStatus === "online",
-          );
-        const academicClass = academicClassById.get(item.id);
-        const academicBonus = academicClass
-          ? Math.max(-12, Math.min(15, academicClass.growthIndex - 60))
-          : 0;
+        const riskCount = riskStudentsByClassId.get(item.id) ?? 0;
         const healthScore = Math.max(
           0,
           Math.min(
             100,
             (classRecords.length > 0 ? 20 : 0) +
-              Math.min(25, coverageRate * 0.6) +
-              Math.min(16, positiveRate * 0.16) +
-              (riskCount === 0 ? 15 : Math.max(0, 15 - riskCount * 5)) +
-              (terminalOnline || item.displayStatus === "enabled" ? 10 : 0) +
-              academicBonus,
+              Math.min(35, coverageRate * 0.7) +
+              Math.min(25, positiveRate * 0.25) +
+              (riskCount === 0 ? 20 : Math.max(0, 20 - riskCount * 5)),
           ),
         );
 
@@ -2884,8 +2863,6 @@ export function DashboardPage({
           positiveCount,
           negativeCount,
           riskCount,
-          terminalOnline,
-          academicGrowthIndex: academicClass?.growthIndex ?? null,
         };
       })
       .sort((left, right) => right.healthScore - left.healthScore);
@@ -2954,9 +2931,9 @@ export function DashboardPage({
       ...attentionClasses.map((item) => ({
         ...item,
         level: "risk" as const,
-        badge: item.riskCount > 0 ? "风险" : "低活跃",
+        badge: item.riskCount > 0 ? "风险学生" : "低活跃",
         title: `${item.label} 需要关注`,
-        detail: `健康度 ${item.healthScore} · 风险 ${item.riskCount} · 覆盖 ${formatPercent(item.coverageRate)} · 评价 ${item.recordCount} 次`,
+        detail: `健康度 ${item.healthScore} · 风险学生 ${item.riskCount} · 覆盖 ${formatPercent(item.coverageRate)} · 评价 ${item.recordCount} 次`,
         actionLabel: "看班级",
       })),
       ...classRows
@@ -2967,7 +2944,7 @@ export function DashboardPage({
           level: "stable" as const,
           badge: "稳定",
           title: `${item.label} 运行稳定`,
-          detail: `健康度 ${item.healthScore} · 风险 ${item.riskCount} · 覆盖 ${formatPercent(item.coverageRate)} · 评价 ${item.recordCount} 次`,
+          detail: `健康度 ${item.healthScore} · 风险学生 ${item.riskCount} · 覆盖 ${formatPercent(item.coverageRate)} · 评价 ${item.recordCount} 次`,
           actionLabel: "看班级",
         })),
     ].slice(0, 5);
@@ -3090,7 +3067,7 @@ export function DashboardPage({
           value: cockpitAnalyticsLoading ? "—" : `${cockpitKpi.riskCount}`,
           sub: cockpitAnalyticsLoading
             ? "行为统计同步中"
-            : `行为风险 ${cockpitKpi.riskCount} · 学业预警 ${academicGrowth.riskCount}`,
+            : `行为风险学生 ${cockpitKpi.riskCount} · 学业预警 ${academicGrowth.riskCount}`,
           icon: "paw" as const,
           tone: "mc-red",
           action: "risk" as const,
@@ -3110,6 +3087,7 @@ export function DashboardPage({
       classRows,
       attentionClasses,
       classSignalRows,
+      healthScoreHelp,
       activeTeacherCount,
       teacherCount: enabledTeachers.length,
       healthyClassCount,
@@ -4418,8 +4396,20 @@ export function DashboardPage({
         </section>
 
         <section className="panel ck-signal-panel">
-          <div className="panel-title">班级健康信号</div>
-          <div className="ck-class-health-meter ck-class-health-meter--dense">
+          <div className="panel-title ck-health-title">
+            <span>班级健康信号</span>
+            <span
+              className="ck-health-help"
+              title={leadershipOverview.healthScoreHelp}
+              aria-label={leadershipOverview.healthScoreHelp}
+            >
+              ?
+            </span>
+          </div>
+          <div
+            className="ck-class-health-meter ck-class-health-meter--dense"
+            title={leadershipOverview.healthScoreHelp}
+          >
             <div>
               <strong>{Math.round(leadershipOverview.classHealthRate)}%</strong>
               <span>班级处于稳定区间</span>

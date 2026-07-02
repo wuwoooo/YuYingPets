@@ -66,7 +66,7 @@ async function run() {
       { timeout: 10000 },
     );
     await page.waitForFunction(
-      () => document.querySelector("#page-term-recap h1")?.textContent?.trim() === "积分竞赛",
+      () => document.querySelector("#page-term-recap h1")?.textContent?.trim() === "积分竞速",
       null,
       { timeout: 10000 },
     );
@@ -116,7 +116,7 @@ async function run() {
       hasChapter: Boolean(document.querySelector(".term-chapter")),
       hasCinemaBrand: Boolean(document.querySelector(".term-cinema-brand")),
     }));
-    assert(result.initial.title === "积分竞赛", "页面主标题应为积分竞赛");
+    assert(result.initial.title === "积分竞速", "页面主标题应为积分竞速");
     assert(result.initial.visibleTitleCount === 1, `竞速页面只应保留一个可见标题：${JSON.stringify(result.initial.titleItems)}`);
     assert(!result.initial.hasChapter && !result.initial.hasCinemaBrand, "不应显示演示数据实时看板或顶部品牌标题");
     assert(result.initial.statCount === 0, "竞速页面不应显示多余统计指标");
@@ -207,7 +207,7 @@ async function run() {
     assert(result.race.totalStudents >= 40, "本地演示应提供足够多的 61班积分数据");
     assert(result.race.dailyCoverage.dayCount >= 30, "61班本地积分数据应覆盖近 30 天");
     assert(result.race.rangeDayCount >= 120, "竞速看板应使用本学期起始日至今的数据范围");
-    assert(result.race.initialValues.length >= 30 && result.race.initialValues.every((value) => Number(value) === 0), "本学期积分竞赛起点应全员从 0 分开始");
+    assert(result.race.initialValues.length >= 30 && result.race.initialValues.every((value) => Number(value) === 0), "积分竞速起点应全员从 0 分开始");
     assert(result.race.frameStep >= 2, "学期跨度较长时应自动抽样，避免每天一帧导致闪帧");
     assert(result.race.frameCount === result.race.summaryFrameCount, "模型摘要应记录实际竞速帧数");
     assert(result.race.frameCount >= 45 && result.race.frameCount <= 111, "竞速看板应按音乐长度控制采样帧数");
@@ -221,10 +221,10 @@ async function run() {
     assert(result.race.afterFrame.realtimeSort === true, "ECharts 应启用 realtimeSort");
     assert(result.race.afterFrame.valueAnimation === true, "ECharts 分数标签应启用 valueAnimation");
     assert(result.race.afterFrame.xAxisMax === "dataMax", "ECharts 横轴应使用 dataMax 形成 bar race");
-    assert(Number(result.race.afterFrame.yAxisMax) <= 14, "ECharts 应只显示 Top 区域，由 realtimeSort 自动排序");
+    assert(Number(result.race.afterFrame.yAxisMax) <= 12, "ECharts 应只显示 Top 12，由 realtimeSort 自动排序");
     assert(result.race.afterFrame.hasStableIds, "ECharts 数据项应有稳定 id，避免补间时重新识别条目");
-    assert(result.race.afterFrame.seriesAnimationEasingUpdate === "linear", "ECharts series 更新动画应强制线性");
-    assert(Number(result.race.afterFrame.seriesAnimationDurationUpdate) >= 600, "ECharts series 更新动画时长应覆盖帧间补间");
+    assert(result.race.afterFrame.seriesAnimationEasingUpdate === "cubicOut", "ECharts 换位动画应使用 cubicOut 增强冲感");
+    assert(Number(result.race.afterFrame.seriesAnimationDurationUpdate) >= 720, "ECharts series 更新动画时长应覆盖帧间补间");
     assert(result.race.afterFrame.graphicText?.includes("月"), "竞速看板应显示随帧变化的日期大字");
     assert(result.race.afterFrame.frameLabel !== result.race.frameLabel, "竞速看板应按时间帧推进");
     assert(result.race.afterFrame.topValues.some((value) => Number(value) > 0), "竞速看板应连续推进分值");
@@ -321,7 +321,7 @@ async function run() {
     assert(result.compatAndCleanup.afterCleanup.chartDisposed, "离开或清理时应销毁 ECharts 实例");
     assert(result.compatAndCleanup.viaLegacy.active, "旧 termRecap 路由应兼容进入积分竞速页面");
     assert(result.compatAndCleanup.viaLegacy.activeTab === "scoreRace", "旧路由进入后应高亮积分竞速入口");
-    assert(result.compatAndCleanup.viaLegacy.title === "积分竞赛", "旧路由进入后也应显示积分竞赛");
+    assert(result.compatAndCleanup.viaLegacy.title === "积分竞速", "旧路由进入后也应显示积分竞速");
     log("资源清理和旧路由兼容正确");
   } finally {
     await browser.close();

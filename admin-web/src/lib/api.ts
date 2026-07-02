@@ -1021,6 +1021,7 @@ export type AnalyticsData = {
   riskStudents: Array<{
     studentId: number;
     studentName: string;
+    classId: number;
     className: string;
     positiveCount: number;
     negativeCount: number;
@@ -1212,6 +1213,7 @@ export type TeacherReviewContext = {
   riskStudents: Array<{
     studentId: number;
     studentName: string;
+    classId: number;
     className: string;
     positiveCount: number;
     negativeCount: number;

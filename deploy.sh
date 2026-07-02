@@ -396,7 +396,7 @@ deploy_backend_assets() {
   dry_run_output="$(cat "$output_file")"
   rm -f "$output_file"
 
-  if [ -z "$(printf '%s\n' "$dry_run_output" | LC_ALL=C sed '/^sending incremental file list$/d;/^$/d;/^sent /d;/^total size is /d')" ]; then
+  if [ -z "$(printf '%s\n' "$dry_run_output" | LC_ALL=C sed '/^sending incremental file list$/d;/^Transfer starting: /d;/^$/d;/^sent /d;/^total size is /d')" ]; then
     log "backend 资产无变化，跳过同步"
     return 0
   fi

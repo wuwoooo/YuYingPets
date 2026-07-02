@@ -418,6 +418,26 @@
   font-weight: 700;
 }
 
+.ck-health-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ck-health-help {
+  display: inline-grid;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  color: #1a6fa0;
+  background: rgba(26, 111, 160, 0.1);
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1;
+  cursor: help;
+}
+
 .ck-kpi {
   position: relative;
   display: flex;

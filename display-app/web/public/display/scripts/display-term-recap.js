@@ -9,6 +9,10 @@
   const SCORE_RACE_MIN_FRAME_MS = 800;
   const SCORE_RACE_MAX_FRAME_MS = 2000;
   const SCORE_RACE_QUERY_LIMIT = 10000;
+  const SCORE_RACE_VISIBLE_BARS = 12;
+  const SCORE_RACE_BAR_WIDTH = 14;
+  const SCORE_RACE_BAR_CATEGORY_GAP = "12%";
+  const SCORE_RACE_SWAP_EASING = "cubicOut";
 
   const state = {
     provider: null,
@@ -155,13 +159,11 @@
 
   function shouldUseGeneratedRaceRecords(students, records) {
     if (!students.length) return false;
+    if (isDemoMode()) return records.length === 0;
     const rs = runtimeState();
-    const className = rs.home?.className || "";
-    if (isDemoMode() || !rs.classId) return !records.length;
-    const isSixtyOneClass = className.includes("61班") || className.includes("六") || className.includes("6");
-    if (!isSixtyOneClass) return !records.length;
-    const coverage = recordDayCoverage(records);
-    return records.length < students.length * 8 || coverage.dayCount < 16 || coverage.minRecordsPerDay < 6;
+    if (!rs.classId) return records.length === 0;
+    // 生产环境只在完全没有积分流水时才合成演示数据，避免覆盖真实班级历史。
+    return records.length === 0;
   }
 
   function isDemoMode() {
@@ -314,6 +316,7 @@
     const students = normalizeStudentRows(leaderboardRows);
     const generatedRecords = shouldUseGeneratedRaceRecords(students, scoreRecords);
     if (generatedRecords) {
+      console.warn("[score-race] 当前班级没有积分流水，使用合成演示数据");
       scoreRecords = buildDemoRecords(students, termRange);
     }
 
@@ -338,8 +341,7 @@
     const firstRecordStart = resolveFirstRecordDayStart(records);
 
     if (termStart != null && termEnd != null) {
-      const start =
-        firstRecordStart != null ? Math.max(termStart, firstRecordStart) : termStart;
+      const start = firstRecordStart != null ? firstRecordStart : termStart;
       return {
         start: Math.min(start, termEnd),
         end: Math.max(start, termEnd),
@@ -531,31 +533,6 @@
     if (snapshotTimes[snapshotTimes.length - 1] !== endTime) {
       snapshotTimes.push(endTime);
     }
-    const snapshots = [];
-    const runningScores = new Map(baseScores);
-    let recordIndex = 0;
-    snapshots.push({
-      time: startTime,
-      label: formatRaceDateLabel(startTime),
-      scores: new Map(runningScores),
-    });
-
-    snapshotTimes.forEach((dayTime) => {
-      const dayEnd = dayTime + dayMs - 1;
-      while (recordIndex < sortedRecords.length && getRecordTime(sortedRecords[recordIndex]) <= dayEnd) {
-        const record = sortedRecords[recordIndex];
-        const id = String(record.studentId ?? "");
-        if (runningScores.has(id)) {
-          runningScores.set(id, Math.max(0, runningScores.get(id) + toNumber(record.scoreDelta, 0)));
-        }
-        recordIndex += 1;
-      }
-      snapshots.push({
-        time: dayTime,
-        label: formatRaceDateLabel(dayTime),
-        scores: new Map(runningScores),
-      });
-    });
 
     const makeRows = (scores) => {
       const maxScore = Math.max(...students.map((student) => scores.get(String(student.id)) || 0), 1);
@@ -569,21 +546,53 @@
             progress: clamp((score / maxScore) * 76 + 12, 12, 94),
           };
         })
-        .sort((left, right) => right.score - left.score || right.finalScore - left.finalScore || left.name.localeCompare(right.name, "zh-CN"))
+        .sort((left, right) => right.score - left.score || left.name.localeCompare(right.name, "zh-CN"))
         .map((student, index) => ({
           ...student,
           rank: index + 1,
         }));
     };
 
+    const buildSnapshot = (time, label, scores, extra = {}) => ({
+      time,
+      label,
+      scores,
+      sampleStep,
+      sourceDayCount: dayCount,
+      rows: makeRows(scores),
+      ...extra,
+    });
+
+    const snapshots = [
+      buildSnapshot(startTime, "起跑", new Map(baseScores), { isBaseline: true }),
+    ];
+    const runningScores = new Map(baseScores);
+    let recordIndex = 0;
+
+    snapshotTimes.forEach((dayTime) => {
+      const dayEnd = dayTime + dayMs - 1;
+      while (recordIndex < sortedRecords.length && getRecordTime(sortedRecords[recordIndex]) <= dayEnd) {
+        const record = sortedRecords[recordIndex];
+        const id = String(record.studentId ?? "");
+        if (runningScores.has(id)) {
+          runningScores.set(id, Math.max(0, runningScores.get(id) + toNumber(record.scoreDelta, 0)));
+        }
+        recordIndex += 1;
+      }
+      snapshots.push(
+        buildSnapshot(dayTime, formatRaceDateLabel(dayTime), new Map(runningScores)),
+      );
+    });
+
     return snapshots.map((snapshot, index) => ({
       index,
       ratio: index / Math.max(1, snapshots.length - 1),
       label: snapshot.label,
       time: snapshot.time,
-      sampleStep,
-      sourceDayCount: dayCount,
-      rows: makeRows(snapshot.scores),
+      sampleStep: snapshot.sampleStep,
+      sourceDayCount: snapshot.sourceDayCount,
+      isBaseline: Boolean(snapshot.isBaseline),
+      rows: snapshot.rows,
     }));
   }
 
@@ -603,12 +612,14 @@
 
   function buildModel(students, records, options = {}) {
     const weekly = buildWeeklySeries(students, records, options.termRange);
-    const positiveRecords = records.filter((record) => toNumber(record.scoreDelta, 0) > 0);
-    const highlights = buildHighlightCards(students, records, weekly);
-    const raceFrames = buildRaceFrames(students, records, weekly);
+    const rangeStart = weekly.range.start;
+    const raceRecords = records.filter((record) => getRecordTime(record) >= rangeStart);
+    const positiveRecords = raceRecords.filter((record) => toNumber(record.scoreDelta, 0) > 0);
+    const highlights = buildHighlightCards(students, raceRecords, weekly);
+    const raceFrames = buildRaceFrames(students, raceRecords, weekly);
     return {
       students,
-      records,
+      records: raceRecords,
       weekly,
       highlights,
       raceFrames,
@@ -617,15 +628,15 @@
         className: runtimeState().home?.className || (isDemoMode() ? "61班" : "我们的班级"),
         studentCount: students.length,
         totalScore: students.reduce((sum, student) => sum + student.score, 0),
-        recordCount: records.length,
+        recordCount: raceRecords.length,
         positiveRecordCount: positiveRecords.length,
         rangeDayCount: inclusiveDayCount(weekly.range.start, weekly.range.end),
         raceRangeStart: weekly.range.start,
-        firstRecordDayStart: resolveFirstRecordDayStart(records),
+        firstRecordDayStart: resolveFirstRecordDayStart(raceRecords),
         frameCount: raceFrames.length,
         frameStep: raceFrames[0]?.sampleStep || 1,
       },
-      hasRecords: records.length > 0,
+      hasRecords: raceRecords.length > 0,
       dataSource: options.generatedRecords ? "generated" : "real",
     };
   }
@@ -686,10 +697,23 @@
             <div class="term-race-chart" data-race-chart></div>
           </div>
         </div>
-        <div class="term-race-sprint-marker">
-          <span>FINAL SPRINT</span>
-          <strong>冲刺中</strong>
-        </div>
+      </div>`;
+  }
+
+  function renderRaceControls() {
+    return `
+      <div class="term-recap-actions term-cinema-controls term-cinema-controls-dock">
+        <button type="button" onclick="replayScoreRace()" aria-label="重新播放"><i class="fa-solid fa-rotate-right" aria-hidden="true"></i><span>重播</span></button>
+        <button type="button" onclick="finishScoreRace()" aria-label="结束播放"><i class="fa-solid fa-flag-checkered" aria-hidden="true"></i><span>结束</span></button>
+        <button type="button" onclick="backScoreRaceHome()" aria-label="返回主页"><i class="fa-solid fa-house" aria-hidden="true"></i><span>返回</span></button>
+      </div>`;
+  }
+
+  function renderSprintMarkerHead() {
+    return `
+      <div class="term-race-sprint-marker term-race-sprint-marker-head" aria-live="polite">
+        <span>FINAL SPRINT</span>
+        <strong>冲刺中</strong>
       </div>`;
   }
 
@@ -784,11 +808,8 @@
       </div>
       <div class="term-cinema-letterbox top" aria-hidden="true"></div>
       <div class="term-cinema-letterbox bottom" aria-hidden="true"></div>
-      <div class="term-recap-actions term-cinema-controls">
-        <button type="button" onclick="replayScoreRace()" aria-label="重新播放"><i class="fa-solid fa-rotate-right" aria-hidden="true"></i><span>重播</span></button>
-        <button type="button" onclick="finishScoreRace()" aria-label="结束播放"><i class="fa-solid fa-flag-checkered" aria-hidden="true"></i><span>结束</span></button>
-        <button type="button" onclick="backScoreRaceHome()" aria-label="返回主页"><i class="fa-solid fa-house" aria-hidden="true"></i><span>返回</span></button>
-      </div>
+      ${renderSprintMarkerHead()}
+      ${renderRaceControls()}
       <main class="term-recap-stage-wrap">
         ${model.hasRecords ? renderScenes(model) : renderEmpty(model)}
       </main>
@@ -810,7 +831,7 @@
         <div class="term-section-head compact term-cinema-copy">
           <div class="term-race-title-row">
             <span class="term-race-title-badge" aria-hidden="true"><i class="fa-solid fa-gauge-high"></i></span>
-            <h1>积分竞赛</h1>
+            <h1>积分竞速</h1>
           </div>
           <div class="term-race-meta">
             <span class="term-race-meta-chip">${escapeHtml(summary.className || "我们的班级")}</span>
@@ -877,7 +898,7 @@
     if (!audio) return;
     clearAudioFade();
     const start = audio.volume;
-    const target = clamp(targetVolume, 0, 0.55);
+    const target = clamp(targetVolume, 0, 0.78);
     const duration = options.duration || 1200;
     const startedAt = Date.now();
     state.audioFadeTimer = global.setInterval(() => {
@@ -914,7 +935,7 @@
         playPromise
           .then(() => {
             audio.dataset.state = "playing";
-            fadeAudioTo(0.34, { duration: 1600 });
+            fadeAudioTo(0.58, { duration: 1600 });
           })
           .catch((error) => {
             audio.dataset.state = "blocked";
@@ -924,7 +945,7 @@
       }
     }
     audio.dataset.state = "playing";
-    fadeAudioTo(0.34, { duration: 1600 });
+    fadeAudioTo(0.58, { duration: 1600 });
   }
 
   function stopThemeAudio() {
@@ -936,9 +957,9 @@
   }
 
   function sceneAudioVolume(scene) {
-    if (scene === "race") return 0.46;
-    if (scene === "highlights") return 0.4;
-    return 0.34;
+    if (scene === "race") return 0.66;
+    if (scene === "highlights") return 0.58;
+    return 0.58;
   }
 
   function raceFrameInterval(frameCount = SCORE_RACE_DAY_COUNT, options = {}) {
@@ -948,9 +969,10 @@
   }
 
   function raceUpdateDuration() {
-    if (global.__TERM_RECAP_TEST_FAST__) return 650;
+    if (global.__TERM_RECAP_TEST_FAST__) return 720;
     const frameCount = state.model?.raceFrames?.length || SCORE_RACE_DAY_COUNT;
-    return Math.max(650, Math.min(2100, raceFrameInterval(frameCount) - 120));
+    // 换位动画略短于帧间隔，留一点“冲到位”的余韵，同时避免跨帧拖尾。
+    return Math.max(720, Math.min(1980, Math.floor(raceFrameInterval(frameCount) * 0.92)));
   }
 
   function ensureRaceChart() {
@@ -1009,14 +1031,6 @@
     };
   }
 
-  function raceBarShadowColor(name) {
-    const rank = resolveRaceRank(name);
-    if (rank === 0) return "rgba(255, 214, 90, 0.72)";
-    if (rank === 1) return "rgba(184, 212, 255, 0.56)";
-    if (rank === 2) return "rgba(255, 171, 107, 0.58)";
-    return "rgba(255, 226, 128, 0.34)";
-  }
-
   function raceScoreLabel(params) {
     const rank = resolveRaceRank(params.name);
     const medal = rank === 0 ? "🥇 " : rank === 1 ? "🥈 " : rank === 2 ? "🥉 " : "";
@@ -1025,30 +1039,39 @@
 
   function raceNameLabel(name) {
     const rank = resolveRaceRank(name);
-    if (rank === 0) return `{gold|${name}}`;
-    if (rank === 1) return `{silver|${name}}`;
-    if (rank === 2) return `{bronze|${name}}`;
-    return name;
+    const rankPrefix = rank >= 0 ? `{idx|${rank + 1}} ` : "";
+    if (rank === 0) return `${rankPrefix}{gold|${name}}`;
+    if (rank === 1) return `${rankPrefix}{silver|${name}}`;
+    if (rank === 2) return `${rankPrefix}{bronze|${name}}`;
+    return rankPrefix ? `${rankPrefix}${name}` : name;
   }
 
-  function raceChartOption(rows, frame) {
-    const updateDuration = raceUpdateDuration();
-    const showCount = Math.min(14, Math.max(rows.length, 1));
+  function resolveRaceAxisMax(rows) {
+    const maxScore = Math.max(...rows.map((row) => toNumber(row.frameScore, 0)), 0);
+    // 全员 0 分时 dataMax 为 0，ECharts 会把柱条比例算乱，看起来像满宽空轨。
+    return maxScore > 0 ? "dataMax" : 1;
+  }
+
+  function raceChartOption(rows, frame, options = {}) {
+    const instant = options.instant === true;
+    const updateDuration = instant ? 0 : raceUpdateDuration();
+    const showCount = Math.min(SCORE_RACE_VISIBLE_BARS, Math.max(rows.length, 1));
     return {
       animationDuration: 0,
       animationDurationUpdate: updateDuration,
       animationEasing: "linear",
-      animationEasingUpdate: "linear",
+      animationEasingUpdate: SCORE_RACE_SWAP_EASING,
       grid: {
-        left: 156,
-        right: 188,
-        top: 12,
-        bottom: 12,
+        left: 148,
+        right: 176,
+        top: 2,
+        bottom: 2,
         containLabel: true,
       },
       xAxis: {
         type: "value",
-        max: "dataMax",
+        min: 0,
+        max: resolveRaceAxisMax(rows),
         axisLine: { show: false },
         axisTick: { show: false },
         axisLabel: { show: false },
@@ -1064,26 +1087,32 @@
         axisLabel: {
           show: true,
           color: "#fff8e8",
-          fontSize: 19,
+          fontSize: 16,
           fontWeight: 900,
-          margin: 16,
+          margin: 12,
           overflow: "truncate",
-          width: 124,
+          width: 132,
           hideOverlap: true,
           formatter(value) {
             return raceNameLabel(value);
           },
           rich: {
-            gold: { color: "#ffe49a", fontWeight: 900, textShadowBlur: 8, textShadowColor: "rgba(255, 214, 90, 0.72)" },
-            silver: { color: "#d4e4ff", fontWeight: 900, textShadowBlur: 8, textShadowColor: "rgba(184, 212, 255, 0.56)" },
-            bronze: { color: "#ffbc82", fontWeight: 900, textShadowBlur: 8, textShadowColor: "rgba(255, 171, 107, 0.58)" },
+            idx: {
+              color: "rgba(255, 248, 232, 0.52)",
+              fontWeight: 900,
+              fontSize: 14,
+              width: 24,
+            },
+            gold: { color: "#ffe49a", fontWeight: 900, textShadowBlur: 6, textShadowColor: "rgba(255, 214, 90, 0.72)" },
+            silver: { color: "#d4e4ff", fontWeight: 900, textShadowBlur: 6, textShadowColor: "rgba(184, 212, 255, 0.56)" },
+            bronze: { color: "#ffbc82", fontWeight: 900, textShadowBlur: 6, textShadowColor: "rgba(255, 171, 107, 0.58)" },
           },
         },
         splitLine: { show: false },
         animationDuration: updateDuration,
         animationDurationUpdate: updateDuration,
         animationEasing: "linear",
-        animationEasingUpdate: "linear",
+        animationEasingUpdate: SCORE_RACE_SWAP_EASING,
       },
       series: [
         {
@@ -1093,18 +1122,20 @@
           animationDuration: 0,
           animationDurationUpdate: updateDuration,
           animationEasing: "linear",
-          animationEasingUpdate: "linear",
-          barWidth: 26,
-          barCategoryGap: "38%",
+          animationEasingUpdate: SCORE_RACE_SWAP_EASING,
+          barWidth: SCORE_RACE_BAR_WIDTH,
+          barMaxWidth: SCORE_RACE_BAR_WIDTH + 2,
+          barCategoryGap: SCORE_RACE_BAR_CATEGORY_GAP,
           itemStyle: {
             borderRadius: [0, 999, 999, 0],
+            opacity(params) {
+              return toNumber(params.value, 0) > 0 ? 1 : 0;
+            },
             color(params) {
               return raceBarGradient(params);
             },
-            shadowBlur: 28,
-            shadowColor(params) {
-              return raceBarShadowColor(params.name);
-            },
+            shadowBlur: 12,
+            shadowColor: "rgba(255, 226, 128, 0.34)",
           },
           emphasis: { disabled: true },
           labelLayout: {
@@ -1115,11 +1146,11 @@
             show: true,
             position: "right",
             color: "#ffe49a",
-            fontSize: 20,
+            fontSize: 17,
             fontWeight: 950,
-            distance: 10,
+            distance: 8,
             overflow: "none",
-            valueAnimation: true,
+            valueAnimation: !instant,
             formatter(params) {
               return raceScoreLabel(params);
             },
@@ -1155,11 +1186,21 @@
   function raceChartUpdateOption(rows, frame) {
     const updateDuration = raceUpdateDuration();
     return {
+      xAxis: {
+        max: resolveRaceAxisMax(rows),
+      },
+      yAxis: {
+        animationDurationUpdate: updateDuration,
+        animationEasingUpdate: SCORE_RACE_SWAP_EASING,
+      },
       series: [
         {
           name: frame.label,
           animationDurationUpdate: updateDuration,
-          animationEasingUpdate: "linear",
+          animationEasingUpdate: SCORE_RACE_SWAP_EASING,
+          label: {
+            valueAnimation: true,
+          },
           data: rows.map((row) => ({
             id: String(row.id),
             name: row.name,
@@ -1171,8 +1212,8 @@
         elements: [
           {
             type: "text",
-            right: 72,
-            bottom: 44,
+            right: 84,
+            bottom: 52,
             z: 100,
             style: {
               text: frame.label,
@@ -1183,19 +1224,21 @@
     };
   }
 
-  function applyRaceFrame(frameIndex) {
+  function applyRaceFrame(frameIndex, options = {}) {
     const model = state.model;
     const frames = model?.raceFrames || [];
     if (!frames.length) return;
     const frame = frames[frameIndex % frames.length];
+    const forceReset = options.forceReset === true || frame.isBaseline === true || frameIndex === 0;
     state.raceFrameIndex = frame.index;
     const rowsById = new Map(frame.rows.map((row) => [String(row.id), row]));
     const displayed = model.raceRows
       .map((student) => {
         const row = rowsById.get(String(student.id));
+        const frameScore = forceReset ? 0 : toNumber(row?.score, 0);
         return {
           ...student,
-          frameScore: row?.score ?? 0,
+          frameScore,
           frameRank: row?.rank ?? 999,
           progress: row?.progress ?? student.finalProgress ?? 12,
         };
@@ -1207,8 +1250,11 @@
     if (!root) return;
     const chart = ensureRaceChart();
     if (chart) {
-      if (!state.raceChartReady) {
-        chart.setOption(raceChartOption(displayed, frame), { notMerge: true, lazyUpdate: false });
+      if (!state.raceChartReady || forceReset) {
+        chart.setOption(raceChartOption(displayed, frame, { instant: forceReset }), {
+          notMerge: true,
+          lazyUpdate: false,
+        });
         state.raceChartReady = true;
       } else {
         chart.setOption(raceChartUpdateOption(displayed, frame), { notMerge: false, lazyUpdate: false });
@@ -1221,7 +1267,8 @@
 
   function startRaceSequence() {
     clearRaceTimer();
-    applyRaceFrame(0);
+    state.raceFrameIndex = -1;
+    applyRaceFrame(0, { forceReset: true });
     const frames = state.model?.raceFrames || [];
     if (frames.length <= 1) return;
     state.raceTimer = global.setInterval(() => {
@@ -1316,6 +1363,8 @@
       disposeRaceChart();
       renderModel(state.model);
     }
+    clearRaceTimer();
+    state.raceChartReady = false;
     playThemeAudio({ restart: true });
     state.pendingModel = null;
     setScene("race");

@@ -164,17 +164,28 @@ body.term-recap-cinema-active .display-realtime-status {
 
 .term-cinema-controls {
   position: absolute;
-  top: 32px;
-  right: 46px;
   z-index: 12;
   display: flex;
   gap: 10px;
-  opacity: 0.86;
+  opacity: 0.94;
   transition: opacity 0.2s ease;
+}
+
+.term-cinema-controls-dock {
+  right: 46px;
+  bottom: 34px;
+  top: auto;
+  gap: 12px;
 }
 
 #page-term-recap:hover .term-cinema-controls {
   opacity: 1;
+}
+
+.term-cinema-controls-dock button {
+  min-width: 96px;
+  min-height: 52px;
+  font-size: 15px;
 }
 
 .term-cinema-controls button {
@@ -496,7 +507,7 @@ body.term-recap-cinema-active .display-realtime-status {
 
 .term-section-head.compact {
   position: absolute;
-  top: 78px;
+  top: 50px;
   left: 72px;
   z-index: 3;
   max-width: 980px;
@@ -543,7 +554,7 @@ body.term-recap-cinema-active .display-realtime-status {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
-  margin-top: 16px;
+  margin-top: 10px;
 }
 
 .term-race-meta-chip {
@@ -695,7 +706,7 @@ body.term-recap-cinema-active .display-realtime-status {
 
 .term-race-track {
   position: absolute;
-  inset: 210px 3.4vw 48px;
+  inset: 202px 3.4vw 32px;
   overflow: visible;
   z-index: 2;
 }
@@ -718,7 +729,7 @@ body.term-recap-cinema-active .display-realtime-status {
 
 .term-race-chart-shell {
   position: absolute;
-  inset: 18px 0 0;
+  inset: 6px 0 0;
   overflow: visible;
 }
 
@@ -792,7 +803,7 @@ body.term-recap-cinema-active .display-realtime-status {
 
 .term-race-chart {
   position: absolute;
-  inset: 18px 22px 18px 18px;
+  inset: 4px 14px 4px 10px;
   z-index: 2;
 }
 
@@ -1095,8 +1106,6 @@ body.term-recap-cinema-active .display-realtime-status {
 
 .term-race-sprint-marker {
   position: absolute;
-  right: 2.2vw;
-  bottom: -42px;
   z-index: 5;
   display: grid;
   grid-template-columns: auto auto;
@@ -1109,9 +1118,22 @@ body.term-recap-cinema-active .display-realtime-status {
   color: #ffe49a;
   text-transform: uppercase;
   text-shadow: 0 10px 24px rgba(0, 0, 0, 0.62);
-  opacity: 0;
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+}
+
+.term-race-sprint-marker-head {
+  top: 32px;
+  right: 46px;
+  opacity: 0.92;
+}
+
+#page-term-recap:not([data-term-scene="race"]) .term-race-sprint-marker-head {
+  display: none;
+}
+
+#page-term-recap[data-term-scene="race"] .term-race-sprint-marker-head {
+  animation: termSprintMarkerHead 8.5s ease-in-out infinite;
 }
 
 .term-race-sprint-marker span {
@@ -1136,6 +1158,17 @@ body.term-recap-cinema-active .display-realtime-status {
 
 .term-scene-race.active .term-race-sprint-marker {
   animation: termSprintMarker 8.5s ease-in-out infinite;
+}
+
+@keyframes termSprintMarkerHead {
+  0%, 18%, 100% {
+    opacity: 0.72;
+    transform: translateY(0);
+  }
+  32%, 74% {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .term-racer span {

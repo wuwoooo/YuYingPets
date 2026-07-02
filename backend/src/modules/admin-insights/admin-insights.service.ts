@@ -81,6 +81,7 @@ type AnalyticsFilters = {
 type AnalyticsRiskStudentAggregate = {
   studentId: number;
   studentName: string;
+  classId: number;
   className: string;
   positiveCount: number;
   negativeCount: number;
@@ -443,6 +444,7 @@ export class AdminInsightsService {
     const rows = await this.prisma.$queryRaw<Array<{
       studentId: bigint;
       studentName: string;
+      classId: bigint;
       className: string;
       positiveCount: bigint | number;
       negativeCount: bigint | number;
@@ -451,6 +453,7 @@ export class AdminInsightsService {
       SELECT
         sr.student_id AS studentId,
         s.name AS studentName,
+        sr.class_id AS classId,
         c.name AS className,
         SUM(CASE WHEN sr.sentiment = 'positive' THEN 1 ELSE 0 END) AS positiveCount,
         SUM(CASE WHEN sr.sentiment = 'negative' THEN 1 ELSE 0 END) AS negativeCount,
@@ -473,7 +476,7 @@ export class AdminInsightsService {
         AND COALESCE(r.score_target, '') <> 'class'
         AND COALESCE(sr.remark, '') NOT LIKE '%班级评价联动%'
         ${subjectFilterSql}
-      GROUP BY sr.student_id, s.name, c.name
+      GROUP BY sr.student_id, s.name, sr.class_id, c.name
       HAVING negativeCount >= ${ANALYTICS_RISK_THRESHOLDS.entryNegativeCount}
         OR scoreDelta <= ${ANALYTICS_RISK_THRESHOLDS.entryScoreDelta}
       ORDER BY negativeCount DESC, scoreDelta ASC
@@ -482,6 +485,7 @@ export class AdminInsightsService {
     return rows.map((row) => ({
       studentId: Number(row.studentId),
       studentName: row.studentName,
+      classId: Number(row.classId),
       className: row.className,
       positiveCount: Number(row.positiveCount),
       negativeCount: Number(row.negativeCount),
